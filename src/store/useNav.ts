@@ -17,12 +17,23 @@ interface NavStore {
   target: { page: string; query?: string; id?: string } | null
   goto: (page: string, extra?: { query?: string; id?: string }) => void
   consume: () => void
+
+  /** Vraagt het zoekpaneel te openen, eventueel meteen luisterend. */
+  searchRequest: { voice: boolean; nonce: number } | null
+  openSearch: (voice?: boolean) => void
+  clearSearchRequest: () => void
 }
+
+let nonce = 0
 
 export const useNav = create<NavStore>((set) => ({
   target: null,
   goto: (page, extra) => set({ target: { page, ...extra } }),
   consume: () => set({ target: null }),
+
+  searchRequest: null,
+  openSearch: (voice = false) => set({ searchRequest: { voice, nonce: ++nonce } }),
+  clearSearchRequest: () => set({ searchRequest: null }),
 }))
 
 /**

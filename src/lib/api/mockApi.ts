@@ -2,7 +2,7 @@ import Dexie, { type Table } from 'dexie'
 import type { ApiAdapter, PullResult, PushChange } from './types'
 import type {
   AppNotification, Company, Course, CourseProgress, EntityName, Expense,
-  InventoryItem, Shift, StockMovement, TimeEntry, User, WashJob,
+  InventoryItem, Location, Shift, StockMovement, TimeEntry, User, WashJob,
 } from '../types'
 import { SERVICES } from '../types'
 import { COURSES } from '../courses'
@@ -14,6 +14,7 @@ import { COURSES } from '../courses'
  * ------------------------------------------------------------------ */
 
 class MockServerDB extends Dexie {
+  locations!: Table<Location, string>
   users!: Table<User, string>
   companies!: Table<Company, string>
   washJobs!: Table<WashJob, string>
@@ -29,6 +30,7 @@ class MockServerDB extends Dexie {
   constructor() {
     super('truckwash-mock-server')
     this.version(1).stores({
+      locations: 'id, updatedAt',
       users: 'id, email, updatedAt',
       companies: 'id, updatedAt',
       washJobs: 'id, updatedAt',
@@ -47,6 +49,7 @@ class MockServerDB extends Dexie {
 const server = new MockServerDB()
 
 const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
+  locations: () => server.locations,
   users: () => server.users,
   companies: () => server.companies,
   washJobs: () => server.washJobs,
@@ -117,6 +120,52 @@ async function seed() {
 
   const t = now()
 
+  /* --- vestigingen --- */
+  const PLAATSEN: [string, string, string][] = [
+    ['UTR', 'Utrecht',        'Proostwetering 12'],
+    ['RTM', 'Rotterdam',      'Waalhaven Oostzijde 84'],
+    ['AMS', 'Amsterdam',      'Westpoortweg 41'],
+    ['EIN', 'Eindhoven',      'De Schakel 7'],
+    ['GRO', 'Groningen',      'Rouaanstraat 22'],
+    ['ZWO', 'Zwolle',         'Ossenkamp 15'],
+    ['ARN', 'Arnhem',         'Westervoortsedijk 60'],
+    ['BRD', 'Breda',          'Konijnenberg 33'],
+    ['TIL', 'Tilburg',        'Dorpsstraat 118'],
+    ['NIJ', 'Nijmegen',       'Energieweg 9'],
+    ['APD', 'Apeldoorn',      'Vlijtseweg 200'],
+    ['ALM', 'Almere',         'Damsluisweg 4'],
+    ['VEN', 'Venlo',          'Celsiusweg 27'],
+    ['HGL', 'Hengelo',        'Wegtersweg 12'],
+    ['LWD', 'Leeuwarden',     'Marshallweg 3'],
+    ['DHG', 'Den Haag',       'Zonweg 45'],
+    ['MST', 'Maastricht',     'Beatrixhaven 18'],
+    ['ROO', 'Roosendaal',     'Belder 21'],
+    ['DZL', 'Delfzijl',       'Zeesluizen 6'],
+  ]
+
+  const locations: Location[] = [
+    {
+      id: 'loc_hk', code: 'TW-HK', name: 'Hoofdkantoor', kind: 'hoofdkantoor',
+      address: 'Proostwetering 10', postcode: '3543 AH', city: 'Utrecht',
+      phone: '030-1000000', bays: 0, active: true, updatedAt: t,
+    },
+    ...PLAATSEN.map(([code, stad, adres], i) => ({
+      id: 'loc_' + code.toLowerCase(),
+      code: 'TW-' + code,
+      name: stad,
+      kind: 'vestiging' as const,
+      address: adres,
+      postcode: String(1000 + i * 137).slice(0, 4) + ' ' + String.fromCharCode(65 + (i % 26)) + String.fromCharCode(65 + ((i * 3) % 26)),
+      city: stad,
+      phone: '0' + (10 + i) + '-' + String(1000000 + i * 12345).slice(0, 7),
+      bays: 2 + (i % 3),
+      active: true,
+      updatedAt: t,
+    })),
+  ]
+
+  const vestigingen = locations.filter((l) => l.kind === 'vestiging')
+
   const companies: Company[] = [
     { id: 'co_jansen', name: 'Transport Jansen B.V.', contact: 'Mark Jansen', email: 'planning@transportjansen.nl', phone: '030-1234567', city: 'Utrecht', contractDiscountPct: 10, updatedAt: t },
     { id: 'co_devries', name: 'De Vries Logistiek', contact: 'Sanne de Vries', email: 'wagenpark@devrieslogistiek.nl', phone: '010-7654321', city: 'Rotterdam', contractDiscountPct: 5, updatedAt: t },
@@ -126,33 +175,92 @@ async function seed() {
 
   const YEAR = 365 * DAY
   const users: User[] = [
-    { id: 'u_casper', authId: 'u_casper', email: 'casper@truckwash1group.nl', password: 'truckwash', name: 'Casper', roles: ['employee', 'customer', 'management'], active: true, hourlyRate: 0,
+    { id: 'u_casper', authId: 'u_casper', email: 'casper@truckwash1group.nl', password: 'truckwash', name: 'Casper', roles: ['employee', 'customer', 'management'], active: true, hourlyRate: 0, allLocations: true, locationId: 'loc_hk',
       personnelNumber: 'TW-001', phone: '06-12345678', function: 'Eigenaar', contractHours: 40, startDate: t - 8 * YEAR, updatedAt: t },
-    { id: 'u_manager', authId: 'u_manager', email: 'manager@truckwash1group.nl', password: 'manager', name: 'Ilse Bakker', roles: ['employee', 'customer', 'management'], active: true, hourlyRate: 34,
+    { id: 'u_manager', authId: 'u_manager', email: 'manager@truckwash1group.nl', password: 'manager', name: 'Ilse Bakker', roles: ['employee', 'customer', 'management'], active: true, hourlyRate: 34, allLocations: true, locationId: 'loc_hk',
       personnelNumber: 'TW-002', phone: '06-23456789', function: 'Vestigingsmanager', contractHours: 38, startDate: t - 4 * YEAR, updatedAt: t },
-    { id: 'u_wasser', authId: 'u_wasser', email: 'wasser@truckwash1group.nl', password: 'wasser', name: 'Tom Verhoeven', roles: ['employee', 'customer'], active: true, hourlyRate: 22,
+    { id: 'u_wasser', authId: 'u_wasser', email: 'wasser@truckwash1group.nl', password: 'wasser', name: 'Tom Verhoeven', roles: ['employee', 'customer'], active: true, hourlyRate: 22, locationId: 'loc_utr',
       personnelNumber: 'TW-014', phone: '06-34567890', function: 'Wasmedewerker', supervisorId: 'u_wasser3', contractHours: 40, startDate: t - 2 * YEAR, updatedAt: t },
-    { id: 'u_wasser2', authId: 'u_wasser2', email: 'daan@truckwash1group.nl', password: 'wasser', name: 'Daan Smit', roles: ['employee', 'customer'], active: true, hourlyRate: 21,
+    { id: 'u_wasser2', authId: 'u_wasser2', email: 'daan@truckwash1group.nl', password: 'wasser', name: 'Daan Smit', roles: ['employee', 'customer'], active: true, hourlyRate: 21, locationId: 'loc_utr',
       personnelNumber: 'TW-018', phone: '06-45678901', function: 'Wasmedewerker', supervisorId: 'u_wasser3', contractHours: 32, startDate: t - 400 * DAY, updatedAt: t },
-    { id: 'u_wasser3', authId: 'u_wasser3', email: 'nour@truckwash1group.nl', password: 'wasser', name: 'Nour El Amrani', roles: ['employee', 'supervisor', 'customer'], active: true, hourlyRate: 23.5,
+    { id: 'u_wasser3', authId: 'u_wasser3', email: 'nour@truckwash1group.nl', password: 'wasser', name: 'Nour El Amrani', roles: ['employee', 'supervisor', 'customer'], active: true, hourlyRate: 23.5, locationId: 'loc_utr', manages: ['loc_utr', 'loc_ams', 'loc_alm'],
       personnelNumber: 'TW-021', phone: '06-56789012', function: 'Voorman wasstraat', contractHours: 40, startDate: t - 640 * DAY, updatedAt: t },
     // Wel op de loonlijst, nog geen inlogaccount -- laat zien hoe dat eruitziet
-    { id: 'u_nieuw', email: 'joris@truckwash1group.nl', password: '', name: 'Joris Peters', roles: ['employee'], active: true, hourlyRate: 20,
+    { id: 'u_nieuw', email: 'joris@truckwash1group.nl', password: '', name: 'Joris Peters', roles: ['employee'], active: true, hourlyRate: 20, locationId: 'loc_ams',
       personnelNumber: 'TW-024', phone: '06-67890123', function: 'Wasmedewerker', supervisorId: 'u_wasser3', contractHours: 24, startDate: t - 12 * DAY, notes: 'Zaterdaghulp, nog inwerken op tankreiniging.', updatedAt: t },
     { id: 'u_klant', authId: 'u_klant', email: 'planning@transportjansen.nl', password: 'klant', name: 'Mark Jansen', roles: ['customer'], companyId: 'co_jansen', active: true, updatedAt: t },
     { id: 'u_klant2', authId: 'u_klant2', email: 'wagenpark@devrieslogistiek.nl', password: 'klant', name: 'Sanne de Vries', roles: ['customer'], companyId: 'co_devries', active: true, updatedAt: t },
   ]
 
-  const inventory: InventoryItem[] = [
-    { id: 'inv_shampoo', name: 'Truckshampoo concentraat', unit: 'liter', stock: 240, minStock: 100, pricePerUnit: 3.85, supplier: 'CleanChem BV', updatedAt: t },
-    { id: 'inv_ontvetter', name: 'Alkalische ontvetter', unit: 'liter', stock: 68, minStock: 80, pricePerUnit: 5.4, supplier: 'CleanChem BV', updatedAt: t },
-    { id: 'inv_velgen', name: 'Velgenreiniger zuur', unit: 'liter', stock: 45, minStock: 30, pricePerUnit: 6.2, supplier: 'CleanChem BV', updatedAt: t },
-    { id: 'inv_wax', name: 'Droogwax / glansmiddel', unit: 'liter', stock: 112, minStock: 60, pricePerUnit: 4.75, supplier: 'Nordic Wash', updatedAt: t },
-    { id: 'inv_borstel', name: 'Wasborstel telescoop', unit: 'stuk', stock: 7, minStock: 4, pricePerUnit: 42, supplier: 'WashParts NL', updatedAt: t },
-    { id: 'inv_doek', name: 'Microvezeldoek', unit: 'stuk', stock: 180, minStock: 100, pricePerUnit: 1.35, supplier: 'WashParts NL', updatedAt: t },
-    { id: 'inv_zout', name: 'Onthardingszout', unit: 'kg', stock: 520, minStock: 250, pricePerUnit: 0.42, supplier: 'AquaSoft', updatedAt: t },
-    { id: 'inv_handschoen', name: 'Nitril handschoenen', unit: 'doos', stock: 9, minStock: 12, pricePerUnit: 8.9, supplier: 'SafetyFirst', updatedAt: t },
+  /* Elke vestiging een eigen ploeg, anders staan er negentien lege roosters. */
+  const VOORNAMEN = ['Sander', 'Emre', 'Wesley', 'Bilal', 'Jeroen', 'Kevin', 'Youssef',
+                     'Dennis', 'Rico', 'Marco', 'Stefan', 'Hakan', 'Bram', 'Jordy',
+                     'Patrick', 'Milan', 'Ruben', 'Tim', 'Ferry', 'Joost']
+  const ACHTERNAMEN = ['de Boer', 'Visser', 'Mulder', 'Bakker', 'Dekker', 'Willems',
+                       'Kok', 'Peters', 'Hendriks', 'van Dijk', 'Brouwer', 'Sanders',
+                       'Vermeulen', 'Kuipers', 'Timmermans', 'Prins', 'Schouten',
+                       'van Leeuwen', 'Groot', 'Maas']
+
+  let nr = 30
+  vestigingen.forEach((loc, li) => {
+    const ploeg = 2 + (li % 2)          // twee of drie man per vestiging
+    for (let k = 0; k < ploeg; k++) {
+      const idx = li * 3 + k
+      const isVoorman = k === 0
+      nr++
+      users.push({
+        id: 'u_' + loc.code.toLowerCase().replace('-', '_') + '_' + k,
+        authId: undefined,
+        email: (VOORNAMEN[idx % VOORNAMEN.length] + '.' + ACHTERNAMEN[idx % ACHTERNAMEN.length])
+          .toLowerCase().replace(/[^a-z.]/g, '') + '@truckwash1group.nl',
+        password: '',
+        name: VOORNAMEN[idx % VOORNAMEN.length] + ' ' + ACHTERNAMEN[idx % ACHTERNAMEN.length],
+        roles: isVoorman ? ['employee', 'supervisor'] : ['employee'],
+        active: true,
+        hourlyRate: isVoorman ? 24 : 20 + (idx % 4),
+        locationId: loc.id,
+        manages: isVoorman ? [loc.id] : undefined,
+        personnelNumber: 'TW-' + String(nr).padStart(3, '0'),
+        phone: '06-' + String(20000000 + idx * 137911).slice(0, 8),
+        function: isVoorman ? 'Voorman wasstraat' : 'Wasmedewerker',
+        contractHours: k === 2 ? 24 : idx % 5 === 0 ? 32 : 38,
+        startDate: t - (200 + idx * 37) * DAY,
+        updatedAt: t,
+      })
+    }
+  })
+
+  /* Voorraad wordt per vestiging bijgehouden; het hoofdkantoor heeft er geen. */
+  const ARTIKELEN = [
+    { key: 'shampoo',    name: 'Truckshampoo concentraat', unit: 'liter', min: 100, prijs: 3.85, lev: 'CleanChem BV' },
+    { key: 'ontvetter',  name: 'Alkalische ontvetter',     unit: 'liter', min: 80,  prijs: 5.4,  lev: 'CleanChem BV' },
+    { key: 'velgen',     name: 'Velgenreiniger zuur',      unit: 'liter', min: 30,  prijs: 6.2,  lev: 'CleanChem BV' },
+    { key: 'wax',        name: 'Droogwax / glansmiddel',   unit: 'liter', min: 60,  prijs: 4.75, lev: 'Nordic Wash' },
+    { key: 'borstel',    name: 'Wasborstel telescoop',     unit: 'stuk',  min: 4,   prijs: 42,   lev: 'WashParts NL' },
+    { key: 'doek',       name: 'Microvezeldoek',           unit: 'stuk',  min: 100, prijs: 1.35, lev: 'WashParts NL' },
+    { key: 'zout',       name: 'Onthardingszout',          unit: 'kg',    min: 250, prijs: 0.42, lev: 'AquaSoft' },
+    { key: 'handschoen', name: 'Nitril handschoenen',      unit: 'doos',  min: 12,  prijs: 8.9,  lev: 'SafetyFirst' },
   ]
+
+  const inventory: InventoryItem[] = []
+  vestigingen.forEach((loc, li) => {
+    ARTIKELEN.forEach((a, ai) => {
+      // Op een paar vestigingen bewust onder het minimum, zodat de
+      // bestellijst iets te doen heeft.
+      const krap = (li + ai) % 11 === 0
+      inventory.push({
+        id: 'inv_' + loc.code.toLowerCase().replace('-', '_') + '_' + a.key,
+        locationId: loc.id,
+        name: a.name,
+        unit: a.unit,
+        stock: krap ? Math.round(a.min * 0.6) : Math.round(a.min * (1.4 + ((li + ai) % 5) * 0.25)),
+        minStock: a.min,
+        pricePerUnit: a.prijs,
+        supplier: a.lev,
+        updatedAt: t,
+      })
+    })
+  })
 
   const plates = ['12-BND-4', '84-JHT-9', 'VJ-701-P', '17-BKX-2', 'BZ-49-TL', '91-PLD-3', 'RJ-338-N', '05-GVS-7', 'XT-812-K', '63-NRD-1']
   const serviceKeys = Object.keys(SERVICES) as (keyof typeof SERVICES)[]
@@ -191,6 +299,7 @@ async function seed() {
 
       shifts.push({
         id: 'sh_' + u.id + '_' + d,
+        locationId: u.locationId,
         userId: u.id,
         userName: u.name,
         kind,
@@ -218,7 +327,9 @@ async function seed() {
       const co = pick(companies, n + d)
       const svc = pick(serviceKeys, n * 3 + j)
       const meta = SERVICES[svc]
-      const worker = pick(staff, n + j)
+      const loc = pick(vestigingen, n + d * 3)
+      const lokaalTeam = users.filter((u) => u.locationId === loc.id && u.roles.includes('employee'))
+      const worker = lokaalTeam.length ? pick(lokaalTeam, n + j) : pick(staff, n + j)
       const scheduledAt = day + (7 + j) * 3_600_000 + (n % 4) * 900_000
       const isPast = scheduledAt < t - 3_600_000
       const dur = Math.max(10, meta.minutes + ((n * 7) % 21) - 8)
@@ -236,6 +347,7 @@ async function seed() {
       const job: WashJob = {
         id: 'job_' + d + '_' + j,
         ticket: 'W' + String(1000 + n),
+        locationId: loc.id,
         companyId: co.id,
         companyName: co.name,
         plate: pick(plates, n + j * 2),
@@ -263,10 +375,12 @@ async function seed() {
           note: meta.label,
           updatedAt: job.completedAt!,
         })
-        const item = pick(inventory, n)
+        const lokaalArtikel = inventory.filter((i) => i.locationId === job.locationId)
+        const item = pick(lokaalArtikel.length ? lokaalArtikel : inventory, n)
         const qty = -(Math.round((0.4 + (n % 7) * 0.15) * 10) / 10)
         stockMovements.push({
           id: 'sm_' + job.id,
+          locationId: job.locationId,
           itemId: item.id,
           itemName: item.name,
           qty,
@@ -292,6 +406,7 @@ async function seed() {
       washJobs.push({
         id: 'job_f' + d + '_' + j,
         ticket: 'W' + String(1000 + n),
+        locationId: pick(vestigingen, n + d).id,
         companyId: co.id,
         companyName: co.name,
         plate: pick(plates, n),
@@ -325,6 +440,7 @@ async function seed() {
     const recent = 70 - dayOffset < 14
     expenses.push({
       id: 'exp_' + i,
+      locationId: (submitter.locationId ?? pick(vestigingen, i).id),
       date: startOfDay(t - (70 - dayOffset) * DAY),
       category: cat,
       supplier: pick(suppliers, i + 2),
@@ -397,6 +513,7 @@ async function seed() {
   ]
 
   await server.transaction('rw', server.tables, async () => {
+    await server.locations.bulkPut(locations)
     await server.companies.bulkPut(companies)
     await server.users.bulkPut(users)
     await server.inventory.bulkPut(inventory)

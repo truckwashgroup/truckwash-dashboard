@@ -55,6 +55,47 @@ export interface User {
 
   /** Onder welke leidinggevende deze medewerker valt */
   supervisorId?: string
+
+  /* --- locaties --- */
+
+  /** De vestiging waar deze persoon werkt */
+  locationId?: string
+  /**
+   * Locaties waar deze persoon leiding over heeft. Een leidinggevende met
+   * twee vestigingen heeft zijn rechten alleen daar, niet elders.
+   */
+  manages?: string[]
+  /** Hoofdkantoor: ziet en mag alles, op alle vestigingen */
+  allLocations?: boolean
+}
+
+/* ------------------------------------------------------------------ *
+ *  Locaties
+ *
+ *  De organisatie bestaat uit vestigingen plus een hoofdkantoor. Bijna alles
+ *  hangt aan een locatie: wasbeurten, roosters, voorraad, kosten en uren.
+ *  Wie waar bij mag komt uit de locaties die aan een persoon hangen.
+ * ------------------------------------------------------------------ */
+
+export type LocationKind = 'vestiging' | 'hoofdkantoor'
+
+export interface Location {
+  id: string
+  /** Korte code, bijv. TW-UTR */
+  code: string
+  name: string
+  kind: LocationKind
+  address: string
+  postcode: string
+  city: string
+  phone?: string
+  /** Vestigingsmanager */
+  managerId?: string
+  managerName?: string
+  /** Aantal wasstraten op deze locatie */
+  bays: number
+  active: boolean
+  updatedAt: number
 }
 
 export interface Company {
@@ -83,6 +124,7 @@ export const SERVICES: Record<ServiceKind, { label: string; minutes: number; pri
 export interface WashJob {
   id: string
   ticket: string
+  locationId: string
   companyId: string
   companyName: string
   plate: string
@@ -102,6 +144,8 @@ export interface WashJob {
 
 export interface InventoryItem {
   id: string
+  /** Voorraad wordt per vestiging bijgehouden */
+  locationId: string
   name: string
   unit: string
   stock: number
@@ -113,6 +157,7 @@ export interface InventoryItem {
 
 export interface StockMovement {
   id: string
+  locationId?: string
   itemId: string
   itemName: string
   /** negatief = verbruik, positief = ontvangst */
@@ -128,6 +173,7 @@ export type ExpenseStatus = 'open' | 'goedgekeurd' | 'afgekeurd'
 
 export interface Expense {
   id: string
+  locationId: string
   date: number
   category: 'materiaal' | 'energie' | 'onderhoud' | 'personeel' | 'transport' | 'overig'
   supplier: string
@@ -146,6 +192,7 @@ export interface Expense {
 
 export interface TimeEntry {
   id: string
+  locationId?: string
   userId: string
   userName: string
   jobId?: string
@@ -187,6 +234,8 @@ export type Permission =
   | 'notify.send' | 'notify.broadcast'
   /* opleiding */
   | 'learning.take' | 'learning.assign' | 'learning.manage'
+  /* locaties */
+  | 'locations.view' | 'locations.manage' | 'locations.all'
   /* beheer */
   | 'admin.settings' | 'admin.audit'
 
@@ -245,6 +294,10 @@ export const PERMISSIONS: PermissionMeta[] = [
   { key: 'learning.take',     group: 'Opleiding',  label: 'Cursussen volgen',     hint: 'De e-learning doorlopen.' },
   { key: 'learning.assign',   group: 'Opleiding',  label: 'Cursussen toewijzen',  hint: 'Bepalen wie wat moet doen en voortgang volgen.' },
   { key: 'learning.manage',   group: 'Opleiding',  label: 'Cursussen beheren',    hint: 'Lesmateriaal en toetsvragen aanpassen.' },
+
+  { key: 'locations.view',    group: 'Locaties',   label: 'Locaties zien',        hint: 'De vestigingen en hun gegevens bekijken.' },
+  { key: 'locations.manage',  group: 'Locaties',   label: 'Locaties beheren',     hint: 'Vestigingen toevoegen en wijzigen.', sensitive: true },
+  { key: 'locations.all',     group: 'Locaties',   label: 'Alle vestigingen',     hint: 'Niet beperkt tot de eigen vestiging, maar overal bij.', sensitive: true },
 
   { key: 'admin.settings',    group: 'Beheer',     label: 'Instellingen',         hint: 'Tarieven, openingstijden en app-instellingen.', sensitive: true },
   { key: 'admin.audit',       group: 'Beheer',     label: 'Logboek',              hint: 'Zien wie wat heeft gewijzigd.', sensitive: true },
@@ -359,6 +412,7 @@ export const SHIFT_KINDS: Record<ShiftKind, { label: string; tone: string; count
 
 export interface Shift {
   id: string
+  locationId?: string
   userId: string
   userName: string
   kind: ShiftKind
@@ -377,7 +431,7 @@ export interface Shift {
  * ------------------------------------------------------------------ */
 
 export type EntityName =
-  | 'users' | 'companies' | 'washJobs' | 'inventory'
+  | 'locations' | 'users' | 'companies' | 'washJobs' | 'inventory'
   | 'stockMovements' | 'expenses' | 'timeEntries' | 'shifts'
   | 'notifications' | 'courses' | 'courseProgress'
 

@@ -50,7 +50,12 @@ export default function KostenIndienen() {
     if (!form.supplier.trim()) return toast.error('Vul een leverancier in')
     if (!Number.isFinite(amount) || amount <= 0) return toast.error('Vul een geldig bedrag in')
 
+    if (!user.locationId) {
+      return toast.error('Je bent nog niet aan een vestiging gekoppeld. Vraag je leidinggevende dat te doen.')
+    }
+
     await expRepo.create({
+      locationId: user.locationId,
       date: new Date(form.date).getTime(),
       category: form.category,
       supplier: form.supplier.trim(),

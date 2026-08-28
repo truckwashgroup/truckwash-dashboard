@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react'
-import { CalendarPlus, Clock, Info } from 'lucide-react'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { Building2, CalendarPlus, Clock, Info } from 'lucide-react'
+import { db } from '../../lib/db'
 import { jobs as jobRepo } from '../../lib/repo'
+import type { Location } from '../../lib/types'
 import { SERVICES, type ServiceKind } from '../../lib/types'
 import { money } from '../../lib/format'
 import { Card, Field } from '../../components/ui'
@@ -18,6 +21,15 @@ export default function Plannen() {
 
   const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
 
+  const vestigingen = useLiveQuery(
+    async () => (await db.locations.toArray())
+      .filter((l) => l.kind === 'vestiging' && l.active)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [],
+    [] as Location[],
+  )
+
+  const [locationId, setLocationId] = useState('')
   const [plate, setPlate] = useState('')
   const [service, setService] = useState<ServiceKind>('combi')
   const [date, setDate] = useState(tomorrow)
@@ -30,18 +42,25 @@ export default function Plannen() {
     [service, discount],
   )
 
-  // welke tijdvakken zijn al bezet op de gekozen dag
+  // De eerste vestiging voorselecteren zodra ze binnen zijn
+  const gekozen = locationId || vestigingen[0]?.id || ''
+
+  // Welke tijdvakken zijn al bezet op de gekozen dag, op deze vestiging
   const taken = useMemo(() => {
     const d = new Date(date + 'T00:00:00').getTime()
     return new Set(
       jobs
-        .filter((j) => j.scheduledAt >= d && j.scheduledAt < d + 86_400_000 && j.status !== 'geannuleerd')
+        .filter((j) =>
+          j.locationId === gekozen &&
+          j.scheduledAt >= d && j.scheduledAt < d + 86_400_000 &&
+          j.status !== 'geannuleerd')
         .map((j) => new Date(j.scheduledAt).toTimeString().slice(0, 5)),
     )
-  }, [jobs, date])
+  }, [jobs, date, gekozen])
 
   async function submit() {
     if (!company) return toast.error('Geen klantgegevens gevonden')
+    if (!gekozen) return toast.error('Kies een vestiging')
     if (!/^[A-Za-z0-9-]{4,12}$/.test(plate.trim())) {
       return toast.error('Vul een geldig kenteken in')
     }
@@ -49,6 +68,7 @@ export default function Plannen() {
     if (!Number.isFinite(scheduledAt)) return toast.error('Ongeldige datum of tijd')
 
     await jobRepo.create({
+      locationId: gekozen,
       companyId: company.id,
       companyName: company.name,
       plate,
@@ -71,6 +91,18 @@ export default function Plannen() {
   return (
     <div className="grid sidebar-right">
       <Card title="Wasbeurt inplannen" hint={company?.name}>
+        <Field label="Vestiging" help="Waar wil je de wagen laten wassen?">
+          <select
+            className="select"
+            value={gekozen}
+            onChange={(e) => setLocationId(e.target.value)}
+          >
+            {vestigingen.map((l) => (
+              <option key={l.id} value={l.id}>{l.name} — {l.address}</option>
+            ))}
+          </select>
+        </Field>
+
         <Field label="Kenteken">
           <input
             className="input"
@@ -167,6 +199,14 @@ export default function Plannen() {
           <Clock size={15} color="var(--brand)" />
           Verwachte duur: ± {SERVICES[service].minutes} minuten
         </div>
+
+        {vestigingen.find((l) => l.id === gekozen) && (
+          <div className="row" style={{ gap: 7, fontSize: '.84rem', color: 'var(--text-2)', marginBottom: 8 }}>
+            <Building2 size={15} color="var(--brand)" />
+            {vestigingen.find((l) => l.id === gekozen)!.address},{' '}
+            {vestigingen.find((l) => l.id === gekozen)!.city}
+          </div>
+        )}
 
         <p style={{ fontSize: '.83rem', color: 'var(--text-3)', lineHeight: 1.55 }}>
           Je wagen komt op de dagplanning te staan. Zodra een medewerker hem

@@ -9,7 +9,10 @@ import { db } from '../lib/db'
 import { SERVICES } from '../lib/types'
 import { money, time } from '../lib/format'
 import { usePerms, useNav } from '../store/useNav'
-import { cleanSpokenQuery, listenOnce, voiceSupported, type VoiceSession } from '../lib/voice'
+import {
+  cleanSpokenQuery, listenOnce, voiceAvailability, voiceSupported,
+  voiceUnavailableReason, type VoiceSession,
+} from '../lib/voice'
 import { toast } from '../store/useToasts'
 
 /* ------------------------------------------------------------------ *
@@ -53,6 +56,8 @@ export default function GlobalSearch() {
 
   const perms = usePerms()
   const goto = useNav((s) => s.goto)
+  const searchRequest = useNav((s) => s.searchRequest)
+  const clearSearchRequest = useNav((s) => s.clearSearchRequest)
 
   /* ---- openen met Ctrl+K, sluiten met Escape ---- */
   useEffect(() => {
@@ -66,6 +71,15 @@ export default function GlobalSearch() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  // Van elders geopend: via de knop in de balk of de microfoon ernaast
+  useEffect(() => {
+    if (!searchRequest) return
+    setOpen(true)
+    if (searchRequest.voice) setTimeout(() => startListening(), 120)
+    clearSearchRequest()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchRequest?.nonce])
 
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 40)
@@ -246,12 +260,6 @@ export default function GlobalSearch() {
 
   return (
     <>
-      <button className="search-trigger" onClick={() => setOpen(true)} title="Zoeken (Ctrl+K)">
-        <Search size={15} />
-        <span className="label">Zoeken…</span>
-        <kbd>Ctrl K</kbd>
-      </button>
-
       {createPortal(
         <AnimatePresence>
           {open && (
@@ -280,15 +288,17 @@ export default function GlobalSearch() {
                     autoComplete="off"
                   />
                   {busy && <Loader2 size={15} className="spin" color="var(--text-3)" />}
-                  {voiceSupported() && (
-                    <button
-                      className={`search-mic ${listening ? 'on' : ''}`}
-                      onClick={startListening}
-                      title={listening ? 'Stoppen met luisteren' : 'Zoeken met je stem'}
-                    >
-                      {listening ? <MicOff size={16} /> : <Mic size={16} />}
-                    </button>
-                  )}
+                  <button
+                    className={`search-mic ${listening ? 'on' : ''} ${voiceSupported() ? '' : 'off'}`}
+                    onClick={() => voiceSupported() ? startListening() : toast.info(voiceUnavailableReason())}
+                    title={
+                      voiceSupported()
+                        ? listening ? 'Stoppen met luisteren' : 'Zoeken met je stem'
+                        : voiceUnavailableReason()
+                    }
+                  >
+                    {listening ? <MicOff size={16} /> : <Mic size={16} />}
+                  </button>
                   <button className="btn ghost sm" onClick={() => setOpen(false)}>
                     <X size={15} />
                   </button>
@@ -310,6 +320,9 @@ export default function GlobalSearch() {
                   {debounced.length < 2 && !listening && (
                     <div className="search-hint">
                       <div><CalendarRange size={14} /> Typ minstens twee tekens</div>
+                      {voiceSupported()
+                        ? <div><Mic size={14} /> Of klik op de microfoon en zeg “zoek 12-BND-4”</div>
+                        : <div style={{ color: 'var(--warn)' }}>{voiceUnavailableReason()}</div>}
                       <div>Doorzoekt alleen waar jij bij mag</div>
                     </div>
                   )}

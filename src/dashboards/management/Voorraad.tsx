@@ -10,20 +10,33 @@ import { Badge, Bar, Card, Empty, Field, Modal, Stat } from '../../components/ui
 import { useAuth } from '../../store/useAuth'
 import { toast } from '../../store/useToasts'
 import { inventoryHealth, startOfDay } from '../../lib/analytics'
+import { filterByLocation, useLocationFilter } from '../../lib/locations'
 import { BRAND, gridStroke, tooltipStyle } from '../../lib/charts'
 
 const DAY = 86_400_000
 
 export default function Voorraad({ days }: { days: number }) {
   const user = useAuth((s) => s.user)!
+  const currentLocation = useLocationFilter((s) => s.current)
   const [newOpen, setNewOpen] = useState(false)
   const [edit, setEdit] = useState<InventoryItem | null>(null)
   const [form, setForm] = useState({
     name: '', unit: 'liter', stock: '0', minStock: '0', pricePerUnit: '0', supplier: '',
   })
 
-  const items = useLiveQuery(() => db.inventory.orderBy('name').toArray(), [], [] as InventoryItem[])
-  const movements = useLiveQuery(() => db.stockMovements.toArray(), [], [] as StockMovement[])
+  const alleItems = useLiveQuery(() => db.inventory.orderBy('name').toArray(), [], [] as InventoryItem[])
+  const alleMovements = useLiveQuery(() => db.stockMovements.toArray(), [], [] as StockMovement[])
+
+  // Voorraad is per vestiging; laat alleen zien waar je bij mag en wat je
+  // bovenin hebt gekozen.
+  const items = useMemo(
+    () => filterByLocation(user, alleItems, currentLocation),
+    [user, alleItems, currentLocation],
+  )
+  const movements = useMemo(
+    () => filterByLocation(user, alleMovements, currentLocation),
+    [user, alleMovements, currentLocation],
+  )
 
   const health = inventoryHealth(items)
 
@@ -57,7 +70,13 @@ export default function Voorraad({ days }: { days: number }) {
 
   async function createItem() {
     if (!form.name.trim()) return toast.error('Vul een naam in')
+    const doel = currentLocation ?? user.locationId
+    if (!doel) {
+      return toast.error('Kies eerst een vestiging bovenin; voorraad hoort bij een vestiging.')
+    }
+
     await invRepo.create({
+      locationId: doel,
       name: form.name.trim(),
       unit: form.unit.trim() || 'stuk',
       stock: Number(form.stock.replace(',', '.')) || 0,

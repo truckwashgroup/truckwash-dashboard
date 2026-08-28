@@ -93,7 +93,7 @@ export async function ensureBackendMatches(): Promise<boolean> {
   if (stored === api.name) return false
 
   await Promise.all([
-    db.users.clear(), db.companies.clear(), db.washJobs.clear(),
+    db.locations.clear(), db.users.clear(), db.companies.clear(), db.washJobs.clear(),
     db.inventory.clear(), db.stockMovements.clear(), db.expenses.clear(),
     db.timeEntries.clear(), db.shifts.clear(),
     db.notifications.clear(), db.courses.clear(), db.courseProgress.clear(),
@@ -167,6 +167,7 @@ async function pushOutbox() {
  * ------------------------------------------------------------------ */
 
 const TABLE_OF: Record<EntityName, () => any> = {
+  locations: () => db.locations,
   users: () => db.users,
   companies: () => db.companies,
   washJobs: () => db.washJobs,

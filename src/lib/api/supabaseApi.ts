@@ -88,6 +88,7 @@ export function supabase(): SupabaseClient {
  * ------------------------------------------------------------------ */
 
 const TABLES: Record<EntityName, string> = {
+  locations: 'locations',
   users: 'profiles',
   companies: 'companies',
   washJobs: 'wash_jobs',

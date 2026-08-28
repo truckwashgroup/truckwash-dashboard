@@ -28,7 +28,33 @@ function ctor(): (new () => SpeechRecognitionLike) | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null
 }
 
-export const voiceSupported = () => ctor() !== null
+export type VoiceAvailability = 'beschikbaar' | 'desktop-app' | 'niet-ondersteund'
+
+/**
+ * Waarom dit meer is dan ja of nee:
+ *
+ * De Electron-app heeft wel het object voor spraakherkenning, maar niet de
+ * dienst erachter -- die zit in Chrome zelf en mag niet worden meegeleverd.
+ * De knop zou het daar dus altijd begeven met een netwerkfout. Beter om dat
+ * eerlijk te zeggen dan een knop te tonen die niets doet.
+ */
+export function voiceAvailability(): VoiceAvailability {
+  if (typeof window !== 'undefined' && (window as any).desktop?.isElectron) {
+    return 'desktop-app'
+  }
+  return ctor() ? 'beschikbaar' : 'niet-ondersteund'
+}
+
+export const voiceSupported = () => voiceAvailability() === 'beschikbaar'
+
+export const voiceUnavailableReason = (): string => {
+  const state = voiceAvailability()
+  if (state === 'desktop-app') {
+    return 'Spraakherkenning zit in de browser, niet in de Windows-app. ' +
+           'Open het dashboard in Chrome of Edge, of gebruik de app op je telefoon.'
+  }
+  return 'Deze browser ondersteunt spraakherkenning niet. Chrome of Edge werkt wel.'
+}
 
 export interface VoiceSession {
   stop: () => void

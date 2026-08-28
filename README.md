@@ -78,6 +78,31 @@ glanzend aan de andere kant naar buiten. Overslaan kan rechtsboven.
 
 ---
 
+## Vestigingen
+
+De organisatie bestaat uit negentien vestigingen plus een hoofdkantoor. Bijna
+alles hangt aan een vestiging: wasbeurten, roosters, voorraad, kosten en uren.
+
+Rechten zeggen *wat* iemand mag, vestigingen zeggen *waar*. Een leidinggevende
+met het recht om roosters te maken, maakt ze alleen voor de vestigingen die aan
+hem hangen — niet voor de andere achttien.
+
+| Wie | Ziet |
+|---|---|
+| Werknemer | Alleen de eigen vestiging |
+| Leidinggevende | De eigen vestiging plus de vestigingen in `manages` |
+| Hoofdkantoor | Alles (`allLocations`, of het recht `locations.all`) |
+
+Bovenin staat een kiezer met zoekveld. Wie meerdere vestigingen ziet, kijkt
+naar alles tegelijk of zoomt in op één. Wie bij precies één vestiging hoort,
+ziet alleen de naam — geen keuze die er niet is.
+
+Ook hier is de afscherming in de database geregeld, niet alleen in de app: de
+voorraad van Rotterdam is niet op te vragen door de voorman van Utrecht, ook
+niet buiten de app om.
+
+---
+
 ## Rechten
 
 Rollen geven de basis, en daarbovenop stel je per persoon los in wat wel en
@@ -150,8 +175,8 @@ en kijk hoe de wachtrij leegloopt.
 Het gedrag hierboven staat in een echte testsuite:
 
 ```bash
-npm run selftest        # 111 controles op de app-logica
-npm run sqltest         # 56 controles: het databaseschema in een echte Postgres
+npm run selftest        # 127 controles op de app-logica
+npm run sqltest         # 62 controles: het databaseschema in een echte Postgres
 ```
 
 ---

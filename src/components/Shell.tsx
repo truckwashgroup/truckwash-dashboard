@@ -1,15 +1,19 @@
 import { type ReactNode } from 'react'
 import { motion } from 'framer-motion'
 import {
-  LayoutGrid, LogOut, RefreshCw,
+  LayoutGrid, LogOut, Mic, RefreshCw, Search,
 } from 'lucide-react'
 import { useAuth } from '../store/useAuth'
 import { useSync } from '../lib/sync'
+import { useNav } from '../store/useNav'
+import { voiceSupported, voiceUnavailableReason } from '../lib/voice'
+import { toast } from '../store/useToasts'
 import { useUpdates } from '../lib/updates'
 import { initials, relative } from '../lib/format'
 import SyncPill from './SyncPill'
 import Logo from './Logo'
 import GlobalSearch from './GlobalSearch'
+import LocationSwitcher from './LocationSwitcher'
 import NotificationCenter from './NotificationCenter'
 import type { LucideIcon } from 'lucide-react'
 
@@ -37,6 +41,7 @@ export default function Shell({
   const { user, clearRole, logout } = useAuth()
   const { lastSyncAt, sync, syncing } = useSync()
   const version = useUpdates((s) => s.version)
+  const openSearch = useNav((s) => s.openSearch)
 
   return (
     <div className="app-shell">
@@ -113,6 +118,26 @@ export default function Shell({
             )}
           </div>
           <span className="spacer" />
+
+          <LocationSwitcher />
+
+          <div className="topbar-search">
+            <button className="search-trigger" onClick={() => openSearch(false)} title="Zoeken (Ctrl+K)">
+              <Search size={15} />
+              <span className="label">Zoeken…</span>
+              <kbd>Ctrl K</kbd>
+            </button>
+            <button
+              className="topbar-mic"
+              onClick={() =>
+                voiceSupported() ? openSearch(true) : toast.info(voiceUnavailableReason())
+              }
+              title={voiceSupported() ? 'Zoeken met je stem' : voiceUnavailableReason()}
+              aria-label="Zoeken met je stem"
+            >
+              <Mic size={16} />
+            </button>
+          </div>
 
           <GlobalSearch />
 

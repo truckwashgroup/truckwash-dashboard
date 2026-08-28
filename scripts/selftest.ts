@@ -68,9 +68,9 @@ const jobCount = await db.washJobs.count()
 const invCount = await db.inventory.count()
 const expCount = await db.expenses.count()
 
-check('gebruikers opgehaald', userCount === 8, `kreeg ${userCount}`)
+check('gebruikers opgehaald', userCount > 40, `kreeg ${userCount}`)
 check('wasopdrachten opgehaald', jobCount > 400, `kreeg ${jobCount}`)
-check('voorraad opgehaald', invCount === 8, `kreeg ${invCount}`)
+check('voorraad opgehaald per vestiging', invCount === 19 * 8, `kreeg ${invCount}`)
 check('kostenposten opgehaald', expCount === 46, `kreeg ${expCount}`)
 check('geen sync-fout', useSync.getState().lastError === null, String(useSync.getState().lastError))
 check('wachtrij leeg', useSync.getState().pending === 0)
@@ -93,7 +93,9 @@ setOnline(false)
 setForcedOffline(true)
 
 const company = (await db.companies.toArray())[0]
+const locaties = await db.locations.toArray()
 const created = await jobs.create({
+  locationId: locaties.find((l) => l.kind === 'vestiging')!.id,
   companyId: company.id,
   companyName: company.name,
   plate: 'test-01',
@@ -224,7 +226,7 @@ check('marge klopt met omzet minus kosten',
 check('grafiekreeks heeft 30 dagen', s.length === 30, String(s.length))
 check('reeks telt op tot de omzet-kpi',
   Math.abs(s.reduce((a, b) => a + b.omzet, 0) - k.omzet.value) < 1)
-check('personeelsoverzicht gevuld', staff.length === 6, String(staff.length))
+check('personeelsoverzicht gevuld', staff.length > 40, String(staff.length))
 check('voorraadwaarde berekend', health.waarde > 0, String(health.waarde))
 check('lage voorraad gedetecteerd', Array.isArray(health.low))
 
@@ -587,6 +589,76 @@ check('voldoende score is geslaagd', geslaagd?.passed === true)
 check('pogingen worden geteld', geslaagd?.attempts === 2, String(geslaagd?.attempts))
 check('geldigheid wordt gezet',
   cursus.validMonths ? (geslaagd?.expiresAt ?? 0) > Date.now() : geslaagd?.expiresAt === undefined)
+
+/* ==================================================================== */
+
+console.log('\n16. Vestigingen')
+const { scopeOf, seesAllLocations, withinScope, filterByLocation, visibleLocations } =
+  await import('../src/lib/locations')
+
+const alleLocaties = await db.locations.toArray()
+const hoofdkantoor = alleLocaties.find((l) => l.kind === 'hoofdkantoor')!
+const filialen = alleLocaties.filter((l) => l.kind === 'vestiging')
+
+check('negentien vestigingen plus hoofdkantoor',
+  filialen.length === 19 && !!hoofdkantoor, `${filialen.length} vestigingen`)
+check('elke vestiging heeft een unieke code',
+  new Set(alleLocaties.map((l) => l.code)).size === alleLocaties.length)
+
+const hkUser = (await db.users.get('u_manager'))!
+const voormanUtr = (await db.users.get('u_wasser3'))!
+const wasserUtr = (await db.users.get('u_wasser'))!
+
+check('hoofdkantoor ziet alles', seesAllLocations(hkUser))
+check('een wasser niet', !seesAllLocations(wasserUtr))
+
+const scopeVoorman = scopeOf(voormanUtr)
+check('leidinggevende ziet zijn eigen vestigingen',
+  scopeVoorman !== 'alle' && scopeVoorman.has('loc_utr') && scopeVoorman.has('loc_ams'),
+  JSON.stringify([...(scopeVoorman === 'alle' ? [] : scopeVoorman)]))
+check('en niet die van een ander',
+  scopeVoorman !== 'alle' && !scopeVoorman.has('loc_rtm'))
+
+const scopeWasser = scopeOf(wasserUtr)
+check('een wasser ziet alleen zijn eigen vestiging',
+  scopeWasser !== 'alle' && scopeWasser.size === 1 && scopeWasser.has('loc_utr'))
+
+check('hoofdkantoor ziet alle vestigingen in de kiezer',
+  visibleLocations(hkUser, alleLocaties).length === alleLocaties.length)
+check('leidinggevende ziet er drie',
+  visibleLocations(voormanUtr, alleLocaties).length === 3,
+  String(visibleLocations(voormanUtr, alleLocaties).length))
+
+// Voorraad is per vestiging: filteren mag nooit meer opleveren dan je mag zien
+const alleVoorraad = await db.inventory.toArray()
+const voorraadWasser = withinScope(wasserUtr, alleVoorraad)
+check('wasser ziet alleen de voorraad van zijn vestiging',
+  voorraadWasser.length > 0 && voorraadWasser.every((i) => i.locationId === 'loc_utr'),
+  `${voorraadWasser.length} artikelen`)
+check('hoofdkantoor ziet alle voorraad',
+  withinScope(hkUser, alleVoorraad).length === alleVoorraad.length)
+
+// De keuze bovenin versmalt verder, maar kan nooit verbreden
+const gekozenRotterdam = filterByLocation(voormanUtr, alleVoorraad, 'loc_rtm')
+check('een vestiging kiezen waar je niet mag geeft niets',
+  gekozenRotterdam.length === 0)
+const gekozenAmsterdam = filterByLocation(voormanUtr, alleVoorraad, 'loc_ams')
+check('een vestiging kiezen waar je wel mag werkt',
+  gekozenAmsterdam.length > 0 && gekozenAmsterdam.every((i) => i.locationId === 'loc_ams'))
+
+// Wasopdrachten hangen allemaal aan een vestiging
+const jobsMetLocatie = (await db.washJobs.toArray()).filter((j) => !j.locationId)
+check('elke wasbeurt hoort bij een vestiging', jobsMetLocatie.length === 0,
+  `${jobsMetLocatie.length} zonder`)
+
+// Elke vestiging heeft eigen mensen en eigen voorraad
+const zonderPloeg = filialen.filter(
+  (l) => !alleUsers.some((u) => u.locationId === l.id))
+check('elke vestiging heeft personeel', zonderPloeg.length === 0,
+  zonderPloeg.map((l) => l.name).join(', '))
+const zonderVoorraad = filialen.filter(
+  (l) => !alleVoorraad.some((i) => i.locationId === l.id))
+check('elke vestiging heeft voorraad', zonderVoorraad.length === 0)
 
 /* ==================================================================== */
 

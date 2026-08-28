@@ -30,6 +30,7 @@ async function put<T extends { id: string; updatedAt?: number }>(
 
 export const jobs = {
   async create(input: {
+    locationId: string
     companyId: string
     companyName: string
     plate: string
@@ -44,6 +45,7 @@ export const jobs = {
     const job: WashJob = {
       id: uid('job'),
       ticket: 'W' + String(Math.floor(Date.now() / 1000) % 100000),
+      locationId: input.locationId,
       companyId: input.companyId,
       companyName: input.companyName,
       plate: input.plate.toUpperCase().trim(),

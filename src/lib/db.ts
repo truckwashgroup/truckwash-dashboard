@@ -1,7 +1,7 @@
 import Dexie, { type Table } from 'dexie'
 import type {
   AppNotification, Company, Course, CourseProgress, Expense, InventoryItem,
-  OutboxRecord, Shift, StockMovement, TimeEntry, User, WashJob,
+  Location, OutboxRecord, Shift, StockMovement, TimeEntry, User, WashJob,
 } from './types'
 
 /**
@@ -9,6 +9,7 @@ import type {
  * server. Daardoor werkt de app identiek met en zonder internet.
  */
 class TruckwashDB extends Dexie {
+  locations!: Table<Location, string>
   users!: Table<User, string>
   companies!: Table<Company, string>
   washJobs!: Table<WashJob, string>
@@ -48,6 +49,17 @@ class TruckwashDB extends Dexie {
       notifications: 'id, toUserId, toRole, readAt, createdAt, updatedAt',
       courses: 'id, category, code, updatedAt',
       courseProgress: 'id, userId, courseId, passed, updatedAt',
+    })
+
+    // v4: meerdere vestigingen
+    this.version(4).stores({
+      locations: 'id, code, kind, active, updatedAt',
+      users: 'id, email, active, personnelNumber, locationId, updatedAt',
+      washJobs: 'id, status, companyId, assignedTo, scheduledAt, locationId, updatedAt',
+      inventory: 'id, name, stock, locationId, updatedAt',
+      expenses: 'id, status, category, date, locationId, updatedAt',
+      shifts: 'id, userId, startAt, locationId, updatedAt',
+      timeEntries: 'id, userId, jobId, start, locationId, updatedAt',
     })
   }
 }

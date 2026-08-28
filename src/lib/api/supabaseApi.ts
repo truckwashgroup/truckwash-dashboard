@@ -25,7 +25,40 @@ const ENV: Record<string, string | undefined> =
 const URL = ENV.VITE_SUPABASE_URL
 const ANON = ENV.VITE_SUPABASE_ANON_KEY
 
-export const supabaseConfigured = Boolean(URL && ANON)
+/**
+ * De sleutel in deze variabele belandt in de app-bundel en gaat dus mee naar
+ * iedere gebruiker. Dat mag alleen met de publieke sleutel: die komt niet
+ * langs de beveiligingsregels heen. Een geheime sleutel doet dat wel, en die
+ * weigeren we hier hardop.
+ */
+function keyProblem(key: string | undefined): string | null {
+  if (!key) return null
+  if (key.startsWith('sb_secret_') || key.startsWith('sk_')) {
+    return 'Dit is een geheime sleutel (sb_secret_). Gebruik de publieke sleutel: ' +
+           'Supabase -> Project Settings -> API Keys -> "publishable".'
+  }
+  const parts = key.split('.')
+  if (parts.length === 3) {
+    try {
+      const pad = parts[1] + '='.repeat((4 - (parts[1].length % 4)) % 4)
+      const json = atob(pad.replace(/-/g, '+').replace(/_/g, '/'))
+      if (JSON.parse(json).role === 'service_role') {
+        return 'Dit is de service_role-sleutel. Gebruik de "anon public" sleutel.'
+      }
+    } catch {
+      /* geen leesbare JWT: dan is het waarschijnlijk een publieke sleutel */
+    }
+  }
+  return null
+}
+
+export const configError = keyProblem(ANON)
+
+if (configError) {
+  console.error('[Supabase] ' + configError)
+}
+
+export const supabaseConfigured = Boolean(URL && ANON) && !configError
 
 let client: SupabaseClient | null = null
 

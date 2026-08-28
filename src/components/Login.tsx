@@ -4,7 +4,7 @@ import { AlertCircle, Eye, EyeOff, Loader2, LogIn, WifiOff } from 'lucide-react'
 import { useAuth } from '../store/useAuth'
 import { useSync } from '../lib/sync'
 import { useUpdates } from '../lib/updates'
-import { DEMO_ACCOUNTS } from '../lib/api'
+import { DEMO_ACCOUNTS, configError } from '../lib/api'
 import Logo from './Logo'
 
 export default function Login() {
@@ -42,6 +42,16 @@ export default function Login() {
             <span>
               Geen verbinding. Je kunt inloggen met een account dat eerder op dit
               apparaat is gebruikt.
+            </span>
+          </div>
+        )}
+
+        {configError && (
+          <div className="auth-error">
+            <AlertCircle size={16} style={{ flex: 'none', marginTop: 1 }} />
+            <span>
+              <strong>Instellingsfout.</strong> {configError} De app gebruikt
+              nu de ingebouwde testgegevens.
             </span>
           </div>
         )}

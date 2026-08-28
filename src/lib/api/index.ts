@@ -18,4 +18,4 @@ export const usingSupabase = supabaseConfigured
 
 export type { ApiAdapter, PushChange, PullResult } from './types'
 export { DEMO_ACCOUNTS, isForcedOffline, setForcedOffline, seedMockServer } from './mockApi'
-export { supabase, supabaseSignOut } from './supabaseApi'
+export { supabase, supabaseSignOut, configError } from './supabaseApi'

@@ -12,7 +12,7 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "node scripts/check-env.cjs && tsc --noEmit && vite build",
     "preview": "vite preview",
     "selftest": "tsx scripts/selftest.ts",
     "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env NODE_ENV=development node scripts/start-electron.cjs\"",

@@ -1,9 +1,9 @@
 import { create } from 'zustand'
 import { api, supabaseSignOut, usingSupabase } from '../lib/api'
-import { db } from '../lib/db'
+import { db, getMeta, setMeta } from '../lib/db'
 import { rememberOfflineLogin, verifyOfflineLogin } from '../lib/offlineAuth'
 import { storageGet, storageRemove, storageSet } from '../lib/storage'
-import { useSync } from '../lib/sync'
+import { LAST_SYNC, setSyncEnabled, useSync } from '../lib/sync'
 import type { Role, User } from '../lib/types'
 
 const SESSION_KEY = 'tw.session'
@@ -28,6 +28,35 @@ interface AuthStore {
   clearRole: () => void
 }
 
+const CACHE_OWNER = 'cacheOwner'
+
+/**
+ * Zorgt dat de lokale cache bij deze gebruiker hoort.
+ *
+ * Logt er iemand anders in op hetzelfde apparaat, dan moeten de gegevens van
+ * de vorige weg -- een klant hoort de wasbeurten van een collega niet in zijn
+ * cache te vinden. En omdat rechten intussen gewijzigd kunnen zijn, halen we
+ * na elke inlog alles opnieuw op in plaats van alleen het verschil.
+ *
+ * De outbox blijft staan: wijzigingen die nog verstuurd moeten worden mogen
+ * niet verdwijnen.
+ */
+async function prepareCacheFor(userId: string) {
+  const previous = await getMeta<string | null>(CACHE_OWNER, null)
+
+  if (previous && previous !== userId) {
+    await Promise.all([
+      db.users.clear(), db.companies.clear(), db.washJobs.clear(),
+      db.inventory.clear(), db.stockMovements.clear(),
+      db.expenses.clear(), db.timeEntries.clear(),
+    ])
+  }
+
+  await setMeta(CACHE_OWNER, userId)
+  await setMeta(LAST_SYNC, 0)
+  useSync.setState({ lastSyncAt: null })
+}
+
 export const useAuth = create<AuthStore>((set, get) => ({
   user: null,
   role: null,
@@ -41,8 +70,12 @@ export const useAuth = create<AuthStore>((set, get) => ({
       if (!raw) return
       const session = JSON.parse(raw) as Session
       const user = await db.users.get(session.userId)
-      if (user && user.active) set({ user })
-      else await storageRemove(SESSION_KEY)
+      if (user && user.active) {
+        set({ user })
+        setSyncEnabled(true)
+      } else {
+        await storageRemove(SESSION_KEY)
+      }
     } catch {
       /* corrupte sessie: gewoon opnieuw inloggen */
     } finally {
@@ -67,7 +100,10 @@ export const useAuth = create<AuthStore>((set, get) => ({
         // Onthouden zodat deze persoon later ook zonder internet binnenkomt.
         await rememberOfflineLogin(email, password, userId)
 
-        // Eerste keer: de lokale cache vullen.
+        await prepareCacheFor(userId)
+        setSyncEnabled(true)
+
+        // Alles ophalen waar deze gebruiker bij mag.
         await useSync.getState().sync({ silent: true })
       } catch {
         // Geen verbinding: terugvallen op wat dit apparaat eerder leerde.
@@ -85,6 +121,7 @@ export const useAuth = create<AuthStore>((set, get) => ({
           SESSION_KEY,
           JSON.stringify({ userId, token: 'offline', at: Date.now() }),
         )
+        setSyncEnabled(true)
       }
 
       const user = await db.users.get(userId)
@@ -112,6 +149,7 @@ export const useAuth = create<AuthStore>((set, get) => ({
   },
 
   logout: async () => {
+    setSyncEnabled(false)
     await storageRemove(SESSION_KEY)
     await supabaseSignOut()
     set({ user: null, role: null, error: null })

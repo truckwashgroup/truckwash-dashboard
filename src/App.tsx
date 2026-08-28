@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { Loader2, Truck } from 'lucide-react'
 import { useAuth } from './store/useAuth'
-import { startSyncEngine } from './lib/sync'
+import { setSyncEnabled, startSyncEngine } from './lib/sync'
 import { useUpdates } from './lib/updates'
 import Login from './components/Login'
 import CarwashAnimation from './components/CarwashAnimation'
@@ -21,6 +21,8 @@ export default function App() {
   const [washed, setWashed] = useState(false)
 
   useEffect(() => {
+    // Pas synchroniseren als er een sessie is; restore() zet hem aan.
+    setSyncEnabled(false)
     startSyncEngine()
     void initUpdates()
     void restore()

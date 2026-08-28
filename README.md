@@ -94,7 +94,7 @@ en kijk hoe de wachtrij leegloopt.
 Het gedrag hierboven staat in een echte testsuite:
 
 ```bash
-npm run selftest        # 41 controles op de sync-motor, analyses en datamapping
+npm run selftest        # 46 controles op de sync-motor, analyses en datamapping
 ```
 
 ---
@@ -313,6 +313,11 @@ VITE_SUPABASE_ANON_KEY=eyJhbGciOi...
 **4. Maak gebruikers aan** onder *Authentication → Users → Add user*. Zet
 "Auto Confirm User" aan, anders moet er eerst een e-mail bevestigd worden. Er
 wordt automatisch een profiel aangemaakt.
+
+**4b. Zet openbaar registreren uit.** Standaard mag iedereen die de app heeft
+zelf een account aanmaken. Voor een bedrijfsapp wil je dat niet: ga naar
+*Authentication -> Sign In / Providers* en schakel "Allow new users to sign up"
+uit. Nieuwe collega's voeg je daarna zelf toe onder *Users*.
 
 **5. Ken rollen toe.** Nieuwe gebruikers krijgen standaard alleen de klantrol.
 Geef jezelf alle drie via de SQL Editor:

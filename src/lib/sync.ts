@@ -13,9 +13,22 @@ import type { EntityName, SyncOp, SyncState } from './types'
  *                automatisch verwerkt zodra er weer verbinding is.
  * ------------------------------------------------------------------ */
 
-const LAST_SYNC = 'lastSyncAt'
+export const LAST_SYNC = 'lastSyncAt'
 const MAX_TRIES = 8
 const BATCH = 50
+
+/**
+ * Synchroniseren heeft alleen zin met een sessie. Een echte backend geeft een
+ * niet-ingelogde bezoeker terecht niets terug; zou de app dan toch de teller
+ * bijwerken, dan denkt hij na het inloggen dat hij al bij is en blijft de
+ * cache leeg.
+ */
+let enabled = true
+
+export function setSyncEnabled(v: boolean) {
+  enabled = v
+  if (v) scheduleFlush(150)
+}
 
 interface SyncStore extends SyncState {
   setOnline: (v: boolean) => void
@@ -37,7 +50,7 @@ export const useSync = create<SyncStore>((set, get) => ({
   },
 
   sync: async (opts) => {
-    if (get().syncing) return
+    if (!enabled || get().syncing) return
     set({ syncing: true, lastError: opts?.silent ? get().lastError : null })
     try {
       const reachable = await api.ping()

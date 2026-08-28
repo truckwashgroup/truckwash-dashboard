@@ -270,5 +270,38 @@ check('null uit Postgres wordt weggelaten',
 
 /* ==================================================================== */
 
+console.log('\n9. Niet synchroniseren zonder sessie')
+// Een echte backend geeft een niet-ingelogde bezoeker niets terug. Zou de app
+// dan toch de teller bijzetten, dan denkt hij na het inloggen dat hij bij is
+// en blijft de cache leeg -- precies de bug die dit voorkomt.
+const { setSyncEnabled, LAST_SYNC } = await import('../src/lib/sync')
+const { getMeta, setMeta } = await import('../src/lib/db')
+
+setSyncEnabled(false)
+await setMeta(LAST_SYNC, 0)
+
+await jobs.update(created!.id, { notes: 'gemaakt terwijl uitgelogd' })
+const queuedWhileLoggedOut = await db.outbox.count()
+await sync()
+
+check('sync doet niets zonder sessie', (await db.outbox.count()) === queuedWhileLoggedOut)
+check('de teller blijft op nul staan', (await getMeta(LAST_SYNC, -1)) === 0,
+  String(await getMeta(LAST_SYNC, -1)))
+
+setSyncEnabled(true)
+await sync()
+
+check('na inloggen loopt de wachtrij alsnog leeg', (await db.outbox.count()) === 0)
+check('en staat de teller op de servertijd', (await getMeta(LAST_SYNC, 0)) > 0)
+
+// Volledige pull na het inloggen: teller op 0 en de cache moet weer vullen.
+await db.washJobs.clear()
+await setMeta(LAST_SYNC, 0)
+await sync()
+check('een volledige pull vult de cache opnieuw', (await db.washJobs.count()) > 400,
+  String(await db.washJobs.count()))
+
+/* ==================================================================== */
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

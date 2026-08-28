@@ -9,7 +9,25 @@ export default defineConfig({
   resolve: {
     alias: { '@': path.resolve(__dirname, 'src') },
   },
-  server: { port: 5173, strictPort: true },
+  // Zonder dit doorzoekt Vite ook android/ en ios/. Daar staat een kopie van
+  // een eerdere build, en die probeert hij dan als broncode te behandelen --
+  // met klachten over pakketten die alleen in die oude bundel voorkomen.
+  optimizeDeps: {
+    entries: ['index.html'],
+  },
+
+  server: {
+    port: 5173,
+    strictPort: true,
+    watch: {
+      ignored: [
+        '**/android/**',
+        '**/ios/**',
+        '**/dist/**',
+        '**/release/**',
+      ],
+    },
+  },
   build: {
     outDir: 'dist',
     sourcemap: false,

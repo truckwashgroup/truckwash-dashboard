@@ -23,6 +23,7 @@ interface DesktopBridge {
   getVersion(): Promise<string>
   checkForUpdates(): Promise<{ ok: boolean; reason?: string }>
   installUpdate(): Promise<void>
+  notify?(title: string, body: string): Promise<boolean>
   onUpdateStatus(cb: (p: any) => void): () => void
 }
 

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { CalendarCheck, CalendarDays, Package, Receipt, Timer } from 'lucide-react'
+import { CalendarCheck, CalendarDays, GraduationCap, Package, Receipt, Timer } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db } from '../../lib/db'
 import { dateFull } from '../../lib/format'
@@ -10,6 +10,8 @@ import Uren from './Uren'
 import Materiaal from './Materiaal'
 import KostenIndienen from './KostenIndienen'
 import MijnRooster from './MijnRooster'
+import Opleiding from '../../components/Opleiding'
+import { useNavTarget } from '../../store/useNav'
 
 const DAY = 86_400_000
 
@@ -19,6 +21,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   uren: { title: 'Mijn uren', subtitle: 'Tijdregistratie' },
   materiaal: { title: 'Materiaal', subtitle: 'Voorraad en verbruik' },
   kosten: { title: 'Kosten', subtitle: 'Bonnen indienen ter goedkeuring' },
+  opleiding: { title: 'Opleiding', subtitle: 'Cursussen en certificaten' },
 }
 
 export default function EmployeeDashboard() {
@@ -40,7 +43,10 @@ export default function EmployeeDashboard() {
     { key: 'uren', label: 'Mijn uren', icon: Timer },
     { key: 'materiaal', label: 'Materiaal', icon: Package },
     { key: 'kosten', label: 'Kosten', icon: Receipt },
+    { key: 'opleiding', label: 'Opleiding', icon: GraduationCap },
   ]
+
+  useNavTarget(['vandaag', 'rooster', 'uren', 'materiaal', 'kosten', 'opleiding'], (p) => setPage(p))
 
   const meta = TITLES[page]
 
@@ -58,6 +64,7 @@ export default function EmployeeDashboard() {
       {page === 'uren' && <Uren />}
       {page === 'materiaal' && <Materiaal />}
       {page === 'kosten' && <KostenIndienen />}
+      {page === 'opleiding' && <Opleiding />}
     </Shell>
   )
 }

@@ -1,15 +1,16 @@
-import { type ReactNode, useState } from 'react'
+import { type ReactNode } from 'react'
 import { motion } from 'framer-motion'
 import {
-  LayoutGrid, LogOut, RefreshCw, WifiOff, Wifi, Download,
+  LayoutGrid, LogOut, RefreshCw,
 } from 'lucide-react'
 import { useAuth } from '../store/useAuth'
 import { useSync } from '../lib/sync'
 import { useUpdates } from '../lib/updates'
-import { isForcedOffline, setForcedOffline } from '../lib/api'
 import { initials, relative } from '../lib/format'
 import SyncPill from './SyncPill'
 import Logo from './Logo'
+import GlobalSearch from './GlobalSearch'
+import NotificationCenter from './NotificationCenter'
 import type { LucideIcon } from 'lucide-react'
 
 export interface NavItem {
@@ -35,14 +36,7 @@ export default function Shell({
 }: Props) {
   const { user, clearRole, logout } = useAuth()
   const { lastSyncAt, sync, syncing } = useSync()
-  const { state: updateState, check: checkUpdates, version } = useUpdates()
-  const [flightMode, setFlightMode] = useState(isForcedOffline())
-
-  function toggleFlight() {
-    const next = !flightMode
-    setFlightMode(next)
-    setForcedOffline(next)
-  }
+  const version = useUpdates((s) => s.version)
 
   return (
     <div className="app-shell">
@@ -120,29 +114,9 @@ export default function Shell({
           </div>
           <span className="spacer" />
 
+          <GlobalSearch />
+
           {actions}
-
-          <button
-            className="btn ghost sm hide-mobile"
-            onClick={toggleFlight}
-            title={flightMode
-              ? 'Simulatie: offline. Klik om weer verbinding te maken.'
-              : 'Simuleer geen internet, om de offline-modus te testen.'}
-          >
-            {flightMode ? <WifiOff size={15} color="var(--warn)" /> : <Wifi size={15} />}
-            {flightMode ? 'Offline-test aan' : 'Offline testen'}
-          </button>
-
-          <button
-            className="btn ghost sm hide-mobile"
-            onClick={() => void checkUpdates()}
-            title="Controleer op updates"
-          >
-            {updateState === 'checking'
-              ? <RefreshCw size={15} className="spin" />
-              : <Download size={15} />}
-            Updates
-          </button>
 
           <button
             className="btn ghost sm"
@@ -153,6 +127,7 @@ export default function Shell({
             <RefreshCw size={15} className={syncing ? 'spin' : ''} />
           </button>
 
+          <NotificationCenter />
           <SyncPill />
         </header>
 

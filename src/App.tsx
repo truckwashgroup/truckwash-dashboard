@@ -9,8 +9,10 @@ import CarwashAnimation from './components/CarwashAnimation'
 import RolePicker from './components/RolePicker'
 import Toasts from './components/Toasts'
 import UpdateBanner from './components/UpdateBanner'
+import { useDeviceNotifications } from './components/NotificationCenter'
 import EmployeeDashboard from './dashboards/employee/EmployeeDashboard'
 import CustomerDashboard from './dashboards/customer/CustomerDashboard'
+import SupervisorDashboard from './dashboards/supervisor/SupervisorDashboard'
 import ManagementDashboard from './dashboards/management/ManagementDashboard'
 
 export default function App() {
@@ -19,6 +21,9 @@ export default function App() {
 
   /** De wasstraat-animatie draait één keer per inlog. */
   const [washed, setWashed] = useState(false)
+
+  // Nieuwe berichten ook buiten de app laten zien
+  useDeviceNotifications()
 
   useEffect(() => {
     // Pas synchroniseren als er een sessie is; restore() zet hem aan.
@@ -57,6 +62,8 @@ export default function App() {
         <RolePicker />
       ) : role === 'employee' ? (
         <EmployeeDashboard />
+      ) : role === 'supervisor' ? (
+        <SupervisorDashboard />
       ) : role === 'customer' ? (
         <CustomerDashboard />
       ) : (

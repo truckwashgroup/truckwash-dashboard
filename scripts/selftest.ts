@@ -440,5 +440,155 @@ check('gegevens blijven staan', (await db.washJobs.count()) === naHerstel)
 
 /* ==================================================================== */
 
+console.log('\n13. Rechten per persoon')
+const { can, effectivePermissions, togglePermission, wouldLockOut, ROLE_DEFAULTS } =
+  await import('../src/lib/permissions')
+const { PERMISSIONS } = await import('../src/lib/types')
+
+const wasser = (await db.users.get('u_wasser'))!
+const voorman = (await db.users.get('u_wasser3'))!
+const manager = (await db.users.get('u_manager'))!
+
+check('werknemer mag wagens oppakken', can(wasser, 'jobs.claim'))
+check('werknemer mag geen bonnen goedkeuren', !can(wasser, 'expenses.approve'))
+check('werknemer ziet geen loongegevens', !can(wasser, 'staff.pay'))
+check('leidinggevende mag het rooster maken', can(voorman, 'roster.edit'))
+check('leidinggevende mag berichten sturen', can(voorman, 'notify.send'))
+check('leidinggevende mag geen rechten uitdelen', !can(voorman, 'staff.permissions'))
+check('management mag alles', effectivePermissions(manager).size === PERMISSIONS.length)
+check('geblokkeerd account mag niets',
+  effectivePermissions({ ...wasser, active: false }).size === 0)
+
+// Losse afwijkingen: alleen het verschil met de rol wordt bewaard
+const extra = togglePermission(wasser, 'finance.view', true)
+check('extra recht komt in grants',
+  extra.grants.includes('finance.view') && extra.revokes.length === 0)
+check('het werkt ook echt',
+  can({ ...wasser, ...extra }, 'finance.view'))
+
+const minder = togglePermission(wasser, 'jobs.claim', false)
+check('ingetrokken rolrecht komt in revokes',
+  minder.revokes.includes('jobs.claim') && minder.grants.length === 0)
+check('en is daarna weg', !can({ ...wasser, ...minder }, 'jobs.claim'))
+
+const terug = togglePermission({ ...wasser, ...minder }, 'jobs.claim', true)
+check('weer aanzetten laat niets achter',
+  terug.grants.length === 0 && terug.revokes.length === 0)
+
+check('intrekken wint van toekennen',
+  !can({ ...wasser, grants: ['finance.view'], revokes: ['finance.view'] }, 'finance.view'))
+
+// Niemand mag zichzelf buitensluiten
+const alleUsers = await db.users.toArray()
+const zonderRechten = togglePermission(manager, 'staff.permissions', false)
+const managers = alleUsers.filter((u) => u.active && u.roles.includes('management'))
+check('meerdere managers: uitzetten mag',
+  managers.length < 2 || !wouldLockOut(alleUsers, manager, zonderRechten))
+check('laatste rechtenbeheerder wordt beschermd',
+  wouldLockOut([manager], manager, zonderRechten))
+
+check('elke rol heeft een standaardset', Object.keys(ROLE_DEFAULTS).length === 4)
+
+/* ==================================================================== */
+
+console.log('\n14. Smartroster')
+const { planWeek, patternOf } = await import('../src/lib/smartRoster')
+
+const alleShifts = await db.shifts.toArray()
+const alleJobs = await db.washJobs.toArray()
+const medewerkers = alleUsers.filter((u) => u.active && u.roles.includes('employee'))
+
+const patroon = patternOf(alleShifts, 'u_wasser')
+check('patroon herkent gewerkte dagen', patroon.sampleSize > 0, String(patroon.sampleSize))
+check('gewone begintijd is een reële tijd',
+  patroon.usualStart >= 5 && patroon.usualStart <= 12, String(patroon.usualStart))
+check('gewone eindtijd ligt na de begintijd', patroon.usualEnd > patroon.usualStart)
+
+const volgendeWeek = weekStart(Date.now()) + 7 * 86_400_000
+const plan = planWeek({ staff: medewerkers, shifts: alleShifts, jobs: alleJobs, weekStart: volgendeWeek })
+
+check('plan levert een samenvatting per persoon',
+  plan.summary.length === medewerkers.filter((u) => (u.contractHours ?? 0) > 0).length)
+check('elk voorstel heeft een reden',
+  plan.proposals.every((p) => p.reason.length > 0))
+check('geen voorstel op zondag',
+  plan.proposals.every((p) => new Date(p.day).getDay() !== 0))
+check('geen dienst korter dan drie uur',
+  plan.proposals.every((p) => p.hours >= 3), 'kortste: ' +
+    Math.min(...plan.proposals.map((p) => p.hours), 99))
+// De planner mag niets toevoegen aan wie al aan zijn uren zit, en waar hij
+// wel bijplant moet het totaal binnen het contract blijven. Wat er al stond
+// kan hoger zijn -- dat meldt hij als opmerking, maar hij verergert het niet.
+check('planner voegt niets toe aan wie al vol zit',
+  plan.summary.every((s) => s.plannedHours >= s.contractHours - 0.5 ? s.proposedHours === 0 : true),
+  plan.summary.map((s) => `${s.userName}:${s.plannedHours}+${s.proposedHours}/${s.contractHours}`).join(' '))
+check('waar hij bijplant blijft het binnen het contract',
+  plan.summary.every((s) => s.proposedHours === 0 || s.plannedHours + s.proposedHours <= s.contractHours + 2),
+  plan.summary.filter((s) => s.proposedHours > 0)
+    .map((s) => `${s.userName}:${s.plannedHours + s.proposedHours}/${s.contractHours}`).join(' '))
+check('te veel ingeroosterd wordt gemeld',
+  plan.summary.filter((s) => s.plannedHours > s.contractHours + 2).every((s) => !!s.note))
+check('geen twee voorstellen op dezelfde dag voor dezelfde persoon',
+  new Set(plan.proposals.map((p) => p.userId + ':' + p.day)).size === plan.proposals.length)
+check('voorstellen vallen binnen de openingstijden',
+  plan.proposals.every((p) => {
+    const from = new Date(p.startAt).getHours()
+    const till = new Date(p.endAt).getHours()
+    return from >= 6 && till <= 19
+  }))
+
+/* ==================================================================== */
+
+console.log('\n15. Berichten en opleiding')
+const { notifications: notifyRepo, learning } = await import('../src/lib/repo')
+
+const bericht = await notifyRepo.send({
+  to: { id: 'u_wasser', name: 'Tom Verhoeven' },
+  from: { id: 'u_wasser3', name: 'Nour El Amrani' },
+  kind: 'taak',
+  title: 'Zelftest',
+  body: 'Een bericht uit de test',
+})
+check('bericht staat lokaal', !!(await db.notifications.get(bericht!.id)))
+check('bericht is ongelezen', !(await db.notifications.get(bericht!.id))!.readAt)
+
+await notifyRepo.markRead(bericht!.id)
+check('gelezen zetten werkt', !!(await db.notifications.get(bericht!.id))!.readAt)
+
+const groeps = await notifyRepo.broadcast({
+  role: 'employee',
+  from: { id: 'u_manager', name: 'Ilse Bakker' },
+  kind: 'info',
+  title: 'Groepsbericht',
+  body: 'Voor iedereen',
+})
+check('groepsbericht richt zich op een rol',
+  (await db.notifications.get(groeps!.id))!.toRole === 'employee')
+
+await sync()
+await db.notifications.clear()
+await setMeta(LAST_SYNC, 0)
+await sync()
+check('berichten staan op de server', !!(await db.notifications.get(bericht!.id)))
+
+// Opleiding: toets afleggen
+const cursus = (await db.courses.toArray())[0]
+check('cursussen zijn gesynchroniseerd', !!cursus)
+
+await learning.start({ id: 'u_wasser', name: 'Tom Verhoeven' }, cursus.id)
+const voortgangId = 'u_wasser__' + cursus.id
+await learning.submitQuiz(voortgangId, 60, cursus.passScore, cursus.validMonths)
+const gezakt = await db.courseProgress.get(voortgangId)
+check('te lage score is niet geslaagd', gezakt?.passed === false, String(gezakt?.score))
+
+await learning.submitQuiz(voortgangId, 100, cursus.passScore, cursus.validMonths)
+const geslaagd = await db.courseProgress.get(voortgangId)
+check('voldoende score is geslaagd', geslaagd?.passed === true)
+check('pogingen worden geteld', geslaagd?.attempts === 2, String(geslaagd?.attempts))
+check('geldigheid wordt gezet',
+  cursus.validMonths ? (geslaagd?.expiresAt ?? 0) > Date.now() : geslaagd?.expiresAt === undefined)
+
+/* ==================================================================== */
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

@@ -78,11 +78,13 @@ console.log('\n1. Schema opbouwen zoals jij het plakt')
 let db = await fresh()
 await run(db, '0001_init.sql draait', sqlFile('supabase/migrations/0001_init.sql'))
 await run(db, '0002_personeel_en_rooster.sql draait', sqlFile('supabase/migrations/0002_personeel_en_rooster.sql'))
+await run(db, '0003_rechten_berichten_opleiding.sql draait', sqlFile('supabase/migrations/0003_rechten_berichten_opleiding.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
 await run(db, '0001 nogmaals', sqlFile('supabase/migrations/0001_init.sql'))
 await run(db, '0002 nogmaals', sqlFile('supabase/migrations/0002_personeel_en_rooster.sql'))
+await run(db, '0003 nogmaals', sqlFile('supabase/migrations/0003_rechten_berichten_opleiding.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
 const bedrijven = await db.query('select count(*)::int as n from public.companies')
@@ -97,7 +99,8 @@ const byName = Object.fromEntries(cols.rows.map((r) => [r.column_name, r.data_ty
 
 check('profiles.id is text geworden', byName.id === 'text', byName.id)
 check('profiles.auth_id bestaat', byName.auth_id === 'uuid', byName.auth_id)
-for (const c of ['personnel_number', 'phone', 'job_title', 'contract_hours', 'start_date', 'notes']) {
+for (const c of ['personnel_number', 'phone', 'job_title', 'contract_hours',
+                 'start_date', 'notes', 'grants', 'revokes', 'supervisor_id']) {
   check(`profiles.${c} bestaat`, c in byName)
 }
 
@@ -106,7 +109,8 @@ const tables = await db.query(`
    where table_schema = 'public' order by table_name`)
 const names = tables.rows.map((r) => r.table_name)
 for (const t of ['companies', 'profiles', 'wash_jobs', 'inventory_items',
-                 'stock_movements', 'expenses', 'time_entries', 'shifts']) {
+                 'stock_movements', 'expenses', 'time_entries', 'shifts',
+                 'notifications', 'courses', 'course_progress']) {
   check(`tabel ${t}`, names.includes(t))
 }
 
@@ -221,6 +225,101 @@ check('klant ziet het rooster niet',
   (await countAs(klant, 'select count(*)::int as n from public.shifts')) === 0)
 check('werknemer ziet het rooster wel',
   (await countAs(wasser, 'select count(*)::int as n from public.shifts')) === 1)
+
+console.log('\n8. Berichten, opleiding en de leidinggevende')
+
+await db.exec(`
+  insert into auth.users (id, email)
+  values ('55555555-5555-5555-5555-555555555555', 'voorman@truckwash1group.nl');
+
+  update public.profiles
+     set roles = array['employee','supervisor']::text[]
+   where email = 'voorman@truckwash1group.nl';
+
+  insert into public.courses (id, code, title, category, required_for, pass_score)
+  values ('crs_test', 'TST-01', 'Testcursus', 'veiligheid', array['employee']::text[], 80);
+
+  insert into public.course_progress (id, user_id, course_id, passed)
+  values ('p_wasser', (select id from public.profiles where email = 'wasser@truckwash1group.nl'),
+          'crs_test', true),
+         ('p_ander',  'u_joris', 'crs_test', false);
+
+  alter table public.notifications   force row level security;
+  alter table public.courses         force row level security;
+  alter table public.course_progress force row level security;
+  alter table public.time_entries    force row level security;
+  grant select, insert, update, delete on all tables in schema public to authenticated;
+`)
+
+const voorman = '55555555-5555-5555-5555-555555555555'
+
+// Een leidinggevende mag berichten sturen; een gewone werknemer niet.
+async function tryInsertNotification(uid, id, fromId) {
+  await asUser(db, uid)
+  await db.exec('set role authenticated;')
+  try {
+    await db.exec(`insert into public.notifications (id, to_role, title, from_user_id, created_at)
+                   values ('${id}', 'employee', 'Test', '${fromId}', 1);`)
+    return true
+  } catch {
+    return false
+  } finally {
+    await db.exec('reset role;')
+  }
+}
+
+const { rows: [voormanRow] } = await db.query(
+  `select id from public.profiles where auth_id = '${voorman}'`)
+const { rows: [wasserRow] } = await db.query(
+  `select id from public.profiles where email = 'wasser@truckwash1group.nl'`)
+
+check('leidinggevende mag een bericht sturen',
+  await tryInsertNotification(voorman, 'nt_lead', voormanRow.id))
+check('werknemer mag geen bericht sturen',
+  !(await tryInsertNotification(wasser, 'nt_worker', wasserRow.id)))
+
+check('werknemer ziet het groepsbericht',
+  (await countAs(wasser, "select count(*)::int as n from public.notifications where to_role = 'employee'")) === 1)
+check('klant ziet het bericht voor werknemers niet',
+  (await countAs(klant, 'select count(*)::int as n from public.notifications')) === 0)
+
+check('werknemer ziet het lesmateriaal',
+  (await countAs(wasser, 'select count(*)::int as n from public.courses')) === 1)
+check('klant ziet het lesmateriaal niet',
+  (await countAs(klant, 'select count(*)::int as n from public.courses')) === 0)
+
+check('werknemer ziet alleen de eigen voortgang',
+  (await countAs(wasser, 'select count(*)::int as n from public.course_progress')) === 1)
+check('leidinggevende ziet de voortgang van iedereen',
+  (await countAs(voorman, 'select count(*)::int as n from public.course_progress')) === 2)
+
+// Uren: leidinggevende mag meekijken, een gewone werknemer alleen bij zichzelf
+await db.exec(`
+  insert into public.time_entries (id, user_id, started_at) values
+    ('te_a', '${wasserRow.id}', 1),
+    ('te_b', 'u_joris', 1);
+`)
+check('werknemer ziet alleen de eigen uren',
+  (await countAs(wasser, 'select count(*)::int as n from public.time_entries')) === 1)
+check('leidinggevende ziet de uren van het team',
+  (await countAs(voorman, 'select count(*)::int as n from public.time_entries')) === 2)
+
+// Rooster maken mag de leidinggevende nu ook
+async function tryInsertShift(uid, id) {
+  await asUser(db, uid)
+  await db.exec('set role authenticated;')
+  try {
+    await db.exec(`insert into public.shifts (id, user_id, kind, start_at, end_at)
+                   values ('${id}', 'u_joris', 'dienst', 0, 1);`)
+    return true
+  } catch {
+    return false
+  } finally {
+    await db.exec('reset role;')
+  }
+}
+check('leidinggevende mag het rooster wijzigen', await tryInsertShift(voorman, 'sh_lead'))
+check('werknemer mag het rooster niet wijzigen', !(await tryInsertShift(wasser, 'sh_worker')))
 
 await db.close()
 

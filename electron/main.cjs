@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, Menu } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, Menu, Notification } = require('electron')
 const path = require('node:path')
 
 // dev = vite-server; anders wordt de gebouwde dist/ geladen
@@ -90,6 +90,24 @@ ipcMain.handle('update:check', async () => {
     return { ok: false, reason: String(e && e.message ? e.message : e) }
   }
 })
+ipcMain.handle('notify:show', (_e, { title, body }) => {
+  if (!Notification.isSupported()) return false
+  const n = new Notification({
+    title: String(title ?? 'Truckwash1'),
+    body: String(body ?? ''),
+    silent: false,
+  })
+  // Klikken op de melding brengt het venster naar voren.
+  n.on('click', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+  n.show()
+  return true
+})
+
 ipcMain.handle('update:install', () => {
   if (autoUpdater) autoUpdater.quitAndInstall(false, true)
 })

@@ -2,10 +2,12 @@ import { db, uid } from './db'
 import { enqueue } from './sync'
 import {
   SERVICES,
-  type Expense, type ExpenseStatus, type InventoryItem, type Role,
-  type ServiceKind, type Shift, type ShiftKind, type TimeEntry,
+  type AppNotification, type Course, type CourseProgress, type Expense,
+  type ExpenseStatus, type InventoryItem, type NotificationKind, type Permission,
+  type Role, type ServiceKind, type Shift, type ShiftKind, type TimeEntry,
   type User, type WashJob, type WashStatus,
 } from './types'
+import { showDeviceNotification } from './notify'
 
 /* ------------------------------------------------------------------ *
  *  Alle schrijfacties lopen hierlangs.
@@ -229,6 +231,159 @@ export const shifts = {
   },
 }
 
+/* --------------------------- Berichten ---------------------------- */
+
+export const notifications = {
+  /** Bericht aan één persoon. */
+  async send(input: {
+    to: Pick<User, 'id' | 'name'>
+    from: Pick<User, 'id' | 'name'>
+    kind: NotificationKind
+    title: string
+    body: string
+    link?: string
+  }) {
+    const note: AppNotification = {
+      id: uid('nt'),
+      toUserId: input.to.id,
+      kind: input.kind,
+      title: input.title.trim(),
+      body: input.body.trim(),
+      fromUserId: input.from.id,
+      fromName: input.from.name,
+      createdAt: Date.now(),
+      link: input.link,
+      updatedAt: Date.now(),
+    }
+    return put('notifications', db.notifications, note)
+  },
+
+  /** Bericht aan iedereen met een bepaalde rol. */
+  async broadcast(input: {
+    role: Role
+    from: Pick<User, 'id' | 'name'>
+    kind: NotificationKind
+    title: string
+    body: string
+    link?: string
+  }) {
+    const note: AppNotification = {
+      id: uid('nt'),
+      toRole: input.role,
+      kind: input.kind,
+      title: input.title.trim(),
+      body: input.body.trim(),
+      fromUserId: input.from.id,
+      fromName: input.from.name,
+      createdAt: Date.now(),
+      link: input.link,
+      updatedAt: Date.now(),
+    }
+    return put('notifications', db.notifications, note)
+  },
+
+  async markRead(id: string) {
+    const note = await db.notifications.get(id)
+    if (!note || note.readAt) return
+    return put('notifications', db.notifications, { ...note, readAt: Date.now() })
+  },
+
+  async markAllRead(userId: string, roles: Role[]) {
+    const all = await db.notifications.toArray()
+    const mine = all.filter(
+      (n) => !n.readAt && (n.toUserId === userId || (n.toRole && roles.includes(n.toRole))),
+    )
+    for (const n of mine) {
+      await put('notifications', db.notifications, { ...n, readAt: Date.now() })
+    }
+    return mine.length
+  },
+
+  /** Toont een melding op het apparaat zelf. */
+  async toDevice(title: string, body: string) {
+    await showDeviceNotification(title, body)
+  },
+}
+
+/* --------------------------- Opleiding ---------------------------- */
+
+export const learning = {
+  async upsertCourse(course: Course) {
+    return put('courses', db.courses, course)
+  },
+
+  /** Start of hervat een cursus. */
+  async start(user: Pick<User, 'id' | 'name'>, courseId: string) {
+    const id = `${user.id}__${courseId}`
+    const existing = await db.courseProgress.get(id)
+    if (existing) return existing
+
+    const progress: CourseProgress = {
+      id,
+      userId: user.id,
+      userName: user.name,
+      courseId,
+      startedAt: Date.now(),
+      lessonIndex: 0,
+      passed: false,
+      attempts: 0,
+      updatedAt: Date.now(),
+    }
+    return put('courseProgress', db.courseProgress, progress)
+  },
+
+  async setLesson(id: string, lessonIndex: number) {
+    const p = await db.courseProgress.get(id)
+    if (!p) return
+    if (lessonIndex <= p.lessonIndex) return p
+    return put('courseProgress', db.courseProgress, { ...p, lessonIndex })
+  },
+
+  /** Verwerkt een toetspoging. */
+  async submitQuiz(id: string, scorePct: number, passScore: number, validMonths?: number) {
+    const p = await db.courseProgress.get(id)
+    if (!p) return
+    const passed = scorePct >= passScore
+    return put('courseProgress', db.courseProgress, {
+      ...p,
+      attempts: p.attempts + 1,
+      score: scorePct,
+      passed,
+      completedAt: passed ? Date.now() : undefined,
+      expiresAt: passed && validMonths
+        ? new Date(new Date().setMonth(new Date().getMonth() + validMonths)).getTime()
+        : undefined,
+    })
+  },
+
+  /** Wijst een cursus toe met een uiterste datum. */
+  async assign(input: {
+    user: Pick<User, 'id' | 'name'>
+    courseId: string
+    assignedBy: string
+    dueAt?: number
+  }) {
+    const id = `${input.user.id}__${input.courseId}`
+    const existing = await db.courseProgress.get(id)
+    const progress: CourseProgress = existing
+      ? { ...existing, assignedBy: input.assignedBy, dueAt: input.dueAt }
+      : {
+          id,
+          userId: input.user.id,
+          userName: input.user.name,
+          courseId: input.courseId,
+          startedAt: 0,
+          lessonIndex: 0,
+          passed: false,
+          attempts: 0,
+          assignedBy: input.assignedBy,
+          dueAt: input.dueAt,
+          updatedAt: Date.now(),
+        }
+    return put('courseProgress', db.courseProgress, progress)
+  },
+}
+
 /* ---------------------------- Gebruikers -------------------------- */
 
 export const users = {
@@ -275,6 +430,19 @@ export const users = {
     if (!user) return
     return put('users', db.users, { ...user, ...patch, id })
   },
+  /** Zet de losse rechten (afwijkingen op de rol) van een medewerker. */
+  async setPermissions(id: string, grants: Permission[], revokes: Permission[]) {
+    const user = await db.users.get(id)
+    if (!user) return
+    return put('users', db.users, { ...user, grants, revokes })
+  },
+
+  async setSupervisor(id: string, supervisorId?: string) {
+    const user = await db.users.get(id)
+    if (!user) return
+    return put('users', db.users, { ...user, supervisorId })
+  },
+
   async setRoles(id: string, roles: Role[]) {
     const user = await db.users.get(id)
     if (!user) return

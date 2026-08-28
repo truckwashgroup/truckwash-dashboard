@@ -1,7 +1,7 @@
 import Dexie, { type Table } from 'dexie'
 import type {
-  Company, Expense, InventoryItem, OutboxRecord, Shift,
-  StockMovement, TimeEntry, User, WashJob,
+  AppNotification, Company, Course, CourseProgress, Expense, InventoryItem,
+  OutboxRecord, Shift, StockMovement, TimeEntry, User, WashJob,
 } from './types'
 
 /**
@@ -17,6 +17,9 @@ class TruckwashDB extends Dexie {
   expenses!: Table<Expense, string>
   timeEntries!: Table<TimeEntry, string>
   shifts!: Table<Shift, string>
+  notifications!: Table<AppNotification, string>
+  courses!: Table<Course, string>
+  courseProgress!: Table<CourseProgress, string>
   outbox!: Table<OutboxRecord, number>
   meta!: Table<{ key: string; value: unknown }, string>
 
@@ -38,6 +41,13 @@ class TruckwashDB extends Dexie {
     this.version(2).stores({
       users: 'id, email, active, personnelNumber, updatedAt',
       shifts: 'id, userId, startAt, updatedAt',
+    })
+
+    // v3: berichten en e-learning
+    this.version(3).stores({
+      notifications: 'id, toUserId, toRole, readAt, createdAt, updatedAt',
+      courses: 'id, category, code, updatedAt',
+      courseProgress: 'id, userId, courseId, passed, updatedAt',
     })
   }
 }

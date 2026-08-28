@@ -51,14 +51,71 @@ glanzend aan de andere kant naar buiten. Overslaan kan rechtsboven.
 - Historie met zoeken en filteren
 - Facturen per maand, uitklapbaar per regel, met btw-opbouw en afdrukknop
 
+### Leidinggevende
+- Mijn team: wie staat er vandaag, wie is ingeklokt, waar loopt het vol
+- Rooster van het team maken en publiceren
+- **Smartroster**: stelt een week voor op basis van contracturen, de tijden die
+  iemand gewoonlijk werkt en de drukte van die dag — met per regel de reden
+- Uren van het team, opleidingsvoortgang, en berichten sturen
+
 ### Management
 - KPI's over 7/30/90 dagen met vergelijking t.o.v. de vorige periode
 - Omzet-, kosten- en volumegrafieken, mix van behandelingen, grootste klanten
 - **Financieel**: kostenposten valideren (los of in bulk), afkeuren met reden,
-  heropenen, plus resultaat en btw-saldo
-- Personeel: prestaties, uren, loonkosten, en het toekennen van rollen/rechten
-- Voorraad: niveaus, verbruikswaarde, bestellijst, artikelbeheer
-- Planning: alle wasopdrachten, wassers toewijzen, statussen wijzigen
+  resultaat en btw-saldo
+- Personeel: dossiers, rooster, en **per persoon precies instellen wat mag**
+- Voorraad, volledige planning, opleidingsoverzicht
+- **Beheer**: backendstatus, synchronisatie, rechtenoverzicht, lokale gegevens
+
+### Overal
+- **Zoeken** (Ctrl+K) door wasbeurten, klanten, medewerkers, voorraad en
+  cursussen — je ziet alleen waar je bij mag
+- **Zoeken met je stem**: klik op de microfoon en zeg bijvoorbeeld
+  "zoek 12-BND-4". Handig met natte handschoenen aan
+- **Meldingen** in de app en op het apparaat zelf (Windows, Android, iOS)
+- **E-learning**: veiligheid, chemie, installatie, kwaliteit en klantcontact,
+  met toets, slaagnorm en certificaten die verlopen
+
+---
+
+## Rechten
+
+Rollen geven de basis, en daarbovenop stel je per persoon los in wat wel en
+niet mag. Zo kun je een leidinggevende wel het rooster laten maken maar de
+loonkosten afschermen, zonder een aparte rol te verzinnen.
+
+| Rol | Krijgt standaard |
+|---|---|
+| Werknemer | Eigen wasbeurten oppakken, eigen rooster en uren, materiaal boeken, bon indienen, cursussen volgen |
+| Leidinggevende | Alles van werknemer, plus planning, teamrooster, uren goedkeuren, berichten sturen, cursussen toewijzen |
+| Klant | Alleen de eigen omgeving |
+| Management | Alles, inclusief rechten uitdelen en financiën |
+
+Er zijn 38 losse rechten in tien groepen. Gevoelige rechten (loongegevens,
+financiën, rechten uitdelen) vragen een extra bevestiging. Het laatste account
+dat rechten mag uitdelen kan dat recht niet kwijtraken — anders sluit je
+jezelf buiten.
+
+Aanpassen doe je in *Management → Personeel → een medewerker → Rechten*. Er
+wordt alleen de **afwijking** op de rol bewaard, zodat een latere wijziging in
+wat een rol betekent gewoon blijft doorwerken.
+
+---
+
+## Zoeken, en waarom dat veilig is
+
+De zoekbalk voert niets uit wat je typt. De zoekterm gaat als gewone tekst
+naar een vergelijking op de lokale database: geen query-taal, geen reguliere
+expressie uit invoer, geen HTML. React zet tekst altijd als tekst neer, dus
+een script in een zoekterm of in een klantnaam blijft letterlijk zichtbaar in
+plaats van uitgevoerd te worden. Daarnaast een lengtelimiet van 64 tekens en
+een wachttijd, zodat een enorme invoer de app niet kan laten vastlopen.
+
+Spraak gaat door dezelfde molen: wat er verstaan wordt komt in het zoekveld te
+staan, en jij ziet het resultaat voordat er iets gebeurt. Er wordt nooit een
+actie uitgevoerd op basis van wat er gezegd is.
+
+---
 
 ---
 
@@ -93,8 +150,8 @@ en kijk hoe de wachtrij leegloopt.
 Het gedrag hierboven staat in een echte testsuite:
 
 ```bash
-npm run selftest        # 72 controles op de sync-motor, analyses, rooster en datamapping
-npm run sqltest         # 36 controles: het databaseschema in een echte Postgres
+npm run selftest        # 111 controles op de app-logica
+npm run sqltest         # 56 controles: het databaseschema in een echte Postgres
 ```
 
 ---

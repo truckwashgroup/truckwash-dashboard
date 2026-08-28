@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('desktop', {
   getVersion: () => ipcRenderer.invoke('app:version'),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
+  notify: (title, body) => ipcRenderer.invoke('notify:show', { title, body }),
   onUpdateStatus: (cb) => {
     const handler = (_e, payload) => cb(payload)
     ipcRenderer.on('update:status', handler)

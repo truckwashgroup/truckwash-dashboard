@@ -96,6 +96,9 @@ const TABLES: Record<EntityName, string> = {
   expenses: 'expenses',
   timeEntries: 'time_entries',
   shifts: 'shifts',
+  notifications: 'notifications',
+  courses: 'courses',
+  courseProgress: 'course_progress',
 }
 
 /** Kolommen waarvan de naam niet simpelweg de snake_case-variant is. */

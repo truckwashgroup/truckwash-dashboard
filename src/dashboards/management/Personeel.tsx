@@ -1,27 +1,23 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  ArrowLeft, BadgeCheck, KeyRound, Mail, Phone, ShieldCheck, Timer,
-  UserCog, UserPlus, Users,
+  ArrowLeft, BadgeCheck, KeyRound, Mail, Phone, ShieldCheck, SlidersHorizontal,
+  Timer, UserCog, UserPlus, Users,
 } from 'lucide-react'
 import { db } from '../../lib/db'
 import { users as userRepo } from '../../lib/repo'
-import type { Role, Shift, TimeEntry, User, WashJob } from '../../lib/types'
+import { ROLE_LABELS, ROLE_ORDER, type Role, type Shift, type TimeEntry, type User, type WashJob } from '../../lib/types'
 import { duration, initials, money, number } from '../../lib/format'
 import { Badge, Card, Empty, Field, Modal, Stat } from '../../components/ui'
 import WeekRooster from '../../components/WeekRooster'
+import PermissionEditor, { PermissionSummary } from '../../components/PermissionEditor'
+import SmartRosterPanel from '../../components/SmartRosterPanel'
 import { useAuth } from '../../store/useAuth'
 import { toast } from '../../store/useToasts'
 import { staffPerformance } from '../../lib/analytics'
 import { dateInputValue, dayFromDateInput } from '../../lib/roster'
 
-const ROLE_LABELS: Record<Role, string> = {
-  employee: 'Werknemer',
-  customer: 'Klant',
-  management: 'Management',
-}
-
-const ALL_ROLES: Role[] = ['employee', 'customer', 'management']
+const ALL_ROLES: Role[] = ROLE_ORDER
 
 export default function Personeel({ days }: { days: number }) {
   const me = useAuth((s) => s.user)!
@@ -136,6 +132,7 @@ export default function Personeel({ days }: { days: number }) {
                         {!u.active && <Badge tone="danger">Inactief</Badge>}
                         {!u.authId && <Badge tone="warn"><KeyRound size={11} /> Geen login</Badge>}
                       </div>
+                      <PermissionSummary user={u} />
                     </td>
                   </tr>
                 ))}
@@ -164,6 +161,7 @@ function PersonDetail({
   meId: string
 }) {
   const [editing, setEditing] = useState(false)
+  const [permissions, setPermissions] = useState(false)
 
   const jobs = useLiveQuery(() => db.washJobs.toArray(), [], [] as WashJob[])
   const entries = useLiveQuery(() => db.timeEntries.toArray(), [], [] as TimeEntry[])
@@ -210,6 +208,9 @@ function PersonDetail({
             <div className="row" style={{ gap: 6 }}>
               <button className="btn sm" onClick={() => setEditing(true)}>
                 <UserCog size={14} /> Gegevens
+              </button>
+              <button className="btn sm" onClick={() => setPermissions(true)}>
+                <SlidersHorizontal size={14} /> Rechten
               </button>
               <button
                 className={`btn sm ${person.active ? 'ghost' : 'ok'}`}
@@ -276,6 +277,16 @@ function PersonDetail({
         person={person}
         onClose={() => setEditing(false)}
       />
+
+      <Modal
+        open={permissions}
+        title="Rechten"
+        subtitle={`Precies bepalen wat ${person.name.split(' ')[0]} wel en niet mag`}
+        onClose={() => setPermissions(false)}
+        width={720}
+      >
+        <PermissionEditor person={person} onClose={() => setPermissions(false)} />
+      </Modal>
     </>
   )
 }
@@ -521,28 +532,6 @@ function EditPersonDialog({
           <input className="input" inputMode="decimal" value={form.hourlyRate} onChange={(e) => set({ hourlyRate: e.target.value })} />
         </Field>
       </div>
-
-      <Field
-        label="Toegang tot welke dashboards"
-        help="Het managementdashboard verschijnt pas als de rol Management is toegekend."
-      >
-        <div className="row" style={{ gap: 6 }}>
-          {ALL_ROLES.map((role) => {
-            const on = form.roles.includes(role)
-            return (
-              <button
-                key={role}
-                type="button"
-                className={`btn sm ${on ? 'primary' : ''}`}
-                onClick={() => set({ roles: on ? form.roles.filter((r) => r !== role) : [...form.roles, role] })}
-              >
-                {role === 'management' && <ShieldCheck size={13} />}
-                {ROLE_LABELS[role]}
-              </button>
-            )
-          })}
-        </div>
-      </Field>
 
       <Field label="Notitie">
         <textarea className="textarea" value={form.notes} onChange={(e) => set({ notes: e.target.value })} />

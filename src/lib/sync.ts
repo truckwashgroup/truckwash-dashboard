@@ -96,6 +96,7 @@ export async function ensureBackendMatches(): Promise<boolean> {
     db.users.clear(), db.companies.clear(), db.washJobs.clear(),
     db.inventory.clear(), db.stockMovements.clear(), db.expenses.clear(),
     db.timeEntries.clear(), db.shifts.clear(),
+    db.notifications.clear(), db.courses.clear(), db.courseProgress.clear(),
     // Wijzigingen die voor een andere server bedoeld waren zijn onbruikbaar.
     db.outbox.clear(),
   ])
@@ -174,6 +175,9 @@ const TABLE_OF: Record<EntityName, () => any> = {
   expenses: () => db.expenses,
   timeEntries: () => db.timeEntries,
   shifts: () => db.shifts,
+  notifications: () => db.notifications,
+  courses: () => db.courses,
+  courseProgress: () => db.courseProgress,
 }
 
 async function pullChanges(): Promise<number> {

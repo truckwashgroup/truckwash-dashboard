@@ -18,7 +18,7 @@
     "sqltest": "node scripts/sqltest.mjs",
     "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env NODE_ENV=development node scripts/start-electron.cjs\"",
     "electron:start": "npm run build && node scripts/start-electron.cjs",
-    "electron:build": "npm run build && electron-builder --win",
+    "electron:build": "npm run build && electron-builder --win --config.win.signAndEditExecutable=false",
     "electron:publish": "npm run build && electron-builder --win --publish always",
     "cap:sync": "npm run build && cap sync",
     "android:apk": "npm run cap:sync && node scripts/android-apk.cjs",

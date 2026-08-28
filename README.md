@@ -164,35 +164,60 @@ npm run sqltest         # 56 controles: het databaseschema in een echte Postgres
 | iOS / Android | Capacitor OTA (Capgo) | Nieuwe webbundel zonder store-review; alleen native wijzigingen vragen om een nieuwe store-release |
 | Web | — | Herladen geeft de nieuwste build |
 
-### Windows publiceren
+### Een release publiceren
 
-Updates lopen via **GitHub Releases** op
-`github.com/truckwashgroup/truckwash-dashboard`. De app controleert bij het
-opstarten en daarna elk half uur.
+De installer en de APK staan bewust **niet** in git: het zijn bouwresultaten,
+en binaries horen niet in een repo. Ze verschijnen onder *Releases* zodra je
+er één publiceert.
+
+**Eenmalig instellen.** Zet in GitHub onder *Settings → Secrets and variables
+→ Actions* twee secrets klaar:
+
+| Secret | Waarde |
+|---|---|
+| `VITE_SUPABASE_URL` | je Project URL uit Supabase |
+| `VITE_SUPABASE_ANON_KEY` | de **publishable** sleutel |
+
+Zonder die twee bouwt de workflow een app waarin niemand kan inloggen, en dat
+meldt hij dan ook met een duidelijke fout in plaats van stilletjes door te gaan.
+
+**Een release maken:**
 
 ```bash
-npm run electron:build     # installer in release/
-npm run electron:publish   # bouwt en publiceert de release
+npm version 1.0.1 --no-git-tag-version
+git commit -am "Versie 1.0.1"
+git tag v1.0.1
+git push && git push --tags
 ```
 
-Publiceren vraagt een GitHub-token met `repo`-rechten:
+De workflow controleert eerst of de tag en `package.json` hetzelfde zeggen —
+de updater vergelijkt namelijk op `package.json`, dus die twee uit elkaar laten
+lopen is de klassieke manier om een release te maken die niemand binnenkrijgt.
+Daarna bouwt hij de Windows-installer en de Android-APK en hangt ze samen met
+`latest.yml` onder Releases.
 
-```bash
-export GH_TOKEN=ghp_...     # Windows: $env:GH_TOKEN = "ghp_..."
+Vanaf dat moment ziet elke geïnstalleerde Windows-app die nieuwe versie vanzelf.
+
+**Met de hand publiceren** kan ook, als je nu al iets wilt uitdelen: ga naar
+*Releases → Draft a new release*, maak tag `v1.0.0`, en sleep deze drie
+bestanden erin:
+
+```
+release/Truckwash1 Dashboard-Setup-1.0.0.exe
+release/latest.yml
+Truckwash1-Dashboard.apk
 ```
 
-**Verhoog per release het `version`-veld in `package.json`** — daar vergelijkt
-de updater op. Naast de installer hoort `latest.yml` mee te gaan; die maakt
-electron-builder zelf en bevat de checksum waarmee de app de download
-controleert.
+`latest.yml` is geen bijzaak: daarin staat de checksum waarmee de app
+controleert of de download klopt. Zonder dat bestand werken de automatische
+updates niet.
 
-> **Waarom `signAndEditExecutable: false`?** Windows staat symlinks alleen toe
-> met beheerdersrechten of met Ontwikkelaarsmodus aan. Zonder dat kan
-> electron-builder zijn codesign-hulppakket niet uitpakken en breekt de build,
-> terwijl we helemaal niet ondertekenen. Prijs: het vensterpictogram van de app
-> blijft het Electron-logo; installer en snelkoppelingen gebruiken wel
-> `build/icon.ico`. Zet Ontwikkelaarsmodus aan (Instellingen → Systeem → Voor
-> ontwikkelaars) en haal die regel weg als je het volledig netjes wilt.
+> **Waarom lokaal `signAndEditExecutable: false`?** Windows staat symlinks
+> alleen toe met beheerdersrechten of met Ontwikkelaarsmodus aan, en zonder dat
+> kan electron-builder zijn codesign-hulppakket niet uitpakken. Die omweg zit
+> daarom in het `electron:build`-script en niet in de gedeelde configuratie —
+> op de bouwmachine van GitHub is hij niet nodig, en krijgt de app dus wél zijn
+> eigen pictogram.
 
 ### iOS/Android OTA aanzetten
 

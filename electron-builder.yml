@@ -12,19 +12,6 @@ files:
   - package.json
 
 win:
-  # Windows staat het maken van symlinks alleen toe met beheerdersrechten of
-  # met Ontwikkelaarsmodus aan. Zonder dat kan electron-builder zijn
-  # codesign-hulppakket niet uitpakken en breekt de build af -- terwijl we
-  # helemaal niet ondertekenen.
-  #
-  # Deze regel slaat dat pakket over. Prijs: het venster-icoon van de app zelf
-  # blijft het Electron-logo. De installer en de snelkoppelingen gebruiken wel
-  # build/icon.ico.
-  #
-  # Wil je het volledig netjes? Zet Ontwikkelaarsmodus aan in Windows
-  # (Instellingen -> Systeem -> Voor ontwikkelaars) en haal deze regel weg.
-  signAndEditExecutable: false
-
   target:
     - target: nsis
       arch: [x64]

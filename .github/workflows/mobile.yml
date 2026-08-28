@@ -1,7 +1,8 @@
-name: Mobiel bouwen (Android + iOS)
+name: Bouwcontrole (Android + iOS)
 
-# Hiermee bouw je de mobiele apps zonder zelf een Mac te bezitten:
-# GitHub draait de iOS-build op een macOS-machine in de cloud.
+# Controleert bij elke push of beide platformen nog bouwen. De apps die je
+# uitdeelt komen niet hiervandaan maar uit release.yml, die ze onder Releases
+# hangt.
 
 on:
   push:
@@ -29,6 +30,13 @@ jobs:
 
       - name: Dependencies installeren
         run: npm ci
+
+      - name: Supabase-instellingen klaarzetten
+        env:
+          URL: ${{ secrets.VITE_SUPABASE_URL }}
+          KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$URL" "$KEY" > .env
 
       - name: Webapp bouwen
         run: npm run build
@@ -87,6 +95,13 @@ jobs:
 
       - name: Dependencies installeren
         run: npm ci
+
+      - name: Supabase-instellingen klaarzetten
+        env:
+          URL: ${{ secrets.VITE_SUPABASE_URL }}
+          KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$URL" "$KEY" > .env
 
       - name: Webapp bouwen
         run: npm run build

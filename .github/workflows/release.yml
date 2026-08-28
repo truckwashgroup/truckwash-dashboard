@@ -1,0 +1,153 @@
+name: Release publiceren
+
+# Zet een versietag en deze workflow bouwt de Windows-installer en de
+# Android-APK, en hangt ze onder Releases op GitHub. Daar downloadt de
+# geïnstalleerde Windows-app ook zijn updates vandaan.
+#
+#   npm version 1.0.1 --no-git-tag-version   (past package.json aan)
+#   git commit -am "Versie 1.0.1"
+#   git tag v1.0.1
+#   git push && git push --tags
+#
+# Losse handmatige start kan ook, via het tabblad Actions.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versie om te publiceren, bijv. v1.0.1'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  # ------------------------------------------------------------------
+  #  Controle vooraf: tag en package.json moeten hetzelfde zeggen
+  # ------------------------------------------------------------------
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: v
+        shell: bash
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          TAG="${{ github.event.inputs.version || github.ref_name }}"
+          TAG_CLEAN="${TAG#v}"
+          echo "package.json: $PKG"
+          echo "tag:          $TAG_CLEAN"
+          if [ "$PKG" != "$TAG_CLEAN" ]; then
+            echo "::error::De tag ($TAG_CLEAN) komt niet overeen met de versie in package.json ($PKG)."
+            echo "::error::Pas package.json aan of zet een andere tag. De updater vergelijkt op package.json."
+            exit 1
+          fi
+          echo "version=$PKG" >> "$GITHUB_OUTPUT"
+
+  # ------------------------------------------------------------------
+  #  Windows-installer
+  # ------------------------------------------------------------------
+  windows:
+    needs: check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Dependencies installeren
+        run: npm ci
+
+      - name: Supabase-instellingen klaarzetten
+        shell: bash
+        env:
+          URL: ${{ secrets.VITE_SUPABASE_URL }}
+          KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then
+            echo "::error::Zet de secrets VITE_SUPABASE_URL en VITE_SUPABASE_ANON_KEY in de repo-instellingen."
+            echo "::error::Zonder die twee bouwt hij een app waarin niemand kan inloggen."
+            exit 1
+          fi
+          printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$URL" "$KEY" > .env
+
+      - name: Bouwen en publiceren
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build && npx electron-builder --win --publish always
+
+  # ------------------------------------------------------------------
+  #  Android-APK
+  # ------------------------------------------------------------------
+  android:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Dependencies installeren
+        run: npm ci
+
+      - name: Supabase-instellingen klaarzetten
+        env:
+          URL: ${{ secrets.VITE_SUPABASE_URL }}
+          KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then
+            echo "::error::Zet de secrets VITE_SUPABASE_URL en VITE_SUPABASE_ANON_KEY in de repo-instellingen."
+            exit 1
+          fi
+          printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$URL" "$KEY" > .env
+
+      - name: Webapp bouwen en synchroniseren
+        run: npm run build && npx cap sync android
+
+      - name: APK bouwen
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: APK een nette naam geven
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/debug/app-debug.apk \
+             "out/Truckwash1-Dashboard-${{ needs.check.outputs.version }}.apk"
+
+      - name: Aan de release hangen
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version || github.ref_name }}
+          name: Truckwash1 Dashboard ${{ needs.check.outputs.version }}
+          draft: false
+          files: out/*.apk
+          body: |
+            ## Downloaden
+
+            **Windows** — pak `Truckwash1-Dashboard-Setup-${{ needs.check.outputs.version }}.exe`,
+            dubbelklik en volg de installatie. Updates komen daarna vanzelf binnen.
+
+            **Android** — pak het `.apk`-bestand, zet het op je toestel en tik erop.
+            Sta eenmalig "installeren uit onbekende bron" toe.
+
+            **iOS** — nog niet beschikbaar; daarvoor is een Apple Developer-account nodig.
+
+            > Deze APK is ondertekend met de standaard ontwikkelsleutel. Prima om
+            > te installeren en te gebruiken; voor de Play Store is een eigen
+            > keystore nodig.

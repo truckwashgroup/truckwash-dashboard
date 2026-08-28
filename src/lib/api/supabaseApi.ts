@@ -104,6 +104,9 @@ const TABLES: Record<EntityName, string> = {
   faults: 'faults',
   workOrders: 'work_orders',
   maintenancePlans: 'maintenance_plans',
+  tickets: 'tickets',
+  ticketMessages: 'ticket_messages',
+  logEvents: 'log_events',
 }
 
 /** Kolommen waarvan de naam niet simpelweg de snake_case-variant is. */

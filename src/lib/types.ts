@@ -2,7 +2,8 @@
  *  Domeinmodel Truckwash1 Group
  * ------------------------------------------------------------------ */
 
-export type Role = 'employee' | 'supervisor' | 'technician' | 'customer' | 'management'
+export type Role =
+  | 'employee' | 'supervisor' | 'technician' | 'customer' | 'management' | 'developer'
 
 export const ROLE_LABELS: Record<Role, string> = {
   employee: 'Werknemer',
@@ -10,10 +11,11 @@ export const ROLE_LABELS: Record<Role, string> = {
   technician: 'Technische dienst',
   customer: 'Klant',
   management: 'Management',
+  developer: 'Ontwikkelaar',
 }
 
 export const ROLE_ORDER: Role[] =
-  ['employee', 'supervisor', 'technician', 'customer', 'management']
+  ['employee', 'supervisor', 'technician', 'customer', 'management', 'developer']
 
 export interface User {
   id: string
@@ -243,6 +245,8 @@ export type Permission =
   | 'maintenance.view' | 'maintenance.manage'
   /* locaties */
   | 'locations.view' | 'locations.manage' | 'locations.all'
+  /* meldingen aan de ontwikkelaar */
+  | 'dev.report' | 'dev.tickets' | 'dev.respond' | 'dev.logs'
   /* beheer */
   | 'admin.settings' | 'admin.audit'
 
@@ -317,6 +321,11 @@ export const PERMISSIONS: PermissionMeta[] = [
   { key: 'locations.view',    group: 'Locaties',   label: 'Locaties zien',        hint: 'De vestigingen en hun gegevens bekijken.' },
   { key: 'locations.manage',  group: 'Locaties',   label: 'Locaties beheren',     hint: 'Vestigingen toevoegen en wijzigen.', sensitive: true },
   { key: 'locations.all',     group: 'Locaties',   label: 'Alle vestigingen',     hint: 'Niet beperkt tot de eigen vestiging, maar overal bij.', sensitive: true },
+
+  { key: 'dev.report',        group: 'Ontwikkeling', label: 'Melding maken',      hint: 'Een probleem of wens doorgeven aan de ontwikkelaar.' },
+  { key: 'dev.tickets',       group: 'Ontwikkeling', label: 'Alle meldingen zien', hint: 'Het volledige ticketoverzicht van iedereen.', sensitive: true },
+  { key: 'dev.respond',       group: 'Ontwikkeling', label: 'Reageren en afhandelen', hint: 'Antwoorden op meldingen en de status bijwerken.', sensitive: true },
+  { key: 'dev.logs',          group: 'Ontwikkeling', label: 'Logboek zien',       hint: 'Foutmeldingen en gebeurtenissen uit de app.', sensitive: true },
 
   { key: 'admin.settings',    group: 'Beheer',     label: 'Instellingen',         hint: 'Tarieven, openingstijden en app-instellingen.', sensitive: true },
   { key: 'admin.audit',       group: 'Beheer',     label: 'Logboek',              hint: 'Zien wie wat heeft gewijzigd.', sensitive: true },
@@ -624,6 +633,104 @@ export interface WorkOrder {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Meldingen aan de ontwikkelaar
+ *
+ *  Wie tegen een probleem aanloopt maakt een melding. Daar hangt automatisch
+ *  bij wat diegene het afgelopen kwartier in de app deed, plus de technische
+ *  gegevens van het apparaat. Dat scheelt de heen-en-weer van "wat deed je
+ *  precies?" -- want dat weet niemand een dag later nog.
+ * ------------------------------------------------------------------ */
+
+export type TicketKind = 'fout' | 'vraag' | 'wens' | 'traag'
+
+export const TICKET_KINDS: Record<TicketKind, { label: string; hint: string }> = {
+  fout:  { label: 'Er gaat iets fout', hint: 'Iets werkt niet zoals het hoort' },
+  vraag: { label: 'Vraag',             hint: 'Ik snap niet hoe iets werkt' },
+  wens:  { label: 'Wens',              hint: 'Dit zou handig zijn' },
+  traag: { label: 'Traag of hapert',   hint: 'Het werkt wel, maar stroef' },
+}
+
+export type TicketPriority = 'laag' | 'normaal' | 'hoog' | 'blokkerend'
+export type TicketStatus =
+  | 'nieuw' | 'in behandeling' | 'wacht op melder' | 'opgelost' | 'gesloten'
+
+/** Eén handeling uit het spoor van de laatste vijftien minuten. */
+export interface TrailEntry {
+  at: number
+  kind: 'pagina' | 'actie' | 'fout' | 'sync' | 'melding'
+  text: string
+}
+
+export interface Ticket {
+  id: string
+  number: string
+  title: string
+  description: string
+  kind: TicketKind
+  priority: TicketPriority
+  status: TicketStatus
+
+  reportedBy: string
+  reportedByName: string
+  reportedAt: number
+  /** Vanuit welk dashboard en welke pagina de melding kwam */
+  fromRole?: Role
+  fromPage?: string
+  locationId?: string
+
+  /* --- technische context, automatisch meegestuurd --- */
+  appVersion: string
+  platform: string
+  userAgent: string
+  screen: string
+  online: boolean
+  pendingChanges: number
+  /** Wat de melder het afgelopen kwartier deed */
+  trail: TrailEntry[]
+
+  assignedTo?: string
+  assignedName?: string
+  resolvedAt?: number
+  resolution?: string
+  /** Versie waarin het is opgelost */
+  fixedIn?: string
+  updatedAt: number
+}
+
+export interface TicketMessage {
+  id: string
+  ticketId: string
+  authorId: string
+  authorName: string
+  /** Interne notities ziet de melder niet */
+  internal: boolean
+  body: string
+  createdAt: number
+  updatedAt: number
+}
+
+export type LogLevel = 'fout' | 'waarschuwing' | 'info'
+
+export interface LogEvent {
+  id: string
+  level: LogLevel
+  message: string
+  stack?: string
+  /** Waar in de app het gebeurde */
+  page?: string
+  userId?: string
+  userName?: string
+  locationId?: string
+  appVersion: string
+  platform: string
+  at: number
+  /** Hoe vaak deze zelfde fout is voorgekomen */
+  count: number
+  ticketId?: string
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
  *  Sync
  * ------------------------------------------------------------------ */
 
@@ -632,6 +739,7 @@ export type EntityName =
   | 'stockMovements' | 'expenses' | 'timeEntries' | 'shifts'
   | 'notifications' | 'courses' | 'courseProgress'
   | 'assets' | 'faults' | 'workOrders' | 'maintenancePlans'
+  | 'tickets' | 'ticketMessages' | 'logEvents'
 
 export type SyncOp = 'put' | 'delete'
 

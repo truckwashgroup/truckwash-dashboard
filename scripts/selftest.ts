@@ -489,7 +489,7 @@ check('meerdere managers: uitzetten mag',
 check('laatste rechtenbeheerder wordt beschermd',
   wouldLockOut([manager], manager, zonderRechten))
 
-check('elke rol heeft een standaardset', Object.keys(ROLE_DEFAULTS).length === 5,
+check('elke rol heeft een standaardset', Object.keys(ROLE_DEFAULTS).length === 6,
   Object.keys(ROLE_DEFAULTS).join(', '))
 
 /* ==================================================================== */
@@ -831,6 +831,148 @@ check('wasser ziet alleen de installaties van zijn vestiging',
   techniekVanWasser.length > 0 && techniekVanWasser.every((a) => a.locationId === 'loc_utr'))
 check('hoofdkantoor ziet het hele machinepark',
   withinScope(hkUser, await db.assets.toArray()).length === alleAssets.length)
+
+/* ==================================================================== */
+
+console.log('\n18. Meldingen aan de ontwikkelaar')
+const {
+  tickets: ticketRepo, ticketMessages: messageRepo, logs: logRepo,
+} = await import('../src/lib/tickets')
+const { trail } = await import('../src/lib/trail')
+
+check('voorbeeldmeldingen gesynchroniseerd', (await db.tickets.count()) === 5,
+  String(await db.tickets.count()))
+check('logboek gesynchroniseerd', (await db.logEvents.count()) >= 5)
+
+/* --- het spoor van handelingen --- */
+
+trail.clear()
+trail.page('Werknemer', 'vandaag')
+trail.action('Wagen 12-BND-4 opgepakt')
+trail.error('Kan niet opslaan')
+check('spoor legt drie handelingen vast', trail.recent().length === 3)
+check('en in de juiste volgorde',
+  trail.recent().map((e) => e.kind).join(',') === 'pagina,actie,fout')
+
+// Twee keer hetzelfde vlak achter elkaar hoort niet dubbel te tellen
+trail.action('Zelfde actie')
+trail.action('Zelfde actie')
+check('herhaling vlak na elkaar wordt genegeerd', trail.recent().length === 4)
+
+/* --- een ticket18 maken --- */
+
+const ticket18 = await ticketRepo.create({
+  title: 'Zelftest: knop reageert niet',
+  description: 'Aangemaakt door de zelftest om de keten te controleren.',
+  kind: 'fout',
+  priority: 'hoog',
+  by: { id: 'u_wasser', name: 'Tom Verhoeven', locationId: 'loc_utr' },
+  fromRole: 'employee',
+  fromPage: 'vandaag',
+  appVersion: '9.9.9',
+  online: true,
+  pendingChanges: 2,
+})
+
+check('melding krijgt een nummer', /^M-\d{4}-\d{4}$/.test(ticket18.number), ticket18.number)
+check('status begint op nieuw', ticket18.status === 'nieuw')
+check('het spoor gaat mee', ticket18.trail.length === 4, String(ticket18.trail.length))
+check('de technische context gaat mee',
+  ticket18.appVersion === '9.9.9' && ticket18.pendingChanges === 2 && !!ticket18.platform)
+check('de ontwikkelaar krijgt bericht',
+  (await db.notifications.toArray()).some(
+    (n) => n.toUserId === 'u_dev' && n.title.includes(ticket18.number)))
+
+/* --- gesprek --- */
+
+await messageRepo.send({
+  ticketId: ticket18.id,
+  body: 'Gebeurt dat altijd of alleen soms?',
+  internal: false,
+  by: { id: 'u_dev', name: 'Sem de Ontwikkelaar' },
+})
+check('antwoord van de ontwikkelaar zet hem op wacht op melder',
+  (await db.tickets.get(ticket18.id))?.status === 'wacht op melder')
+check('de melder krijgt bericht',
+  (await db.notifications.toArray()).some(
+    (n) => n.toUserId === 'u_wasser' && n.title.includes('Reactie op')))
+
+await messageRepo.send({
+  ticketId: ticket18.id,
+  body: 'Alleen als ik offline ben.',
+  internal: false,
+  by: { id: 'u_wasser', name: 'Tom Verhoeven' },
+})
+check('reactie van de melder zet hem terug in behandeling',
+  (await db.tickets.get(ticket18.id))?.status === 'in behandeling')
+
+const intern = await messageRepo.send({
+  ticketId: ticket18.id,
+  body: 'Interne notitie: waarschijnlijk de outbox.',
+  internal: true,
+  by: { id: 'u_dev', name: 'Sem de Ontwikkelaar' },
+})
+check('interne notitie is als intern gemarkeerd', intern?.internal === true)
+
+const zichtbaarVoorMelder = (await db.ticketMessages
+  .where('ticketId').equals(ticket18.id).toArray()).filter((m) => !m.internal)
+check('de melder ziet de interne notitie niet', zichtbaarVoorMelder.length === 2)
+
+/* --- afhandelen --- */
+
+await ticketRepo.setStatus(ticket18.id, 'opgelost', { id: 'u_dev', name: 'Sem de Ontwikkelaar' }, {
+  resolution: 'De wachtrij liep vast bij een lege verbinding. Opgelost.',
+  fixedIn: '9.9.10',
+})
+const afgehandeld = await db.tickets.get(ticket18.id)
+check('melding staat op opgelost', afgehandeld?.status === 'opgelost')
+check('de oplossing is vastgelegd', !!afgehandeld?.resolution)
+check('de versie is vastgelegd', afgehandeld?.fixedIn === '9.9.10')
+check('de melder krijgt bericht van de afhandeling',
+  (await db.notifications.toArray()).some(
+    (n) => n.toUserId === 'u_wasser' && n.title.includes('is nu: opgelost')))
+
+/* --- logboek telt herhalingen op --- */
+
+const eerste = await logRepo.record({
+  level: 'fout',
+  message: 'Zelftest: iets ging mis bij record 41',
+  page: 'Werknemer -> vandaag',
+  appVersion: '9.9.9',
+})
+const tweede = await logRepo.record({
+  level: 'fout',
+  message: 'Zelftest: iets ging mis bij record 77',
+  page: 'Werknemer -> vandaag',
+  appVersion: '9.9.9',
+})
+check('dezelfde fout met een ander getal telt op, niet dubbel',
+  eerste.id === tweede.id && tweede.count === 2,
+  `${eerste.id} vs ${tweede.id}, count ${tweede.count}`)
+
+const ander = await logRepo.record({
+  level: 'fout',
+  message: 'Zelftest: heel iets anders',
+  page: 'Werknemer -> vandaag',
+  appVersion: '9.9.9',
+})
+check('een andere fout krijgt een eigen regel', ander.id !== eerste.id)
+
+/* --- alles overleeft de rondgang --- */
+
+await sync()
+await db.tickets.clear()
+await db.ticketMessages.clear()
+await db.logEvents.clear()
+await setMeta(LAST_SYNC, 0)
+await sync()
+
+const naSync = await db.tickets.get(ticket18.id)
+check('melding staat op de server', !!naSync)
+check('het spoor overleefde de rondgang', (naSync?.trail.length ?? 0) === 4)
+check('de gesprekken staan op de server',
+  (await db.ticketMessages.where('ticketId').equals(ticket18.id).count()) === 3)
+check('het logboek staat op de server', (await db.logEvents.get(eerste.id))?.count === 2)
 
 /* ==================================================================== */
 

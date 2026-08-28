@@ -22,9 +22,13 @@ const EMPLOYEE: Permission[] = [
   // Iedereen op de vloer moet een storing kunnen melden; dat is precies wie
   // hem als eerste ziet.
   'assets.view', 'faults.report',
+  // Iedereen mag melden dat de app iets raars doet -- dat is precies wie het
+  // als eerste merkt.
+  'dev.report',
 ]
 
 const TECHNICIAN: Permission[] = [
+  'dev.report',
   'roster.viewOwn',
   'hours.own',
   'expenses.submit',
@@ -35,6 +39,12 @@ const TECHNICIAN: Permission[] = [
   'faults.report', 'faults.view', 'faults.triage',
   'workorders.view', 'workorders.create', 'workorders.assign', 'workorders.complete',
   'maintenance.view', 'maintenance.manage',
+]
+
+const DEVELOPER: Permission[] = [
+  'locations.view', 'locations.all',
+  'dev.report', 'dev.tickets', 'dev.respond', 'dev.logs',
+  'admin.audit',
 ]
 
 const SUPERVISOR: Permission[] = [
@@ -65,6 +75,7 @@ export const ROLE_DEFAULTS: Record<Role, Permission[]> = {
   employee: EMPLOYEE,
   supervisor: SUPERVISOR,
   technician: TECHNICIAN,
+  developer: DEVELOPER,
   customer: CUSTOMER,
   management: MANAGEMENT,
 }

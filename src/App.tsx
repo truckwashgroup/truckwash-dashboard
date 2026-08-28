@@ -3,7 +3,10 @@ import { AnimatePresence } from 'framer-motion'
 import { Loader2, Truck } from 'lucide-react'
 import { useAuth } from './store/useAuth'
 import { setSyncEnabled, startSyncEngine } from './lib/sync'
+import { installErrorCapture, onCapturedError, trail } from './lib/trail'
+import { logs as logRepo } from './lib/tickets'
 import { useUpdates } from './lib/updates'
+import { useNav } from './store/useNav'
 import Login from './components/Login'
 import CarwashAnimation from './components/CarwashAnimation'
 import RolePicker from './components/RolePicker'
@@ -14,6 +17,7 @@ import EmployeeDashboard from './dashboards/employee/EmployeeDashboard'
 import CustomerDashboard from './dashboards/customer/CustomerDashboard'
 import SupervisorDashboard from './dashboards/supervisor/SupervisorDashboard'
 import TechnicianDashboard from './dashboards/technician/TechnicianDashboard'
+import DeveloperDashboard from './dashboards/developer/DeveloperDashboard'
 import ManagementDashboard from './dashboards/management/ManagementDashboard'
 
 export default function App() {
@@ -27,6 +31,20 @@ export default function App() {
   useDeviceNotifications()
 
   useEffect(() => {
+    // Fouten opvangen voordat er iets anders start, anders missen we juist
+    // de problemen die tijdens het opstarten optreden.
+    installErrorCapture()
+    onCapturedError((e) => {
+      void logRepo.record({
+        level: e.level,
+        message: e.message,
+        stack: e.stack,
+        page: useNav.getState().target?.page,
+        appVersion: useUpdates.getState().version,
+        user: useAuth.getState().user ?? undefined,
+      })
+    })
+
     // Pas synchroniseren als er een sessie is; restore() zet hem aan.
     setSyncEnabled(false)
     startSyncEngine()
@@ -67,6 +85,8 @@ export default function App() {
         <SupervisorDashboard />
       ) : role === 'technician' ? (
         <TechnicianDashboard />
+      ) : role === 'developer' ? (
+        <DeveloperDashboard />
       ) : role === 'customer' ? (
         <CustomerDashboard />
       ) : (

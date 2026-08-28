@@ -142,6 +142,39 @@ van die vestiging.
 
 ---
 
+## Meldingen aan de ontwikkelaar
+
+In de balk van elk dashboard staat de knop **Devmelding**. Wie ergens tegenaan
+loopt vult drie dingen in — wat voor soort melding, wat er aan de hand is en
+hoe erg het in de weg zit — en de rest gaat automatisch mee:
+
+- Apparaat, platform, schermformaat en app-versie
+- Of er verbinding was en hoeveel wijzigingen er nog openstonden
+- **Wat die persoon het afgelopen kwartier deed**: welke schermen, welke
+  acties, en welke fouten er ondertussen langskwamen
+
+Dat spoor is zichtbaar vóór het versturen — niemand hoort iets mee te sturen
+zonder te kunnen zien wát. Er komt alleen in te staan wat er gebeurde, niet
+wat er is ingetypt: geen wachtwoorden, geen klantgegevens, geen invoervelden.
+
+### De kant van de ontwikkelaar
+
+Het dashboard **Ontwikkeling** heeft drie schermen:
+
+| | |
+|---|---|
+| **Meldingen** | Tickets met gesprek, interne notities, toewijzen, urgentie en afhandelen |
+| **Logboek** | Fouten en waarschuwingen uit de app, waarbij dezelfde fout wordt opgeteld in plaats van herhaald |
+| **Systeem** | Wat er lokaal staat, en op welke versies en platformen de mensen draaien |
+
+De melder krijgt bericht bij elke reactie en bij elke statuswijziging, en kan
+in *Mijn meldingen* antwoorden of zeggen dat het toch niet opgelost is.
+
+Interne notities blijven bij het ontwikkelteam — dat is niet alleen in de app
+zo geregeld maar ook in de database.
+
+---
+
 ## Rechten
 
 Rollen geven de basis, en daarbovenop stel je per persoon los in wat wel en
@@ -214,8 +247,8 @@ en kijk hoe de wachtrij leegloopt.
 Het gedrag hierboven staat in een echte testsuite:
 
 ```bash
-npm run selftest        # 165 controles op de app-logica
-npm run sqltest         # 68 controles: het databaseschema in een echte Postgres
+npm run selftest        # 190 controles op de app-logica
+npm run sqltest         # 73 controles: het databaseschema in een echte Postgres
 ```
 
 ---

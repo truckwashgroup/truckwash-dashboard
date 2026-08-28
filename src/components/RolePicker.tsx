@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { ArrowRight, BarChart3, Building2, ClipboardList, HardHat, LogOut, ShieldCheck, Wrench } from 'lucide-react'
+import { ArrowRight, BarChart3, Building2, ClipboardList, Code2, HardHat, LogOut, ShieldCheck, Wrench } from 'lucide-react'
 import { useAuth } from '../store/useAuth'
 import type { Role } from '../lib/types'
 import SyncPill from './SyncPill'
@@ -29,6 +29,12 @@ const CARDS: Record<Role, {
     icon: Wrench,
     cls: 'tech',
   },
+  developer: {
+    title: 'Ontwikkeling',
+    text: 'Meldingen uit de app afhandelen, het logboek doorspitten en zien wat gebruikers deden voordat er iets misging.',
+    icon: Code2,
+    cls: 'dev',
+  },
   customer: {
     title: 'Klanten',
     text: 'Wasbeurt inplannen, de status van je wagens volgen en je historie en facturen inzien.',
@@ -42,7 +48,7 @@ const CARDS: Record<Role, {
   },
 }
 
-const ORDER: Role[] = ['employee', 'supervisor', 'technician', 'customer', 'management']
+const ORDER: Role[] = ['employee', 'supervisor', 'technician', 'customer', 'management', 'developer']
 
 export default function RolePicker() {
   const { user, chooseRole, logout } = useAuth()

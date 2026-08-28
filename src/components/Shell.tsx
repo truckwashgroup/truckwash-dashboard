@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react'
+import { type ReactNode, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import {
   LayoutGrid, LogOut, Mic, RefreshCw, Search,
@@ -15,6 +15,8 @@ import Logo from './Logo'
 import GlobalSearch from './GlobalSearch'
 import LocationSwitcher from './LocationSwitcher'
 import { StoringMeldenKnop } from './StoringMelden'
+import { DevMeldingKnop } from './DevMelding'
+import { trail } from '../lib/trail'
 import { usePerms } from '../store/useNav'
 import NotificationCenter from './NotificationCenter'
 import type { LucideIcon } from 'lucide-react'
@@ -45,6 +47,10 @@ export default function Shell({
   const version = useUpdates((s) => s.version)
   const openSearch = useNav((s) => s.openSearch)
   const perms = usePerms()
+
+  // Elk schermwissel in het spoor, zodat een melding laat zien waar iemand
+  // liep vlak voordat er iets misging.
+  useEffect(() => { trail.page(roleLabel, active) }, [roleLabel, active])
 
   return (
     <div className="app-shell">
@@ -145,6 +151,7 @@ export default function Shell({
           <GlobalSearch />
 
           {perms.can('faults.report') && <StoringMeldenKnop />}
+          <DevMeldingKnop role={roleLabel} page={active} />
 
           {actions}
 

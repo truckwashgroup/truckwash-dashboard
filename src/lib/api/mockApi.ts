@@ -3,7 +3,7 @@ import type { ApiAdapter, PullResult, PushChange } from './types'
 import type {
   AppNotification, Company, Course, CourseProgress, EntityName, Expense,
   InventoryItem, Location, Shift, StockMovement, TimeEntry, User, WashJob,
-  Asset, Fault, MaintenancePlan, WorkOrder,
+  Asset, Fault, MaintenancePlan, WorkOrder, Ticket, TicketMessage, LogEvent,
 } from '../types'
 import { SERVICES } from '../types'
 import { COURSES } from '../courses'
@@ -31,6 +31,9 @@ class MockServerDB extends Dexie {
   faults!: Table<Fault, string>
   workOrders!: Table<WorkOrder, string>
   maintenancePlans!: Table<MaintenancePlan, string>
+  tickets!: Table<Ticket, string>
+  ticketMessages!: Table<TicketMessage, string>
+  logEvents!: Table<LogEvent, string>
 
   constructor() {
     super('truckwash-mock-server')
@@ -51,6 +54,9 @@ class MockServerDB extends Dexie {
       faults: 'id, updatedAt',
       workOrders: 'id, updatedAt',
       maintenancePlans: 'id, updatedAt',
+      tickets: 'id, updatedAt',
+      ticketMessages: 'id, updatedAt',
+      logEvents: 'id, updatedAt',
     })
   }
 }
@@ -74,6 +80,9 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   faults: () => server.faults,
   workOrders: () => server.workOrders,
   maintenancePlans: () => server.maintenancePlans,
+  tickets: () => server.tickets,
+  ticketMessages: () => server.ticketMessages,
+  logEvents: () => server.logEvents,
 }
 
 /* ------------------------------------------------------------------ *
@@ -201,6 +210,8 @@ async function seed() {
     // Wel op de loonlijst, nog geen inlogaccount -- laat zien hoe dat eruitziet
     { id: 'u_nieuw', email: 'joris@truckwash1group.nl', password: '', name: 'Joris Peters', roles: ['employee'], active: true, hourlyRate: 20, locationId: 'loc_ams',
       personnelNumber: 'TW-024', phone: '06-67890123', function: 'Wasmedewerker', supervisorId: 'u_wasser3', contractHours: 24, startDate: t - 12 * DAY, notes: 'Zaterdaghulp, nog inwerken op tankreiniging.', updatedAt: t },
+    { id: 'u_dev', authId: 'u_dev', email: 'dev@truckwash1group.nl', password: 'dev', name: 'Sem de Ontwikkelaar', roles: ['developer'], active: true, allLocations: true, locationId: 'loc_hk',
+      personnelNumber: 'TW-900', function: 'Softwareontwikkelaar', updatedAt: t },
     { id: 'u_klant', authId: 'u_klant', email: 'planning@transportjansen.nl', password: 'klant', name: 'Mark Jansen', roles: ['customer'], companyId: 'co_jansen', active: true, updatedAt: t },
     { id: 'u_klant2', authId: 'u_klant2', email: 'wagenpark@devrieslogistiek.nl', password: 'klant', name: 'Sanne de Vries', roles: ['customer'], companyId: 'co_devries', active: true, updatedAt: t },
   ]
@@ -799,6 +810,130 @@ async function seed() {
       })
     })
 
+  /* --- meldingen aan de ontwikkelaar --- */
+
+  const MELDINGEN: [string, string, Ticket['kind'], Ticket['priority'], Ticket['status'], string][] = [
+    ['Kan geen wasbeurt afmelden op de telefoon',
+     'Ik druk op Gereed melden en er gebeurt niets. Het bolletje blijft draaien. Op de computer werkt het wel.',
+     'fout', 'hoog', 'in behandeling', 'Vandaag'],
+    ['Rooster laadt traag bij het openen',
+     'Als ik het rooster open duurt het een seconde of vijf voordat ik iets zie. Andere schermen zijn snel.',
+     'traag', 'normaal', 'nieuw', 'Rooster'],
+    ['Graag de kentekens groter op de telefoon',
+     'Op het kleine scherm moet ik echt turen om het kenteken te lezen. Kan dat wat groter?',
+     'wens', 'laag', 'nieuw', 'Vandaag'],
+    ['Waar zie ik welke bonnen zijn goedgekeurd?',
+     'Ik heb vorige week drie bonnen ingediend maar ik zie nergens of ze akkoord zijn.',
+     'vraag', 'normaal', 'opgelost', 'Kosten'],
+    ['Storing melden lukt niet zonder internet',
+     'In de machinekamer heb ik geen bereik. Als ik daar een storing meld krijg ik een foutmelding.',
+     'fout', 'blokkerend', 'wacht op melder', 'Installaties'],
+  ]
+
+  const tickets: Ticket[] = []
+  const ticketMessages: TicketMessage[] = []
+
+  MELDINGEN.forEach(([titel, omschrijving, soort, urgentie, status, scherm], i) => {
+    const melder = pick(users.filter((u) => u.roles.includes('employee')), i * 3)
+    const gemeldOp = t - (i * 2 + 1) * DAY - i * 3_600_000
+    const afgehandeld = status === 'opgelost'
+    const jm = String(new Date(gemeldOp).getFullYear()).slice(2) +
+      String(new Date(gemeldOp).getMonth() + 1).padStart(2, '0')
+
+    tickets.push({
+      id: 'tk_' + i,
+      number: 'M-' + jm + '-' + String(i + 1).padStart(4, '0'),
+      title: titel,
+      description: omschrijving,
+      kind: soort,
+      priority: urgentie,
+      status,
+      reportedBy: melder.id,
+      reportedByName: melder.name,
+      reportedAt: gemeldOp,
+      fromRole: 'employee',
+      fromPage: scherm,
+      locationId: melder.locationId,
+      appVersion: i % 3 === 0 ? '1.0.2' : '1.1.1',
+      platform: i % 2 === 0 ? 'Android' : 'Windows (app)',
+      userAgent: i % 2 === 0
+        ? 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile'
+        : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Electron/33.4.11',
+      screen: i % 2 === 0 ? '412x915 @2.6x' : '1920x1080 @1x',
+      online: i !== 4,
+      pendingChanges: i === 4 ? 3 : 0,
+      trail: [
+        { at: gemeldOp - 9 * 60_000, kind: 'pagina', text: 'Werknemer -> vandaag' },
+        { at: gemeldOp - 7 * 60_000, kind: 'actie', text: 'Wagen 12-BND-4 opgepakt' },
+        { at: gemeldOp - 4 * 60_000, kind: 'pagina', text: 'Werknemer -> ' + scherm.toLowerCase() },
+        ...(soort === 'fout'
+          ? [{ at: gemeldOp - 90_000, kind: 'fout' as const, text: 'Kan niet opslaan: netwerkfout' }]
+          : []),
+        { at: gemeldOp - 30_000, kind: 'melding' as const, text: 'Melding aan de ontwikkelaar geopend' },
+      ],
+      assignedTo: status === 'nieuw' ? undefined : 'u_dev',
+      assignedName: status === 'nieuw' ? undefined : 'Sem de Ontwikkelaar',
+      resolvedAt: afgehandeld ? gemeldOp + 6 * 3_600_000 : undefined,
+      resolution: afgehandeld
+        ? 'Toegevoegd: bij Kosten zie je nu per bon of hij open, goedgekeurd of afgekeurd is.'
+        : undefined,
+      fixedIn: afgehandeld ? '1.1.0' : undefined,
+      updatedAt: t,
+    })
+
+    if (status !== 'nieuw') {
+      ticketMessages.push({
+        id: 'tm_' + i + '_a',
+        ticketId: 'tk_' + i,
+        authorId: 'u_dev',
+        authorName: 'Sem de Ontwikkelaar',
+        internal: false,
+        body: afgehandeld
+          ? 'Dit zat er inderdaad nog niet in. Ik heb het toegevoegd in versie 1.1.0.'
+          : 'Dank voor de melding, ik kijk ernaar. Gebeurt het altijd of alleen soms?',
+        createdAt: gemeldOp + 2 * 3_600_000,
+        updatedAt: t,
+      })
+      ticketMessages.push({
+        id: 'tm_' + i + '_b',
+        ticketId: 'tk_' + i,
+        authorId: 'u_dev',
+        authorName: 'Sem de Ontwikkelaar',
+        internal: true,
+        body: 'Interne notitie: reproduceerbaar op Android met slechte verbinding.',
+        createdAt: gemeldOp + 2 * 3_600_000 + 60_000,
+        updatedAt: t,
+      })
+    }
+  })
+
+  /* --- logboek --- */
+
+  const LOGREGELS: [LogEvent['level'], string, string, number][] = [
+    ['fout', 'Failed to fetch', 'Werknemer -> vandaag', 23],
+    ['fout', 'Cannot read properties of undefined (reading toLowerCase)', 'Management -> planning', 4],
+    ['waarschuwing', 'Sync duurde langer dan 10 seconden', 'Werknemer -> rooster', 11],
+    ['fout', 'QuotaExceededError: opslag vol', 'Technische dienst -> installaties', 2],
+    ['waarschuwing', 'Camera niet beschikbaar voor QR-scanner', 'Technische dienst -> installaties', 7],
+  ]
+
+  const logEvents: LogEvent[] = LOGREGELS.map(([niveau, bericht, scherm, aantal], i) => ({
+    id: 'lg_seed_' + i,
+    level: niveau,
+    message: bericht,
+    stack: niveau === 'fout'
+      ? 'at sync (sync.ts:104)\n  at pushOutbox (sync.ts:91)\n  at async flush (sync.ts:160)'
+      : undefined,
+    page: scherm,
+    userId: 'u_wasser',
+    userName: 'Tom Verhoeven',
+    appVersion: i % 2 === 0 ? '1.1.1' : '1.0.2',
+    platform: i % 2 === 0 ? 'Android' : 'Windows (app)',
+    at: t - (i + 1) * 5 * 3_600_000,
+    count: aantal,
+    updatedAt: t,
+  }))
+
   await server.transaction('rw', server.tables, async () => {
     await server.locations.bulkPut(locations)
     await server.companies.bulkPut(companies)
@@ -816,6 +951,9 @@ async function seed() {
     await server.faults.bulkPut(faults)
     await server.workOrders.bulkPut(workOrders)
     await server.maintenancePlans.bulkPut(maintenancePlans)
+    await server.tickets.bulkPut(tickets)
+    await server.ticketMessages.bulkPut(ticketMessages)
+    await server.logEvents.bulkPut(logEvents)
   })
 }
 

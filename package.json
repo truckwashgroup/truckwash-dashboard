@@ -25,7 +25,7 @@
     "cap:android": "npm run cap:sync && cap open android",
     "cap:ios": "npm run cap:sync && cap open ios",
     "assets:icons": "capacitor-assets generate --iconBackgroundColor '#0b1220' --iconBackgroundColorDark '#0b1220' --splashBackgroundColor '#0b1220' --splashBackgroundColorDark '#0b1220'",
-    "postinstall": "node node_modules/electron/install.js"
+    "postinstall": "node scripts/postinstall.cjs"
   },
   "dependencies": {
     "@capacitor/android": "^7.0.0",
@@ -50,7 +50,6 @@
     "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^7.0.0",
     "@electric-sql/pglite": "^0.5.8",
-    "@img/sharp-win32-x64": "^0.35.4",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
@@ -68,5 +67,8 @@
     "type": "git",
     "url": "https://github.com/truckwashgroup/truckwash-dashboard.git"
   },
-  "homepage": "https://github.com/truckwashgroup/truckwash-dashboard"
+  "homepage": "https://github.com/truckwashgroup/truckwash-dashboard",
+  "optionalDependencies": {
+    "@img/sharp-win32-x64": "^0.35.4"
+  }
 }

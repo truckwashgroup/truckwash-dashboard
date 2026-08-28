@@ -24,7 +24,7 @@ ios/DerivedData
 *.mobileprovision
 
 # gebouwde APK in de projectmap
-Truckwash1-Dashboard.apk
+Truckwash1-Dashboard-*.apk
 
 # geheimen
 .env

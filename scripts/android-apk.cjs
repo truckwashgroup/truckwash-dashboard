@@ -50,6 +50,10 @@ function findJdk() {
   return null
 }
 
+const { syncAndroidVersion } = require('./sync-android-version.cjs')
+
+const appVersion = syncAndroidVersion()
+
 const javaHome = findJdk()
 
 if (!javaHome) {
@@ -84,7 +88,7 @@ const build = win
 if (build.status !== 0) process.exit(build.status ?? 1)
 
 const apk = path.join(androidDir, 'app/build/outputs/apk/debug/app-debug.apk')
-const target = path.join(root, 'Truckwash1-Dashboard.apk')
+const target = path.join(root, 'Truckwash1-Dashboard-' + appVersion + '.apk')
 
 if (fs.existsSync(apk)) {
   fs.copyFileSync(apk, target)

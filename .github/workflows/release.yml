@@ -117,6 +117,9 @@ jobs:
           fi
           printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$URL" "$KEY" > .env
 
+      - name: Versie in het Android-project zetten
+        run: node scripts/sync-android-version.cjs
+
       - name: Webapp bouwen en synchroniseren
         run: npm run build && npx cap sync android
 

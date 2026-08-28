@@ -435,7 +435,11 @@ export const mockApi: ApiAdapter = {
     const target = email.trim().toLowerCase()
     const user = await server.users.filter((u) => u.email.toLowerCase() === target).first()
     if (!user || user.password !== password || !user.active) return null
-    return { userId: user.id, token: 'mock.' + user.id + '.' + Date.now() }
+    return {
+      userId: user.id,
+      token: 'mock.' + user.id + '.' + Date.now(),
+      profile: user as unknown as Record<string, unknown>,
+    }
   },
 
   async push(changes: PushChange[]) {

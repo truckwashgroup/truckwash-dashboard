@@ -4,6 +4,7 @@ import { useAuth } from '../store/useAuth'
 import type { Role } from '../lib/types'
 import SyncPill from './SyncPill'
 import Logo from './Logo'
+import { useSync } from '../lib/sync'
 
 const CARDS: Record<Role, {
   title: string
@@ -39,6 +40,7 @@ const ORDER: Role[] = ['employee', 'supervisor', 'customer', 'management']
 
 export default function RolePicker() {
   const { user, chooseRole, logout } = useAuth()
+  const syncing = useSync((s) => s.syncing)
   if (!user) return null
 
   const roles = ORDER.filter((r) => user.roles.includes(r))
@@ -99,6 +101,7 @@ export default function RolePicker() {
           <span>
             Ingelogd als <strong style={{ color: 'var(--text-2)' }}>{user.email}</strong>
           </span>
+          {syncing && <span>Gegevens worden opgehaald…</span>}
           <SyncPill />
           {!hasManagement && (
             <span>Het managementdashboard is zichtbaar zodra je die rechten hebt.</span>

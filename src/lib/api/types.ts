@@ -19,8 +19,18 @@ export interface PullResult {
  */
 export interface ApiAdapter {
   readonly name: string
-  /** Retourneert null bij foute inloggegevens */
-  login(email: string, password: string): Promise<{ userId: string; token: string } | null>
+  /**
+   * Retourneert null bij foute inloggegevens.
+   *
+   * `profile` is het personeelsdossier van deze gebruiker. Door dat meteen
+   * mee te geven kan de app direct doorlopen, in plaats van te wachten tot
+   * de volledige synchronisatie klaar is.
+   */
+  login(email: string, password: string): Promise<{
+    userId: string
+    token: string
+    profile?: Record<string, unknown>
+  } | null>
   /** Duwt lokale wijzigingen naar de server. Gooit bij netwerkfout. */
   push(changes: PushChange[]): Promise<void>
   /** Haalt serverwijzigingen op sinds timestamp */

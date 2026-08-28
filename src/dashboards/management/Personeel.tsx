@@ -13,6 +13,7 @@ import WeekRooster from '../../components/WeekRooster'
 import PermissionEditor, { PermissionSummary } from '../../components/PermissionEditor'
 import SmartRosterPanel from '../../components/SmartRosterPanel'
 import { useAuth } from '../../store/useAuth'
+import { usePerms } from '../../store/useNav'
 import { toast } from '../../store/useToasts'
 import { staffPerformance } from '../../lib/analytics'
 import { dateInputValue, dayFromDateInput } from '../../lib/roster'
@@ -21,6 +22,7 @@ const ALL_ROLES: Role[] = ROLE_ORDER
 
 export default function Personeel({ days }: { days: number }) {
   const me = useAuth((s) => s.user)!
+  const perms = usePerms()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
 
@@ -41,7 +43,8 @@ export default function Personeel({ days }: { days: number }) {
         person={selected}
         days={days}
         onBack={() => setSelectedId(null)}
-        canEdit={me.roles.includes('management')}
+        canEdit={perms.can('staff.edit')}
+        canPermissions={perms.can('staff.permissions')}
         meId={me.id}
       />
     )
@@ -71,9 +74,11 @@ export default function Personeel({ days }: { days: number }) {
         hint={`Prestaties over ${days} dagen · klik voor het dossier`}
         flush
         action={
-          <button className="btn primary sm" onClick={() => setAdding(true)}>
-            <UserPlus size={15} /> Medewerker toevoegen
-          </button>
+          perms.can('staff.create') ? (
+            <button className="btn primary sm" onClick={() => setAdding(true)}>
+              <UserPlus size={15} /> Medewerker toevoegen
+            </button>
+          ) : undefined
         }
       >
         {rows.length === 0 ? (
@@ -152,12 +157,13 @@ export default function Personeel({ days }: { days: number }) {
  * ================================================================== */
 
 function PersonDetail({
-  person, days, onBack, canEdit, meId,
+  person, days, onBack, canEdit, canPermissions, meId,
 }: {
   person: User
   days: number
   onBack: () => void
   canEdit: boolean
+  canPermissions: boolean
   meId: string
 }) {
   const [editing, setEditing] = useState(false)
@@ -209,9 +215,11 @@ function PersonDetail({
               <button className="btn sm" onClick={() => setEditing(true)}>
                 <UserCog size={14} /> Gegevens
               </button>
-              <button className="btn sm" onClick={() => setPermissions(true)}>
-                <SlidersHorizontal size={14} /> Rechten
-              </button>
+              {canPermissions && (
+                <button className="btn sm" onClick={() => setPermissions(true)}>
+                  <SlidersHorizontal size={14} /> Rechten
+                </button>
+              )}
               <button
                 className={`btn sm ${person.active ? 'ghost' : 'ok'}`}
                 onClick={() => void toggleActive()}

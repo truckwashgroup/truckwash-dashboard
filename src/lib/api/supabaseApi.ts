@@ -179,7 +179,7 @@ export const supabaseApi: ApiAdapter = {
     // werkt met het dossier-id, dus dat zoeken we hier op.
     const { data: profile, error: profileError } = await supabase()
       .from('profiles')
-      .select('id')
+      .select('*')
       .eq('auth_id', data.user.id)
       .maybeSingle()
 
@@ -191,7 +191,11 @@ export const supabaseApi: ApiAdapter = {
       )
     }
 
-    return { userId: profile.id as string, token: data.session.access_token }
+    return {
+      userId: profile.id as string,
+      token: data.session.access_token,
+      profile: fromRow('users', profile as Record<string, unknown>),
+    }
   },
 
   async push(changes: PushChange[]) {

@@ -106,16 +106,31 @@ export const useAuth = create<AuthStore>((set, get) => ({
           return false
         }
         userId = res.userId
-        await storageSet(SESSION_KEY, JSON.stringify({ ...res, at: Date.now() }))
+        await storageSet(SESSION_KEY, JSON.stringify({ ...res, profile: undefined, at: Date.now() }))
 
         // Onthouden zodat deze persoon later ook zonder internet binnenkomt.
         await rememberOfflineLogin(email, password, userId)
 
         await prepareCacheFor(userId)
+
+        // Het profiel komt met de inlog mee, dus we kunnen meteen door. De
+        // rest van de gegevens haalt de synchronisatie op de achtergrond op,
+        // terwijl de wasstraat-animatie loopt. Vroeger stond je hier te
+        // wachten tot alles binnen was, en dat duurde bij een volle database
+        // seconden.
+        if (res.profile) {
+          await db.users.put(res.profile as unknown as User)
+        }
+
         setSyncEnabled(true)
 
-        // Alles ophalen waar deze gebruiker bij mag.
-        await useSync.getState().sync({ silent: true })
+        if (res.profile) {
+          void useSync.getState().sync({ silent: true })
+        } else {
+          // Geen profiel meegekregen: dan moeten we wel wachten, anders
+          // weten we niet wie er binnenkomt.
+          await useSync.getState().sync({ silent: true })
+        }
       } catch {
         // Geen verbinding: terugvallen op wat dit apparaat eerder leerde.
         userId = await verifyOfflineLogin(email, password)

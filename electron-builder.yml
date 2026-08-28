@@ -15,7 +15,11 @@ win:
   target:
     - target: nsis
       arch: [x64]
-  artifactName: ${productName}-Setup-${version}.${ext}
+  # Geen spaties in de bestandsnaam. De productnaam bevat er een, en GitHub
+  # maakt daar bij het uploaden een punt van -- terwijl electron-builder in
+  # latest.yml een streepje schrijft. Dan zoekt de updater een bestand dat niet
+  # bestaat en mislukt de download zonder zichtbare fout.
+  artifactName: Truckwash1-Dashboard-Setup-${version}.${ext}
 
 nsis:
   oneClick: false

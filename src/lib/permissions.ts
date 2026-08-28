@@ -18,10 +18,30 @@ const EMPLOYEE: Permission[] = [
   'inventory.view', 'inventory.adjust',
   'expenses.submit',
   'learning.take',
+  'locations.view',
+  // Iedereen op de vloer moet een storing kunnen melden; dat is precies wie
+  // hem als eerste ziet.
+  'assets.view', 'faults.report',
+]
+
+const TECHNICIAN: Permission[] = [
+  'roster.viewOwn',
+  'hours.own',
+  'expenses.submit',
+  'learning.take',
+  'locations.view',
+  'inventory.view', 'inventory.adjust',
+  'assets.view', 'assets.manage',
+  'faults.report', 'faults.view', 'faults.triage',
+  'workorders.view', 'workorders.create', 'workorders.assign', 'workorders.complete',
+  'maintenance.view', 'maintenance.manage',
 ]
 
 const SUPERVISOR: Permission[] = [
   ...EMPLOYEE,
+  'faults.view', 'faults.triage',
+  'workorders.view', 'workorders.create',
+  'maintenance.view',
   'jobs.edit', 'jobs.assign', 'jobs.cancel',
   'planning.view', 'planning.edit',
   'roster.viewTeam', 'roster.edit', 'roster.publish',
@@ -44,6 +64,7 @@ const MANAGEMENT: Permission[] = PERMISSIONS.map((p) => p.key)
 export const ROLE_DEFAULTS: Record<Role, Permission[]> = {
   employee: EMPLOYEE,
   supervisor: SUPERVISOR,
+  technician: TECHNICIAN,
   customer: CUSTOMER,
   management: MANAGEMENT,
 }

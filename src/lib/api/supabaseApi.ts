@@ -100,6 +100,10 @@ const TABLES: Record<EntityName, string> = {
   notifications: 'notifications',
   courses: 'courses',
   courseProgress: 'course_progress',
+  assets: 'assets',
+  faults: 'faults',
+  workOrders: 'work_orders',
+  maintenancePlans: 'maintenance_plans',
 }
 
 /** Kolommen waarvan de naam niet simpelweg de snake_case-variant is. */

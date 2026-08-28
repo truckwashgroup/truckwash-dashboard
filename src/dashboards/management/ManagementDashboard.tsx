@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { CalendarRange, GraduationCap, LayoutDashboard, Package, Receipt, Settings, Users } from 'lucide-react'
+import { CalendarRange, GraduationCap, LayoutDashboard, Package, Receipt, Settings, Users, Wrench } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db } from '../../lib/db'
 import Overzicht from './Overzicht'
@@ -9,6 +9,7 @@ import Personeel from './Personeel'
 import Voorraad from './Voorraad'
 import Planning from './Planning'
 import Beheer from './Beheer'
+import Techniek from './Techniek'
 import OpleidingOverzicht from '../../components/OpleidingOverzicht'
 import BerichtVersturen from '../../components/BerichtVersturen'
 import { useNavTarget, usePerms } from '../../store/useNav'
@@ -26,6 +27,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   personeel: { title: 'Personeel', subtitle: 'Prestaties, uren en rechten' },
   voorraad: { title: 'Voorraad', subtitle: 'Materiaal, verbruik en bestellingen' },
   planning: { title: 'Planning', subtitle: 'Alle wasopdrachten' },
+  techniek: { title: 'Techniek', subtitle: 'Storingen, onderhoud en werkbonnen' },
   opleiding: { title: 'Opleiding', subtitle: 'Voortgang van iedereen' },
   beheer: { title: 'Beheer', subtitle: 'Instellingen, rechten en gegevens' },
 }
@@ -48,13 +50,18 @@ export default function ManagementDashboard() {
     { key: 'planning', label: 'Planning', icon: CalendarRange },
     { key: 'personeel', label: 'Personeel', icon: Users },
     { key: 'voorraad', label: 'Voorraad', icon: Package },
+    { key: 'techniek', label: 'Techniek', icon: Wrench },
     { key: 'opleiding', label: 'Opleiding', icon: GraduationCap },
     { key: 'beheer', label: 'Beheer', icon: Settings },
   ]
 
   useNavTarget(
-    ['overzicht', 'financieel', 'planning', 'personeel', 'voorraad', 'opleiding', 'beheer', 'klanten', 'materiaal'],
-    (p) => setPage(p === 'klanten' ? 'personeel' : p === 'materiaal' ? 'voorraad' : p),
+    ['overzicht', 'financieel', 'planning', 'personeel', 'voorraad', 'opleiding',
+     'beheer', 'klanten', 'materiaal', 'techniek', 'storingen', 'werkbonnen', 'installaties', 'onderhoud'],
+    (p) => setPage(
+      p === 'klanten' ? 'personeel' :
+      p === 'materiaal' ? 'voorraad' :
+      ['storingen', 'werkbonnen', 'installaties', 'onderhoud'].includes(p) ? 'techniek' : p),
   )
 
   const meta = TITLES[page]
@@ -96,6 +103,7 @@ export default function ManagementDashboard() {
       {page === 'personeel' && <Personeel days={days} />}
       {page === 'voorraad' && <Voorraad days={days} />}
       {page === 'planning' && <Planning />}
+      {page === 'techniek' && <Techniek days={days} />}
       {page === 'opleiding' && <OpleidingOverzicht />}
       {page === 'beheer' && <Beheer />}
 

@@ -80,6 +80,7 @@ await run(db, '0001_init.sql draait', sqlFile('supabase/migrations/0001_init.sql
 await run(db, '0002_personeel_en_rooster.sql draait', sqlFile('supabase/migrations/0002_personeel_en_rooster.sql'))
 await run(db, '0003_rechten_berichten_opleiding.sql draait', sqlFile('supabase/migrations/0003_rechten_berichten_opleiding.sql'))
 await run(db, '0004_locaties.sql draait', sqlFile('supabase/migrations/0004_locaties.sql'))
+await run(db, '0005_technische_dienst.sql draait', sqlFile('supabase/migrations/0005_technische_dienst.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -87,6 +88,7 @@ await run(db, '0001 nogmaals', sqlFile('supabase/migrations/0001_init.sql'))
 await run(db, '0002 nogmaals', sqlFile('supabase/migrations/0002_personeel_en_rooster.sql'))
 await run(db, '0003 nogmaals', sqlFile('supabase/migrations/0003_rechten_berichten_opleiding.sql'))
 await run(db, '0004 nogmaals', sqlFile('supabase/migrations/0004_locaties.sql'))
+await run(db, '0005 nogmaals', sqlFile('supabase/migrations/0005_technische_dienst.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
 const bedrijven = await db.query('select count(*)::int as n from public.companies')
@@ -113,7 +115,8 @@ const tables = await db.query(`
 const names = tables.rows.map((r) => r.table_name)
 for (const t of ['companies', 'profiles', 'wash_jobs', 'inventory_items',
                  'stock_movements', 'expenses', 'time_entries', 'shifts',
-                 'notifications', 'courses', 'course_progress', 'locations']) {
+                 'notifications', 'courses', 'course_progress', 'locations',
+                 'assets', 'faults', 'maintenance_plans', 'work_orders']) {
   check(`tabel ${t}`, names.includes(t))
 }
 

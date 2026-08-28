@@ -13,6 +13,7 @@ import { useDeviceNotifications } from './components/NotificationCenter'
 import EmployeeDashboard from './dashboards/employee/EmployeeDashboard'
 import CustomerDashboard from './dashboards/customer/CustomerDashboard'
 import SupervisorDashboard from './dashboards/supervisor/SupervisorDashboard'
+import TechnicianDashboard from './dashboards/technician/TechnicianDashboard'
 import ManagementDashboard from './dashboards/management/ManagementDashboard'
 
 export default function App() {
@@ -64,6 +65,8 @@ export default function App() {
         <EmployeeDashboard />
       ) : role === 'supervisor' ? (
         <SupervisorDashboard />
+      ) : role === 'technician' ? (
+        <TechnicianDashboard />
       ) : role === 'customer' ? (
         <CustomerDashboard />
       ) : (

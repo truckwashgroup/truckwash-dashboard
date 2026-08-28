@@ -103,6 +103,45 @@ niet buiten de app om.
 
 ---
 
+## Technische dienst
+
+Vier dingen die aan elkaar hangen:
+
+| | |
+|---|---|
+| **Installatie** | Een apparaat op een vestiging, met een QR-label erop |
+| **Storing** | Een melding dat er iets stuk is |
+| **Onderhoud** | Een terugkerende beurt volgens een schema |
+| **Werkbon** | Het werk zelf: uren, onderdelen, wat er gedaan is |
+
+Een storing of een onderhoudsbeurt levert een werkbon op. Rond je die af, dan
+sluit de storing mee, krijgt de melder bericht, schuift het onderhoudsschema
+door naar de volgende keer en komt het apparaat weer op *in bedrijf*.
+
+### QR-labels
+
+Elk apparaat heeft een sleutel in de vorm `K7M-P2X-9RT`. Die staat in de
+QR-code én leesbaar eronder gedrukt, want in een natte machinekamer is
+intypen soms sneller dan scannen.
+
+De sleutel staat bewust los van het interne id: een beschadigd label kun je
+vervangen zonder dat de historie eraan verandert, en wie een sticker
+fotografeert leest geen database-id mee.
+
+Labels afdrukken doe je vanuit *Installaties → Labels*; scannen kan overal via
+de knop **Scannen**, of direct vanuit het storingsformulier — dan staan de
+vestiging en de installatie al goed.
+
+### Storing melden
+
+De knop **Storing** staat in de balk van elk dashboard, want wie het defect
+ziet is meestal de wasser en niet de monteur. Vier niveaus van urgentie, plus
+een schakelaar voor "de installatie ligt stil". Een kritieke melding zet het
+apparaat meteen op *storing* en stuurt een bericht naar de technische dienst
+van die vestiging.
+
+---
+
 ## Rechten
 
 Rollen geven de basis, en daarbovenop stel je per persoon los in wat wel en
@@ -175,8 +214,8 @@ en kijk hoe de wachtrij leegloopt.
 Het gedrag hierboven staat in een echte testsuite:
 
 ```bash
-npm run selftest        # 127 controles op de app-logica
-npm run sqltest         # 62 controles: het databaseschema in een echte Postgres
+npm run selftest        # 165 controles op de app-logica
+npm run sqltest         # 68 controles: het databaseschema in een echte Postgres
 ```
 
 ---

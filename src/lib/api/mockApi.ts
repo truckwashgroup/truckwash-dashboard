@@ -3,6 +3,7 @@ import type { ApiAdapter, PullResult, PushChange } from './types'
 import type {
   AppNotification, Company, Course, CourseProgress, EntityName, Expense,
   InventoryItem, Location, Shift, StockMovement, TimeEntry, User, WashJob,
+  Asset, Fault, MaintenancePlan, WorkOrder,
 } from '../types'
 import { SERVICES } from '../types'
 import { COURSES } from '../courses'
@@ -26,6 +27,10 @@ class MockServerDB extends Dexie {
   notifications!: Table<AppNotification, string>
   courses!: Table<Course, string>
   courseProgress!: Table<CourseProgress, string>
+  assets!: Table<Asset, string>
+  faults!: Table<Fault, string>
+  workOrders!: Table<WorkOrder, string>
+  maintenancePlans!: Table<MaintenancePlan, string>
 
   constructor() {
     super('truckwash-mock-server')
@@ -42,6 +47,10 @@ class MockServerDB extends Dexie {
       notifications: 'id, toUserId, updatedAt',
       courses: 'id, updatedAt',
       courseProgress: 'id, userId, updatedAt',
+      assets: 'id, updatedAt',
+      faults: 'id, updatedAt',
+      workOrders: 'id, updatedAt',
+      maintenancePlans: 'id, updatedAt',
     })
   }
 }
@@ -61,6 +70,10 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   notifications: () => server.notifications,
   courses: () => server.courses,
   courseProgress: () => server.courseProgress,
+  assets: () => server.assets,
+  faults: () => server.faults,
+  workOrders: () => server.workOrders,
+  maintenancePlans: () => server.maintenancePlans,
 }
 
 /* ------------------------------------------------------------------ *
@@ -512,6 +525,280 @@ async function seed() {
     },
   ]
 
+  /* --- technische dienst --- */
+
+  const MACHINEPARK: [string, string, string, string][] = [
+    ['wasstraat',      'Wasportaal',            'Christ Systems', 'CWH-4200'],
+    ['borstelunit',    'Borstelunit voorzijde', 'Christ Systems', 'BU-90'],
+    ['borstelunit',    'Zijborstel links',      'Christ Systems', 'BU-45L'],
+    ['hogedruk',       'Hogedrukpomp',          'Karcher',        'HD 9/50'],
+    ['waterzuivering', 'Waterzuivering',        'AquaClean',      'WZ-3000'],
+    ['osmose',         'Osmose-installatie',    'AquaSoft',       'RO-800'],
+    ['droger',         'Droogblazer',           'Christ Systems', 'DB-12'],
+    ['doseerunit',     'Doseerunit chemie',     'Dosatron',       'D25RE'],
+    ['compressor',     'Compressor',            'Atlas Copco',    'GA 11'],
+  ]
+
+  /*
+   * Vaste QR-sleutels in de testgegevens, zodat een gescande code steeds
+   * hetzelfde apparaat vindt. In de echte app komen ze uit crypto.
+   */
+  const maakToken = (i: number) => {
+    const alfabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // 32 tekens, zonder I O 0 1
+
+    /*
+     * Vermenigvuldigen met een oneven getal modulo een macht van twee is een
+     * bijectie: elk volgnummer geeft gegarandeerd een andere uitkomst. Een
+     * losse pseudo-willekeurige reeks deed dat niet, en leverde apparaten op
+     * die hetzelfde label kregen -- dan scan je de ene machine en krijg je de
+     * gegevens van de andere.
+     */
+    const codeer = (waarde: number, tekens: number) => {
+      let n = waarde
+      let out = ''
+      for (let k = 0; k < tekens; k++) {
+        out += alfabet[n % 32]
+        n = Math.floor(n / 32)
+      }
+      return out
+    }
+
+    const hoog = (i * 2654435761) % 2 ** 30   // uniek per i
+    const laag = (i * 40503) % 2 ** 20        // extra lengte
+    const t = codeer(hoog, 6) + codeer(laag, 4)
+    return t.slice(0, 4) + '-' + t.slice(4, 7) + '-' + t.slice(7, 10)
+  }
+
+  const assets: Asset[] = []
+  let assetNr = 0
+
+  vestigingen.forEach((loc, li) => {
+    const aantal = 6 + (loc.bays - 2)   // grotere vestiging, meer apparaten
+    for (let k = 0; k < aantal; k++) {
+      const [cat, naam, merk, model] = MACHINEPARK[k % MACHINEPARK.length]
+      assetNr++
+      const stuk = (li + k) % 23 === 0
+      assets.push({
+        id: 'as_' + loc.code.toLowerCase().replace('-', '_') + '_' + k,
+        locationId: loc.id,
+        code: loc.code.replace('TW-', '') + '-' + cat.slice(0, 3).toUpperCase() +
+              '-' + String(k + 1).padStart(2, '0'),
+        name: naam + (k >= MACHINEPARK.length ? ' (straat 2)' : ''),
+        category: cat as Asset['category'],
+        brand: merk,
+        model,
+        serialNumber: merk.slice(0, 2).toUpperCase() + String(100000 + assetNr * 733).slice(0, 6),
+        status: stuk ? 'storing' : 'in bedrijf',
+        installedAt: t - (400 + ((li * 7 + k) % 1800)) * DAY,
+        warrantyUntil: t + (365 - ((li + k) % 500)) * DAY,
+        runningHours: 1200 + ((li * 31 + k * 17) % 9000),
+        location: k < 4 ? 'Wasstraat 1' : k < 7 ? 'Machinekamer' : 'Buitenterrein',
+        qrToken: maakToken(assetNr),
+        lastServiceAt: t - (10 + ((li + k) % 120)) * DAY,
+        nextServiceAt: t + (((li * 3 + k * 11) % 120) - 20) * DAY,
+        updatedAt: t,
+      })
+    }
+  })
+
+  /* --- onderhoudsschemas --- */
+
+  const SCHEMAS: [string, MaintenancePlan['interval'], number, string[]][] = [
+    ['Wekelijkse controle wasstraat', 'wekelijks', 30, [
+      'Noodstoppen testen',
+      'Borstels op slijtage controleren',
+      'Lekkages onder de portalen',
+      'Vloerroosters vrij van vuil',
+    ]],
+    ['Maandelijks onderhoud hogedruk', 'maandelijks', 60, [
+      'Oliepeil pomp controleren',
+      'Filters reinigen of vervangen',
+      'Slangen en koppelingen op scheuren',
+      'Werkdruk meten en noteren',
+    ]],
+    ['Kwartaalbeurt waterzuivering', 'kwartaal', 120, [
+      'Slibvang legen en spoelen',
+      'Olie-waterafscheider controleren',
+      'Monster nemen voor analyse',
+      'Pompen en vlotters testen',
+      'Logboek bijwerken voor de vergunning',
+    ]],
+    ['Halfjaarlijkse keuring elektra', 'halfjaar', 180, [
+      'Aardlekschakelaars testen',
+      'Verdeelkast visueel controleren',
+      'Kabelgoten en wartels nalopen',
+      'Noodverlichting testen',
+    ]],
+    ['Jaarlijkse keuring en certificering', 'jaar', 300, [
+      'Volledige veiligheidskeuring',
+      'Certificaat vernieuwen',
+      'Slijtdelen preventief vervangen',
+      'Rapport naar het hoofdkantoor',
+    ]],
+  ]
+
+  const maintenancePlans: MaintenancePlan[] = []
+
+  vestigingen.forEach((loc, li) => {
+    SCHEMAS.forEach(([titel, interval, minuten, checklist], si) => {
+      const doel = assets.find((a) => a.locationId === loc.id && (
+        si === 0 ? a.category === 'wasstraat' :
+        si === 1 ? a.category === 'hogedruk' :
+        si === 2 ? a.category === 'waterzuivering' :
+        si === 3 ? a.category === 'compressor' :
+        true))
+      // Een deel bewust over tijd, zodat de achterstand zichtbaar is
+      const overTijd = (li + si) % 7 === 0
+      maintenancePlans.push({
+        id: 'mp_' + loc.code.toLowerCase().replace('-', '_') + '_' + si,
+        assetId: doel?.id,
+        locationId: loc.id,
+        title: titel,
+        interval,
+        checklist,
+        estimatedMinutes: minuten,
+        lastDoneAt: t - (20 + ((li + si) % 90)) * DAY,
+        nextDueAt: overTijd
+          ? t - (2 + ((li + si) % 20)) * DAY
+          : t + (3 + ((li * 5 + si * 13) % 100)) * DAY,
+        active: true,
+        updatedAt: t,
+      })
+    })
+  })
+
+  /* --- storingen en werkbonnen --- */
+
+  const STORINGEN: [string, string, Fault['severity'], boolean][] = [
+    ['Zijborstel draait onregelmatig', 'De linker zijborstel hapert en maakt een tikkend geluid bij het aanlopen.', 'middel', false],
+    ['Hogedruk haalt de druk niet', 'Manometer blijft op 90 bar steken in plaats van 150. Pomp klinkt normaal.', 'hoog', false],
+    ['Lekkage bij doseerunit', 'Onder de doseerunit staat een plas. Ruikt naar ontvetter.', 'hoog', false],
+    ['Portaal stopt halverwege', 'Het portaal loopt tot de helft en gaat dan in storing. Resetten helpt tijdelijk.', 'kritiek', true],
+    ['Droger maakt lawaai', 'Rechter blazer maakt een piepend geluid, wordt erger als hij warm is.', 'laag', false],
+    ['Osmosewater laat vlekken achter', 'Membranen mogelijk aan vervanging toe; kalkvlekken op donkere cabines.', 'middel', false],
+    ['Noodstop reageert traag', 'Bij het indrukken van de noodstop bij de uitgang duurt het te lang voordat alles stilstaat.', 'kritiek', true],
+    ['Verlichting wasstraat defect', 'Twee armaturen boven straat 1 doen het niet meer.', 'laag', false],
+    ['Compressor slaat te vaak aan', 'Lijkt op een luchtlek; compressor draait bijna continu.', 'middel', false],
+    ['Slibvang vol', 'Waterafvoer loopt traag weg, slibvang zit vol.', 'hoog', false],
+  ]
+
+  const faults: Fault[] = []
+  const workOrders: WorkOrder[] = []
+  const technici = users.filter((u) => u.roles.includes('supervisor'))
+
+  let sNr = 0
+  let wNr = 0
+
+  for (let i = 0; i < 46; i++) {
+    const loc = pick(vestigingen, i * 3)
+    const lokaal = assets.filter((a) => a.locationId === loc.id)
+    const asset = lokaal.length ? pick(lokaal, i) : undefined
+    const [titel, omschrijving, ernst, stil] = STORINGEN[i % STORINGEN.length]
+    const lokaalTeam = users.filter((u) => u.locationId === loc.id && u.roles.includes('employee'))
+    const melder = pick(lokaalTeam.length ? lokaalTeam : staff, i)
+    const dagenGeleden = Math.floor((i * 60) / 46)
+    const gemeldOp = t - (60 - dagenGeleden) * DAY + (i % 8) * 3_600_000
+    const afgehandeld = i % 4 !== 0
+    const monteur = technici.length ? pick(technici, i) : undefined
+    sNr++
+
+    const jaarMaand = String(new Date(gemeldOp).getFullYear()).slice(2) +
+      String(new Date(gemeldOp).getMonth() + 1).padStart(2, '0')
+
+    const fault: Fault = {
+      id: 'st_' + i,
+      number: 'S-' + jaarMaand + '-' + String(sNr).padStart(4, '0'),
+      locationId: loc.id,
+      assetId: asset?.id,
+      assetName: asset?.name,
+      title: titel,
+      description: omschrijving,
+      severity: ernst,
+      status: afgehandeld ? 'opgelost' : i % 8 === 0 ? 'wacht op onderdelen' : 'in behandeling',
+      stopsProduction: stil,
+      reportedBy: melder.id,
+      reportedByName: melder.name,
+      reportedAt: gemeldOp,
+      assignedTo: monteur?.id,
+      assignedName: monteur?.name,
+      resolvedAt: afgehandeld ? gemeldOp + (2 + (i % 30)) * 3_600_000 : undefined,
+      resolution: afgehandeld ? 'Onderdeel vervangen en werking gecontroleerd.' : undefined,
+      downtimeMinutes: afgehandeld ? (2 + (i % 30)) * 60 : undefined,
+      updatedAt: t,
+    }
+    faults.push(fault)
+
+    if (i % 3 !== 0) {
+      wNr++
+      const gereed = afgehandeld
+      const order: WorkOrder = {
+        id: 'wb_' + i,
+        number: 'W-' + jaarMaand + '-' + String(wNr).padStart(4, '0'),
+        locationId: loc.id,
+        assetId: asset?.id,
+        assetName: asset?.name,
+        faultId: fault.id,
+        type: 'storing',
+        priority: ernst === 'kritiek' ? 'spoed' : ernst === 'hoog' ? 'hoog' : 'normaal',
+        status: gereed ? 'gereed' : i % 5 === 0 ? 'bezig' : 'ingepland',
+        title: titel,
+        description: omschrijving,
+        createdBy: melder.id,
+        createdByName: melder.name,
+        createdAt: gemeldOp + 1_800_000,
+        assignedTo: monteur?.id,
+        assignedName: monteur?.name,
+        plannedAt: gemeldOp + DAY,
+        startedAt: gereed ? gemeldOp + 2 * 3_600_000 : undefined,
+        completedAt: gereed ? fault.resolvedAt : undefined,
+        minutesSpent: gereed ? 45 + (i % 8) * 30 : undefined,
+        parts: gereed && i % 2 === 0
+          ? [{ name: 'Borstelsegment', qty: 1 + (i % 3), unitPrice: 34.5 }]
+          : [],
+        checklist: [
+          { text: 'Installatie spanningsloos gemaakt', done: gereed },
+          { text: 'Storing verholpen', done: gereed },
+          { text: 'Proefdraaien en vrijgeven', done: gereed },
+        ],
+        workDone: gereed ? 'Onderdeel vervangen, installatie proefgedraaid en vrijgegeven.' : undefined,
+        signedOffBy: gereed ? melder.name : undefined,
+        updatedAt: t,
+      }
+      workOrders.push(order)
+      fault.workOrderId = order.id
+    }
+  }
+
+  // Preventieve werkbonnen voor wat er binnenkort of al te lang openstaat
+  maintenancePlans
+    .filter((plan) => plan.nextDueAt < t + 7 * DAY)
+    .slice(0, 14)
+    .forEach((plan, i) => {
+      wNr++
+      const asset = plan.assetId ? assets.find((a) => a.id === plan.assetId) : undefined
+      workOrders.push({
+        id: 'wb_pm_' + i,
+        number: 'W-' + String(new Date().getFullYear()).slice(2) +
+          String(new Date().getMonth() + 1).padStart(2, '0') + '-' + String(wNr).padStart(4, '0'),
+        locationId: plan.locationId!,
+        assetId: plan.assetId,
+        assetName: asset?.name,
+        planId: plan.id,
+        type: 'preventief',
+        priority: plan.nextDueAt < t ? 'hoog' : 'normaal',
+        status: 'ingepland',
+        title: plan.title,
+        description: plan.description,
+        createdBy: 'u_manager',
+        createdByName: 'Ilse Bakker',
+        createdAt: t - 2 * DAY,
+        plannedAt: plan.nextDueAt,
+        parts: [],
+        checklist: plan.checklist.map((c) => ({ text: c, done: false })),
+        updatedAt: t,
+      })
+    })
+
   await server.transaction('rw', server.tables, async () => {
     await server.locations.bulkPut(locations)
     await server.companies.bulkPut(companies)
@@ -525,6 +812,10 @@ async function seed() {
     await server.courses.bulkPut(courses)
     await server.courseProgress.bulkPut(courseProgress as never)
     await server.notifications.bulkPut(notifications as never)
+    await server.assets.bulkPut(assets)
+    await server.faults.bulkPut(faults)
+    await server.workOrders.bulkPut(workOrders)
+    await server.maintenancePlans.bulkPut(maintenancePlans)
   })
 }
 

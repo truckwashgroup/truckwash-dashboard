@@ -489,7 +489,8 @@ check('meerdere managers: uitzetten mag',
 check('laatste rechtenbeheerder wordt beschermd',
   wouldLockOut([manager], manager, zonderRechten))
 
-check('elke rol heeft een standaardset', Object.keys(ROLE_DEFAULTS).length === 4)
+check('elke rol heeft een standaardset', Object.keys(ROLE_DEFAULTS).length === 5,
+  Object.keys(ROLE_DEFAULTS).join(', '))
 
 /* ==================================================================== */
 
@@ -659,6 +660,177 @@ check('elke vestiging heeft personeel', zonderPloeg.length === 0,
 const zonderVoorraad = filialen.filter(
   (l) => !alleVoorraad.some((i) => i.locationId === l.id))
 check('elke vestiging heeft voorraad', zonderVoorraad.length === 0)
+
+/* ==================================================================== */
+
+console.log('\n17. Technische dienst')
+const {
+  assets: assetRepo, faults: faultRepo, workOrders: orderRepo,
+  maintenance: planRepo, techKpis, makeQrToken, dueStateOf,
+} = await import('../src/lib/techniek')
+const { MAINTENANCE_DAYS: MAINTENANCE_DAGEN } = await import('../src/lib/types')
+
+const alleAssets = await db.assets.toArray()
+const alleFaults = await db.faults.toArray()
+const alleOrders = await db.workOrders.toArray()
+const allePlans = await db.maintenancePlans.toArray()
+
+check('machinepark gesynchroniseerd', alleAssets.length > 100, String(alleAssets.length))
+check('elke vestiging heeft installaties',
+  filialen.every((l) => alleAssets.some((a) => a.locationId === l.id)))
+check('storingen en werkbonnen aanwezig',
+  alleFaults.length > 20 && alleOrders.length > 20,
+  `${alleFaults.length} storingen, ${alleOrders.length} werkbonnen`)
+check('onderhoudsschemas aanwezig', allePlans.length > 50, String(allePlans.length))
+
+// QR-sleutels moeten uniek zijn, anders wijst een label naar twee apparaten
+const tokens = alleAssets.map((a) => a.qrToken)
+check('elke QR-sleutel is uniek', new Set(tokens).size === tokens.length,
+  `${tokens.length - new Set(tokens).size} dubbel`)
+check('sleutels hebben geen verwarrende tekens',
+  tokens.every((t) => !/[IO01]/.test(t.replace(/-/g, ''))))
+
+const nieuwToken = makeQrToken()
+check('nieuwe sleutel heeft het juiste formaat',
+  /^[A-Z2-9]{4}-[A-Z2-9]{3}-[A-Z2-9]{3}$/.test(nieuwToken), nieuwToken)
+
+// Een apparaat terugvinden via zijn QR-code of via de code op het label
+const proef = alleAssets[0]
+check('apparaat vindbaar via de QR-sleutel',
+  (await assetRepo.byQr(proef.qrToken))?.id === proef.id)
+check('apparaat vindbaar via de code op het label',
+  (await assetRepo.find(proef.code))?.id === proef.id)
+check('kleine letters worden ook gevonden',
+  (await assetRepo.find(proef.qrToken.toLowerCase()))?.id === proef.id)
+check('onbekende code geeft niets', (await assetRepo.find('BESTAAT-NIET')) === undefined)
+
+/* --- de hele keten: melden, werkbon, afronden --- */
+
+const vestiging = filialen[0]
+const apparaat = alleAssets.find((a) => a.locationId === vestiging.id)!
+
+const melding = await faultRepo.report({
+  locationId: vestiging.id,
+  assetId: apparaat.id,
+  assetName: apparaat.name,
+  title: 'Zelftest storing',
+  description: 'Aangemaakt door de zelftest',
+  severity: 'kritiek',
+  stopsProduction: true,
+  by: { id: 'u_wasser', name: 'Tom Verhoeven' },
+})
+
+check('storing krijgt een nummer', /^S-\d{4}-\d{4}$/.test(melding.number), melding.number)
+check('kritieke storing zet het apparaat op storing',
+  (await db.assets.get(apparaat.id))?.status === 'storing')
+
+const bon = await orderRepo.create({
+  locationId: vestiging.id,
+  type: 'storing',
+  title: 'Zelftest werkbon',
+  assetId: apparaat.id,
+  faultId: melding.id,
+  checklist: ['Spanningsloos gemaakt', 'Storing verholpen'],
+  by: { id: 'u_wasser3', name: 'Nour El Amrani' },
+})
+
+check('werkbon krijgt een nummer', /^W-\d{4}-\d{4}$/.test(bon.number), bon.number)
+check('storing weet welke werkbon eraan hangt',
+  (await db.faults.get(melding.id))?.workOrderId === bon.id)
+check('storing staat nu in behandeling',
+  (await db.faults.get(melding.id))?.status === 'in behandeling')
+
+await orderRepo.toggleCheck(bon.id, 0)
+check('checklist-punt afvinken werkt',
+  (await db.workOrders.get(bon.id))?.checklist[0].done === true)
+
+await orderRepo.addPart(bon.id, { name: 'Borstelsegment', qty: 2, unitPrice: 34.5 })
+const metOnderdeel = await db.workOrders.get(bon.id)
+check('onderdeel toegevoegd', metOnderdeel?.parts.length === 1)
+check('en de prijs klopt',
+  (metOnderdeel?.parts[0].qty ?? 0) * (metOnderdeel?.parts[0].unitPrice ?? 0) === 69)
+
+await orderRepo.complete({
+  id: bon.id,
+  minutesSpent: 90,
+  workDone: 'Segment vervangen en proefgedraaid.',
+  signedOffBy: 'Tom Verhoeven',
+  by: { id: 'u_wasser3', name: 'Nour El Amrani' },
+})
+
+const afgerond = await db.workOrders.get(bon.id)
+const naAfronden = await db.faults.get(melding.id)
+check('werkbon staat op gereed', afgerond?.status === 'gereed')
+check('storing is mee afgemeld', naAfronden?.status === 'opgelost')
+check('stilstand is berekend', (naAfronden?.downtimeMinutes ?? -1) >= 0)
+check('apparaat is weer in bedrijf',
+  (await db.assets.get(apparaat.id))?.status === 'in bedrijf')
+
+/* --- onderhoud: schema wordt doorgeschoven --- */
+
+const schema = allePlans.find((p) => p.locationId === vestiging.id)!
+const vorigeDatum = schema.nextDueAt
+const onderhoudsbon = await planRepo.schedule(schema.id, { id: 'u_wasser3', name: 'Nour El Amrani' })
+check('onderhoud levert een werkbon op', !!onderhoudsbon)
+check('checklist van het schema staat erop',
+  (onderhoudsbon?.checklist.length ?? 0) === schema.checklist.length)
+
+await orderRepo.complete({
+  id: onderhoudsbon!.id,
+  minutesSpent: 45,
+  workDone: 'Beurt uitgevoerd.',
+  by: { id: 'u_wasser3', name: 'Nour El Amrani' },
+})
+const naBeurt = await db.maintenancePlans.get(schema.id)
+// Een beurt die je vroeg uitvoert, verschuift de volgende naar nu plus het
+// interval. Dat kan eerder zijn dan de oorspronkelijke datum, en dat hoort zo.
+const verwachteDag = Math.round((Date.now() + MAINTENANCE_DAGEN[schema.interval] * 86_400_000) / 86_400_000)
+check('volgende beurt staat op nu plus het interval',
+  Math.round((naBeurt?.nextDueAt ?? 0) / 86_400_000) === verwachteDag,
+  `${new Date(naBeurt?.nextDueAt ?? 0).toISOString().slice(0, 10)} bij interval ${schema.interval}`)
+check('de datum is daadwerkelijk verzet', (naBeurt?.nextDueAt ?? 0) !== vorigeDatum)
+check('laatst gedaan is bijgewerkt', (naBeurt?.lastDoneAt ?? 0) > 0)
+check('een doorgeschoven schema staat niet meer over tijd',
+  dueStateOf(naBeurt!) !== 'over tijd')
+
+/* --- cijfers --- */
+
+const kpi = techKpis({
+  faults: await db.faults.toArray(),
+  orders: await db.workOrders.toArray(),
+  plans: await db.maintenancePlans.toArray(),
+  days: 60,
+})
+check('cijfers tellen open storingen', kpi.openStoringen >= 0)
+check('onderhoud op peil is een percentage',
+  kpi.onderhoudOpPeil >= 0 && kpi.onderhoudOpPeil <= 100, String(kpi.onderhoudOpPeil))
+check('onderdelenkosten zijn meegeteld', kpi.onderdelenKosten >= 69,
+  String(kpi.onderdelenKosten))
+
+/* --- alles overleeft de rondgang naar de server --- */
+
+await sync()
+await db.assets.clear()
+await db.faults.clear()
+await db.workOrders.clear()
+await db.maintenancePlans.clear()
+await setMeta(LAST_SYNC, 0)
+await sync()
+
+check('installaties staan op de server', (await db.assets.count()) === alleAssets.length)
+check('werkbon staat op de server', !!(await db.workOrders.get(bon.id)))
+check('afronding overleefde de rondgang',
+  (await db.workOrders.get(bon.id))?.status === 'gereed')
+check('onderdelen overleefden de rondgang',
+  (await db.workOrders.get(bon.id))?.parts.length === 1)
+
+/* --- afscherming per vestiging geldt ook hier --- */
+
+const techniekVanWasser = withinScope(wasserUtr, await db.assets.toArray())
+check('wasser ziet alleen de installaties van zijn vestiging',
+  techniekVanWasser.length > 0 && techniekVanWasser.every((a) => a.locationId === 'loc_utr'))
+check('hoofdkantoor ziet het hele machinepark',
+  withinScope(hkUser, await db.assets.toArray()).length === alleAssets.length)
 
 /* ==================================================================== */
 

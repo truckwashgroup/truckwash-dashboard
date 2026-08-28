@@ -14,6 +14,8 @@ import SyncPill from './SyncPill'
 import Logo from './Logo'
 import GlobalSearch from './GlobalSearch'
 import LocationSwitcher from './LocationSwitcher'
+import { StoringMeldenKnop } from './StoringMelden'
+import { usePerms } from '../store/useNav'
 import NotificationCenter from './NotificationCenter'
 import type { LucideIcon } from 'lucide-react'
 
@@ -42,6 +44,7 @@ export default function Shell({
   const { lastSyncAt, sync, syncing } = useSync()
   const version = useUpdates((s) => s.version)
   const openSearch = useNav((s) => s.openSearch)
+  const perms = usePerms()
 
   return (
     <div className="app-shell">
@@ -140,6 +143,8 @@ export default function Shell({
           </div>
 
           <GlobalSearch />
+
+          {perms.can('faults.report') && <StoringMeldenKnop />}
 
           {actions}
 

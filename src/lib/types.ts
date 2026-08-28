@@ -2,16 +2,18 @@
  *  Domeinmodel Truckwash1 Group
  * ------------------------------------------------------------------ */
 
-export type Role = 'employee' | 'supervisor' | 'customer' | 'management'
+export type Role = 'employee' | 'supervisor' | 'technician' | 'customer' | 'management'
 
 export const ROLE_LABELS: Record<Role, string> = {
   employee: 'Werknemer',
   supervisor: 'Leidinggevende',
+  technician: 'Technische dienst',
   customer: 'Klant',
   management: 'Management',
 }
 
-export const ROLE_ORDER: Role[] = ['employee', 'supervisor', 'customer', 'management']
+export const ROLE_ORDER: Role[] =
+  ['employee', 'supervisor', 'technician', 'customer', 'management']
 
 export interface User {
   id: string
@@ -234,6 +236,11 @@ export type Permission =
   | 'notify.send' | 'notify.broadcast'
   /* opleiding */
   | 'learning.take' | 'learning.assign' | 'learning.manage'
+  /* techniek */
+  | 'assets.view' | 'assets.manage'
+  | 'faults.report' | 'faults.view' | 'faults.triage'
+  | 'workorders.view' | 'workorders.create' | 'workorders.assign' | 'workorders.complete'
+  | 'maintenance.view' | 'maintenance.manage'
   /* locaties */
   | 'locations.view' | 'locations.manage' | 'locations.all'
   /* beheer */
@@ -294,6 +301,18 @@ export const PERMISSIONS: PermissionMeta[] = [
   { key: 'learning.take',     group: 'Opleiding',  label: 'Cursussen volgen',     hint: 'De e-learning doorlopen.' },
   { key: 'learning.assign',   group: 'Opleiding',  label: 'Cursussen toewijzen',  hint: 'Bepalen wie wat moet doen en voortgang volgen.' },
   { key: 'learning.manage',   group: 'Opleiding',  label: 'Cursussen beheren',    hint: 'Lesmateriaal en toetsvragen aanpassen.' },
+
+  { key: 'assets.view',        group: 'Techniek',  label: 'Installaties zien',    hint: 'Het machinepark en de gegevens per apparaat bekijken.' },
+  { key: 'assets.manage',      group: 'Techniek',  label: 'Installaties beheren', hint: 'Apparaten toevoegen, wijzigen en QR-labels maken.' },
+  { key: 'faults.report',      group: 'Techniek',  label: 'Storing melden',       hint: 'Een defect doorgeven, ook door een QR-code te scannen.' },
+  { key: 'faults.view',        group: 'Techniek',  label: 'Storingen zien',       hint: 'Alle meldingen op je vestigingen bekijken.' },
+  { key: 'faults.triage',      group: 'Techniek',  label: 'Storingen beoordelen', hint: 'Urgentie bepalen, toewijzen en afhandelen.' },
+  { key: 'workorders.view',    group: 'Techniek',  label: 'Werkbonnen zien',      hint: 'De werkbonnen van je vestigingen bekijken.' },
+  { key: 'workorders.create',  group: 'Techniek',  label: 'Werkbon maken',        hint: 'Zelf een werkbon aanmaken.' },
+  { key: 'workorders.assign',  group: 'Techniek',  label: 'Werkbon toewijzen',    hint: 'Bepalen wie welke klus doet en wanneer.' },
+  { key: 'workorders.complete', group: 'Techniek', label: 'Werkbon afronden',     hint: 'Uren, onderdelen en resultaat vastleggen.' },
+  { key: 'maintenance.view',   group: 'Techniek',  label: 'Onderhoud zien',       hint: "De onderhoudsschema's en wat er openstaat." },
+  { key: 'maintenance.manage', group: 'Techniek',  label: 'Onderhoud beheren',    hint: "Schema's en intervallen instellen." },
 
   { key: 'locations.view',    group: 'Locaties',   label: 'Locaties zien',        hint: 'De vestigingen en hun gegevens bekijken.' },
   { key: 'locations.manage',  group: 'Locaties',   label: 'Locaties beheren',     hint: 'Vestigingen toevoegen en wijzigen.', sensitive: true },
@@ -427,6 +446,184 @@ export interface Shift {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Technische dienst
+ *
+ *  Vier dingen die aan elkaar hangen:
+ *
+ *    Installatie  -- een apparaat op een vestiging, met een QR-label erop
+ *    Storing      -- een melding dat er iets stuk is
+ *    Onderhoud    -- een terugkerende beurt volgens een schema
+ *    Werkbon      -- het werk zelf: uren, onderdelen, wat er gedaan is
+ *
+ *  Een storing of een onderhoudsbeurt levert een werkbon op. De werkbon is
+ *  waar de monteur op werkt en waar de verantwoording in staat.
+ * ------------------------------------------------------------------ */
+
+export type AssetCategory =
+  | 'wasstraat' | 'borstelunit' | 'hogedruk' | 'waterzuivering'
+  | 'osmose' | 'compressor' | 'doseerunit' | 'droger'
+  | 'heftruck' | 'elektra' | 'gebouw' | 'overig'
+
+export const ASSET_CATEGORIES: Record<AssetCategory, string> = {
+  wasstraat: 'Wasstraat',
+  borstelunit: 'Borstelunit',
+  hogedruk: 'Hogedrukinstallatie',
+  waterzuivering: 'Waterzuivering',
+  osmose: 'Osmose-installatie',
+  compressor: 'Compressor',
+  doseerunit: 'Doseerunit',
+  droger: 'Droogblazer',
+  heftruck: 'Heftruck',
+  elektra: 'Elektra en besturing',
+  gebouw: 'Gebouw en terrein',
+  overig: 'Overig',
+}
+
+export type AssetStatus = 'in bedrijf' | 'storing' | 'onderhoud' | 'buiten gebruik'
+
+export interface Asset {
+  id: string
+  locationId: string
+  /** Leesbare code op het label, bijv. UTR-BOR-01 */
+  code: string
+  name: string
+  category: AssetCategory
+  brand?: string
+  model?: string
+  serialNumber?: string
+  status: AssetStatus
+  installedAt?: number
+  warrantyUntil?: number
+  /** Draaiuren, als het apparaat die bijhoudt */
+  runningHours?: number
+  location?: string
+  notes?: string
+  /**
+   * De sleutel die in de QR-code staat. Bewust apart van het id: een label
+   * kan worden vervangen zonder dat de historie eraan verandert, en een
+   * gescande code verraadt geen interne id's.
+   */
+  qrToken: string
+  lastServiceAt?: number
+  nextServiceAt?: number
+  updatedAt: number
+}
+
+export type FaultSeverity = 'laag' | 'middel' | 'hoog' | 'kritiek'
+
+export const FAULT_SEVERITY: Record<FaultSeverity, { label: string; tone: string; hint: string }> = {
+  laag:    { label: 'Laag',    tone: 'default', hint: 'Hinderlijk, kan wachten' },
+  middel:  { label: 'Middel',  tone: 'info',    hint: 'Beperkt het werk, deze week oplossen' },
+  hoog:    { label: 'Hoog',    tone: 'warn',    hint: 'Installatie deels uit bedrijf' },
+  kritiek: { label: 'Kritiek', tone: 'danger',  hint: 'Wasstraat ligt stil of onveilig' },
+}
+
+export type FaultStatus =
+  | 'gemeld' | 'in behandeling' | 'wacht op onderdelen' | 'opgelost' | 'afgewezen'
+
+export interface Fault {
+  id: string
+  number: string
+  locationId: string
+  assetId?: string
+  assetName?: string
+  title: string
+  description: string
+  severity: FaultSeverity
+  status: FaultStatus
+  /** Ligt de installatie stil door deze storing? */
+  stopsProduction: boolean
+  reportedBy: string
+  reportedByName: string
+  reportedAt: number
+  assignedTo?: string
+  assignedName?: string
+  resolvedAt?: number
+  resolution?: string
+  /** Stilstand in minuten, voor de cijfers van het management */
+  downtimeMinutes?: number
+  workOrderId?: string
+  updatedAt: number
+}
+
+export type MaintenanceInterval = 'wekelijks' | 'maandelijks' | 'kwartaal' | 'halfjaar' | 'jaar'
+
+export const MAINTENANCE_DAYS: Record<MaintenanceInterval, number> = {
+  wekelijks: 7,
+  maandelijks: 30,
+  kwartaal: 91,
+  halfjaar: 182,
+  jaar: 365,
+}
+
+export interface MaintenancePlan {
+  id: string
+  /** Geldt voor één apparaat, of voor een hele categorie op een vestiging */
+  assetId?: string
+  locationId?: string
+  category?: AssetCategory
+  title: string
+  description?: string
+  interval: MaintenanceInterval
+  /** Checklist die de monteur afvinkt */
+  checklist: string[]
+  estimatedMinutes: number
+  lastDoneAt?: number
+  nextDueAt: number
+  active: boolean
+  updatedAt: number
+}
+
+export type WorkOrderType = 'storing' | 'preventief' | 'inspectie' | 'modificatie'
+export type WorkOrderStatus = 'open' | 'ingepland' | 'bezig' | 'gereed' | 'geannuleerd'
+export type WorkOrderPriority = 'laag' | 'normaal' | 'hoog' | 'spoed'
+
+export interface WorkOrderPart {
+  itemId?: string
+  name: string
+  qty: number
+  unitPrice: number
+}
+
+export interface WorkOrderCheck {
+  text: string
+  done: boolean
+  note?: string
+}
+
+export interface WorkOrder {
+  id: string
+  number: string
+  locationId: string
+  assetId?: string
+  assetName?: string
+  faultId?: string
+  planId?: string
+  type: WorkOrderType
+  priority: WorkOrderPriority
+  status: WorkOrderStatus
+  title: string
+  description?: string
+  createdBy: string
+  createdByName: string
+  createdAt: number
+  assignedTo?: string
+  assignedName?: string
+  plannedAt?: number
+  startedAt?: number
+  completedAt?: number
+  /** Bestede tijd in minuten */
+  minutesSpent?: number
+  parts: WorkOrderPart[]
+  checklist: WorkOrderCheck[]
+  workDone?: string
+  /** Naam van wie voor akkoord tekende op de vestiging */
+  signedOffBy?: string
+  externalCost?: number
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
  *  Sync
  * ------------------------------------------------------------------ */
 
@@ -434,6 +631,7 @@ export type EntityName =
   | 'locations' | 'users' | 'companies' | 'washJobs' | 'inventory'
   | 'stockMovements' | 'expenses' | 'timeEntries' | 'shifts'
   | 'notifications' | 'courses' | 'courseProgress'
+  | 'assets' | 'faults' | 'workOrders' | 'maintenancePlans'
 
 export type SyncOp = 'put' | 'delete'
 

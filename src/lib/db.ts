@@ -1,7 +1,8 @@
 import Dexie, { type Table } from 'dexie'
 import type {
-  AppNotification, Company, Course, CourseProgress, Expense, InventoryItem,
-  Location, OutboxRecord, Shift, StockMovement, TimeEntry, User, WashJob,
+  AppNotification, Asset, Company, Course, CourseProgress, Expense, Fault,
+  InventoryItem, Location, MaintenancePlan, OutboxRecord, Shift, StockMovement,
+  TimeEntry, User, WashJob, WorkOrder,
 } from './types'
 
 /**
@@ -21,6 +22,10 @@ class TruckwashDB extends Dexie {
   notifications!: Table<AppNotification, string>
   courses!: Table<Course, string>
   courseProgress!: Table<CourseProgress, string>
+  assets!: Table<Asset, string>
+  faults!: Table<Fault, string>
+  workOrders!: Table<WorkOrder, string>
+  maintenancePlans!: Table<MaintenancePlan, string>
   outbox!: Table<OutboxRecord, number>
   meta!: Table<{ key: string; value: unknown }, string>
 
@@ -60,6 +65,14 @@ class TruckwashDB extends Dexie {
       expenses: 'id, status, category, date, locationId, updatedAt',
       shifts: 'id, userId, startAt, locationId, updatedAt',
       timeEntries: 'id, userId, jobId, start, locationId, updatedAt',
+    })
+
+    // v5: technische dienst
+    this.version(5).stores({
+      assets: 'id, locationId, category, status, code, qrToken, updatedAt',
+      faults: 'id, locationId, assetId, status, severity, reportedAt, updatedAt',
+      workOrders: 'id, locationId, assetId, status, assignedTo, plannedAt, updatedAt',
+      maintenancePlans: 'id, assetId, locationId, nextDueAt, active, updatedAt',
     })
   }
 }

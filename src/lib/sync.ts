@@ -142,6 +142,7 @@ const TABLE_OF: Record<EntityName, () => any> = {
   stockMovements: () => db.stockMovements,
   expenses: () => db.expenses,
   timeEntries: () => db.timeEntries,
+  shifts: () => db.shifts,
 }
 
 async function pullChanges(): Promise<number> {

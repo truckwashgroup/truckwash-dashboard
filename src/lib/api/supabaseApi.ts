@@ -95,13 +95,15 @@ const TABLES: Record<EntityName, string> = {
   stockMovements: 'stock_movements',
   expenses: 'expenses',
   timeEntries: 'time_entries',
+  shifts: 'shifts',
 }
 
 /** Kolommen waarvan de naam niet simpelweg de snake_case-variant is. */
 const OVERRIDES: Partial<Record<EntityName, Record<string, string>>> = {
-  // "end" is een gereserveerd woord in SQL, "date" is een typenaam
+  // "end" en "function" zijn gereserveerde woorden in SQL, "date" is een typenaam
   timeEntries: { start: 'started_at', end: 'ended_at' },
   expenses: { date: 'expense_date' },
+  users: { function: 'job_title' },
 }
 
 /* ------------------------------------------------------------------ *
@@ -169,7 +171,24 @@ export const supabaseApi: ApiAdapter = {
     }
     if (!data.session || !data.user) return null
 
-    return { userId: data.user.id, token: data.session.access_token }
+    // Het inlogaccount en het personeelsdossier zijn twee dingen: iemand kan
+    // al op de loonlijst staan voordat er een account is. De rest van de app
+    // werkt met het dossier-id, dus dat zoeken we hier op.
+    const { data: profile, error: profileError } = await supabase()
+      .from('profiles')
+      .select('id')
+      .eq('auth_id', data.user.id)
+      .maybeSingle()
+
+    if (profileError) fail('profiel ophalen', profileError)
+    if (!profile) {
+      throw new Error(
+        'Inloggen lukte, maar er hangt geen personeelsdossier aan dit account. ' +
+        'Laat het management je toevoegen met hetzelfde e-mailadres.',
+      )
+    }
+
+    return { userId: profile.id as string, token: data.session.access_token }
   },
 
   async push(changes: PushChange[]) {

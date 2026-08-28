@@ -1,14 +1,19 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { BadgeCheck, ShieldCheck, Timer, UserCog, Users } from 'lucide-react'
+import {
+  ArrowLeft, BadgeCheck, KeyRound, Mail, Phone, ShieldCheck, Timer,
+  UserCog, UserPlus, Users,
+} from 'lucide-react'
 import { db } from '../../lib/db'
 import { users as userRepo } from '../../lib/repo'
-import type { Role, TimeEntry, User, WashJob } from '../../lib/types'
+import type { Role, Shift, TimeEntry, User, WashJob } from '../../lib/types'
 import { duration, initials, money, number } from '../../lib/format'
 import { Badge, Card, Empty, Field, Modal, Stat } from '../../components/ui'
+import WeekRooster from '../../components/WeekRooster'
 import { useAuth } from '../../store/useAuth'
 import { toast } from '../../store/useToasts'
 import { staffPerformance } from '../../lib/analytics'
+import { dateInputValue, dayFromDateInput } from '../../lib/roster'
 
 const ROLE_LABELS: Record<Role, string> = {
   employee: 'Werknemer',
@@ -20,9 +25,8 @@ const ALL_ROLES: Role[] = ['employee', 'customer', 'management']
 
 export default function Personeel({ days }: { days: number }) {
   const me = useAuth((s) => s.user)!
-  const [editing, setEditing] = useState<User | null>(null)
-  const [draftRoles, setDraftRoles] = useState<Role[]>([])
-  const [draftRate, setDraftRate] = useState('')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [adding, setAdding] = useState(false)
 
   const users = useLiveQuery(() => db.users.toArray(), [], [] as User[])
   const jobs = useLiveQuery(() => db.washJobs.toArray(), [], [] as WashJob[])
@@ -33,33 +37,24 @@ export default function Personeel({ days }: { days: number }) {
     [users, jobs, entries, days],
   )
 
+  const selected = users.find((u) => u.id === selectedId) ?? null
+
+  if (selected) {
+    return (
+      <PersonDetail
+        person={selected}
+        days={days}
+        onBack={() => setSelectedId(null)}
+        canEdit={me.roles.includes('management')}
+        meId={me.id}
+      />
+    )
+  }
+
   const totaalUren = rows.reduce((a, r) => a + r.minuten, 0)
   const totaalLoon = rows.reduce((a, r) => a + r.loonkosten, 0)
   const totaalOmzet = rows.reduce((a, r) => a + r.omzet, 0)
-
-  function openEdit(u: User) {
-    setEditing(u)
-    setDraftRoles([...u.roles])
-    setDraftRate(String(u.hourlyRate ?? 0))
-  }
-
-  async function save() {
-    if (!editing) return
-    if (draftRoles.length === 0) return toast.error('Kies minimaal één rol')
-
-    await userRepo.setRoles(editing.id, draftRoles)
-    const rate = Number(draftRate.replace(',', '.'))
-    if (Number.isFinite(rate)) await userRepo.setRate(editing.id, rate)
-
-    toast.ok(`Rechten van ${editing.name} bijgewerkt`)
-    setEditing(null)
-  }
-
-  async function toggleActive(u: User) {
-    if (u.id === me.id) return toast.warn('Je kunt jezelf niet deactiveren')
-    await userRepo.setActive(u.id, !u.active)
-    toast.info(`${u.name} is nu ${u.active ? 'inactief' : 'actief'}`)
-  }
+  const zonderAccount = users.filter((u) => u.roles.includes('employee') && !u.authId).length
 
   return (
     <>
@@ -68,34 +63,46 @@ export default function Personeel({ days }: { days: number }) {
         <Stat label={`Uren (${days}d)`} value={duration(totaalUren * 60000)} icon={<Timer size={17} />} />
         <Stat label="Loonkosten" value={money(totaalLoon)} icon={<UserCog size={17} />} tone="warn" />
         <Stat
-          label="Omzet per loon-euro"
-          value={totaalLoon > 0 ? (totaalOmzet / totaalLoon).toFixed(2) + '×' : '—'}
-          icon={<BadgeCheck size={17} />}
-          tone="ok"
+          label={zonderAccount ? 'Zonder inlogaccount' : 'Omzet per loon-euro'}
+          value={zonderAccount ? zonderAccount : totaalLoon > 0 ? (totaalOmzet / totaalLoon).toFixed(2) + '×' : '—'}
+          icon={zonderAccount ? <KeyRound size={17} /> : <BadgeCheck size={17} />}
+          tone={zonderAccount ? 'warn' : 'ok'}
         />
       </div>
 
-      <Card title="Prestaties" hint={`Laatste ${days} dagen`} flush>
+      <Card
+        title="Personeel"
+        hint={`Prestaties over ${days} dagen · klik voor het dossier`}
+        flush
+        action={
+          <button className="btn primary sm" onClick={() => setAdding(true)}>
+            <UserPlus size={15} /> Medewerker toevoegen
+          </button>
+        }
+      >
         {rows.length === 0 ? (
-          <Empty text="Geen medewerkers gevonden." />
+          <Empty text="Nog geen medewerkers." icon={<Users size={30} />} />
         ) : (
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
                   <th>Medewerker</th>
+                  <th>Nummer</th>
+                  <th>Functie</th>
                   <th className="num">Wasbeurten</th>
                   <th className="num">Uren</th>
-                  <th className="num">Gem. per was</th>
                   <th className="num">Omzet</th>
-                  <th className="num">Loonkosten</th>
                   <th>Rollen</th>
-                  <th />
                 </tr>
               </thead>
               <tbody>
                 {rows.map(({ user: u, ...r }) => (
-                  <tr key={u.id} style={{ opacity: u.active ? 1 : 0.5 }}>
+                  <tr
+                    key={u.id}
+                    style={{ opacity: u.active ? 1 : 0.5, cursor: 'pointer' }}
+                    onClick={() => setSelectedId(u.id)}
+                  >
                     <td>
                       <div className="row" style={{ gap: 9, flexWrap: 'nowrap' }}>
                         <div
@@ -113,11 +120,11 @@ export default function Personeel({ days }: { days: number }) {
                         </div>
                       </div>
                     </td>
+                    <td className="mono">{u.personnelNumber ?? '—'}</td>
+                    <td>{u.function ?? '—'}</td>
                     <td className="num">{number(r.jobs)}</td>
                     <td className="num">{duration(r.minuten * 60000)}</td>
-                    <td className="num">{r.gemMinPerWas ? `${r.gemMinPerWas}m` : '—'}</td>
                     <td className="num">{money(r.omzet)}</td>
-                    <td className="num" style={{ color: 'var(--text-3)' }}>{money(r.loonkosten)}</td>
                     <td>
                       <div className="row" style={{ gap: 4 }}>
                         {u.roles.map((role) => (
@@ -127,19 +134,8 @@ export default function Personeel({ days }: { days: number }) {
                           </Badge>
                         ))}
                         {!u.active && <Badge tone="danger">Inactief</Badge>}
+                        {!u.authId && <Badge tone="warn"><KeyRound size={11} /> Geen login</Badge>}
                       </div>
-                    </td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <button className="btn sm" onClick={() => openEdit(u)}>
-                        <UserCog size={14} /> Rechten
-                      </button>{' '}
-                      <button
-                        className={`btn sm ${u.active ? 'ghost' : 'ok'}`}
-                        onClick={() => void toggleActive(u)}
-                        disabled={u.id === me.id}
-                      >
-                        {u.active ? 'Blokkeren' : 'Activeren'}
-                      </button>
                     </td>
                   </tr>
                 ))}
@@ -149,51 +145,413 @@ export default function Personeel({ days }: { days: number }) {
         )}
       </Card>
 
-      <Modal
-        open={!!editing}
-        title="Rechten en tarief"
-        subtitle={editing?.name}
-        onClose={() => setEditing(null)}
-      >
-        <Field
-          label="Dashboards waar deze gebruiker bij mag"
-          help="Het managementdashboard verschijnt pas als de rol Management is toegekend."
-        >
-          <div style={{ display: 'grid', gap: 8, marginTop: 4 }}>
-            {ALL_ROLES.map((role) => {
-              const on = draftRoles.includes(role)
-              return (
-                <button
-                  key={role}
-                  className={`btn ${on ? 'primary' : ''}`}
-                  style={{ justifyContent: 'flex-start' }}
-                  onClick={() =>
-                    setDraftRoles(on ? draftRoles.filter((r) => r !== role) : [...draftRoles, role])
-                  }
-                >
-                  {role === 'management' ? <ShieldCheck size={15} /> : <Users size={15} />}
-                  {ROLE_LABELS[role]}
-                  {on && <span style={{ marginLeft: 'auto', fontSize: '.75rem' }}>Aan</span>}
-                </button>
-              )
-            })}
-          </div>
-        </Field>
+      <AddPersonDialog open={adding} onClose={() => setAdding(false)} onCreated={setSelectedId} />
+    </>
+  )
+}
 
-        <Field label="Uurtarief (€)">
+/* ================================================================== *
+ *  Dossier van één medewerker
+ * ================================================================== */
+
+function PersonDetail({
+  person, days, onBack, canEdit, meId,
+}: {
+  person: User
+  days: number
+  onBack: () => void
+  canEdit: boolean
+  meId: string
+}) {
+  const [editing, setEditing] = useState(false)
+
+  const jobs = useLiveQuery(() => db.washJobs.toArray(), [], [] as WashJob[])
+  const entries = useLiveQuery(() => db.timeEntries.toArray(), [], [] as TimeEntry[])
+  const allShifts = useLiveQuery(
+    () => db.shifts.where('userId').equals(person.id).toArray(),
+    [person.id],
+    [] as Shift[],
+  )
+
+  const stats = useMemo(
+    () => staffPerformance([person], jobs, entries, days)[0],
+    [person, jobs, entries, days],
+  )
+
+  const komend = allShifts.filter((s) => s.startAt >= Date.now()).length
+
+  async function toggleActive() {
+    if (person.id === meId) return toast.warn('Je kunt jezelf niet blokkeren')
+    await userRepo.setActive(person.id, !person.active)
+    toast.info(`${person.name} is nu ${person.active ? 'inactief' : 'actief'}`)
+  }
+
+  return (
+    <>
+      <button className="btn ghost sm" onClick={onBack} style={{ marginBottom: 14 }}>
+        <ArrowLeft size={15} /> Terug naar het overzicht
+      </button>
+
+      <Card>
+        <div className="person-head">
+          <div className="person-avatar">{initials(person.name)}</div>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <h2 style={{ marginBottom: 3 }}>{person.name}</h2>
+            <div className="row" style={{ gap: 6 }}>
+              {person.personnelNumber && <Badge>{person.personnelNumber}</Badge>}
+              {person.roles.map((r) => (
+                <Badge key={r} tone={r === 'management' ? 'brand' : 'default'}>{ROLE_LABELS[r]}</Badge>
+              ))}
+              {!person.active && <Badge tone="danger">Inactief</Badge>}
+              {!person.authId && <Badge tone="warn"><KeyRound size={11} /> Nog geen inlogaccount</Badge>}
+            </div>
+          </div>
+          {canEdit && (
+            <div className="row" style={{ gap: 6 }}>
+              <button className="btn sm" onClick={() => setEditing(true)}>
+                <UserCog size={14} /> Gegevens
+              </button>
+              <button
+                className={`btn sm ${person.active ? 'ghost' : 'ok'}`}
+                onClick={() => void toggleActive()}
+                disabled={person.id === meId}
+              >
+                {person.active ? 'Blokkeren' : 'Activeren'}
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="person-fields">
+          <Info label="E-mail" value={person.email} icon={<Mail size={13} />} />
+          <Info label="Telefoon" value={person.phone ?? '—'} icon={<Phone size={13} />} />
+          <Info label="Functie" value={person.function ?? '—'} />
+          <Info label="Contracturen" value={person.contractHours ? `${person.contractHours} u/week` : '—'} />
+          <Info label="Uurtarief" value={person.hourlyRate ? money(person.hourlyRate) : '—'} />
+          <Info
+            label="In dienst sinds"
+            value={person.startDate
+              ? new Date(person.startDate).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })
+              : '—'}
+          />
+        </div>
+
+        {person.notes && (
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line-soft)' }}>
+            <div className="person-field">
+              <div className="label">Notitie</div>
+              <div className="value" style={{ color: 'var(--text-2)' }}>{person.notes}</div>
+            </div>
+          </div>
+        )}
+
+        {!person.authId && (
+          <div
+            style={{
+              marginTop: 14, padding: '11px 13px', borderRadius: 'var(--radius-sm)',
+              background: 'rgba(245,181,68,.08)', border: '1px solid rgba(245,181,68,.3)',
+              fontSize: '.83rem', color: '#ffd894',
+            }}
+          >
+            <strong>Nog geen toegang tot de app.</strong> Nodig {person.name.split(' ')[0]} uit
+            via Supabase (Authentication → Users → Invite) op {person.email}. Bij de eerste
+            keer inloggen wordt dit dossier automatisch gekoppeld.
+          </div>
+        )}
+      </Card>
+
+      <div className="grid cols-4" style={{ margin: '16px 0' }}>
+        <Stat label={`Wasbeurten (${days}d)`} value={number(stats?.jobs ?? 0)} />
+        <Stat label="Gewerkte uren" value={duration((stats?.minuten ?? 0) * 60000)} />
+        <Stat label="Omzet" value={money(stats?.omzet ?? 0)} tone="ok" />
+        <Stat label="Diensten ingepland" value={komend} tone="warn" />
+      </div>
+
+      <Card title="Rooster" hint={canEdit ? 'Klik op een dienst of op + om te wijzigen' : undefined}>
+        <WeekRooster person={person} editable={canEdit} />
+      </Card>
+
+      <EditPersonDialog
+        open={editing}
+        person={person}
+        onClose={() => setEditing(false)}
+      />
+    </>
+  )
+}
+
+function Info({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
+  return (
+    <div className="person-field">
+      <div className="label">{label}</div>
+      <div className="value row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+        {icon && <span style={{ color: 'var(--text-3)' }}>{icon}</span>}
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</span>
+      </div>
+    </div>
+  )
+}
+
+/* ================================================================== *
+ *  Medewerker toevoegen
+ * ================================================================== */
+
+const EMPTY = {
+  name: '', email: '', personnelNumber: '', phone: '', function: '',
+  hourlyRate: '', contractHours: '38', startDate: dateInputValue(Date.now()),
+  notes: '', roles: ['employee', 'customer'] as Role[],
+}
+
+function AddPersonDialog({
+  open, onClose, onCreated,
+}: {
+  open: boolean
+  onClose: () => void
+  onCreated: (id: string) => void
+}) {
+  const [form, setForm] = useState({ ...EMPTY })
+  const existing = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+
+  const set = (patch: Partial<typeof EMPTY>) => setForm({ ...form, ...patch })
+
+  /** Volgend vrij personeelsnummer voorstellen, bijv. TW-025. */
+  const suggested = useMemo(() => {
+    const nums = existing
+      .map((u) => u.personnelNumber?.match(/(\d+)\s*$/)?.[1])
+      .filter(Boolean)
+      .map(Number)
+    const next = (nums.length ? Math.max(...nums) : 0) + 1
+    return 'TW-' + String(next).padStart(3, '0')
+  }, [existing])
+
+  async function save() {
+    const email = form.email.trim().toLowerCase()
+    if (!form.name.trim()) return toast.error('Vul een naam in')
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return toast.error('Vul een geldig e-mailadres in')
+    if (existing.some((u) => u.email.toLowerCase() === email)) {
+      return toast.error('Er bestaat al een medewerker met dit e-mailadres')
+    }
+    if (form.roles.length === 0) return toast.error('Kies minimaal één rol')
+
+    const created = await userRepo.create({
+      name: form.name,
+      email,
+      roles: form.roles,
+      personnelNumber: form.personnelNumber.trim() || suggested,
+      phone: form.phone,
+      function: form.function,
+      hourlyRate: form.hourlyRate ? Number(form.hourlyRate.replace(',', '.')) : undefined,
+      contractHours: form.contractHours ? Number(form.contractHours.replace(',', '.')) : undefined,
+      startDate: form.startDate ? dayFromDateInput(form.startDate) : undefined,
+      notes: form.notes,
+    })
+
+    toast.ok(`${form.name.trim()} toegevoegd`)
+    setForm({ ...EMPTY })
+    onClose()
+    if (created) onCreated(created.id)
+  }
+
+  return (
+    <Modal
+      open={open}
+      title="Medewerker toevoegen"
+      subtitle="Het dossier is direct beschikbaar. Toegang tot de app regel je apart."
+      onClose={onClose}
+      width={620}
+    >
+      <div className="grid cols-2">
+        <Field label="Naam">
+          <input className="input" value={form.name} onChange={(e) => set({ name: e.target.value })} autoFocus />
+        </Field>
+        <Field label="Personeelsnummer" help={`Leeg laten geeft ${suggested}`}>
           <input
             className="input"
-            inputMode="decimal"
-            value={draftRate}
-            onChange={(e) => setDraftRate(e.target.value)}
+            value={form.personnelNumber}
+            onChange={(e) => set({ personnelNumber: e.target.value })}
+            placeholder={suggested}
           />
         </Field>
+      </div>
 
-        <div className="row end">
-          <button className="btn ghost" onClick={() => setEditing(null)}>Annuleren</button>
-          <button className="btn primary" onClick={() => void save()}>Opslaan</button>
+      <div className="grid cols-2">
+        <Field label="E-mailadres" help="Hierop wordt later het inlogaccount gekoppeld">
+          <input
+            className="input" type="email" value={form.email}
+            onChange={(e) => set({ email: e.target.value })}
+            placeholder="naam@truckwash1group.nl"
+          />
+        </Field>
+        <Field label="Telefoon">
+          <input className="input" value={form.phone} onChange={(e) => set({ phone: e.target.value })} placeholder="06-12345678" />
+        </Field>
+      </div>
+
+      <div className="grid cols-3">
+        <Field label="Functie">
+          <input className="input" value={form.function} onChange={(e) => set({ function: e.target.value })} placeholder="Wasmedewerker" />
+        </Field>
+        <Field label="Contracturen">
+          <input className="input" inputMode="decimal" value={form.contractHours} onChange={(e) => set({ contractHours: e.target.value })} />
+        </Field>
+        <Field label="Uurtarief (€)">
+          <input className="input" inputMode="decimal" value={form.hourlyRate} onChange={(e) => set({ hourlyRate: e.target.value })} placeholder="22" />
+        </Field>
+      </div>
+
+      <Field label="In dienst sinds">
+        <input className="input" type="date" value={form.startDate} onChange={(e) => set({ startDate: e.target.value })} />
+      </Field>
+
+      <Field label="Toegang tot welke dashboards">
+        <div className="row" style={{ gap: 6 }}>
+          {ALL_ROLES.map((role) => {
+            const on = form.roles.includes(role)
+            return (
+              <button
+                key={role}
+                type="button"
+                className={`btn sm ${on ? 'primary' : ''}`}
+                onClick={() => set({ roles: on ? form.roles.filter((r) => r !== role) : [...form.roles, role] })}
+              >
+                {role === 'management' && <ShieldCheck size={13} />}
+                {ROLE_LABELS[role]}
+              </button>
+            )
+          })}
         </div>
-      </Modal>
-    </>
+      </Field>
+
+      <Field label="Notitie (optioneel)">
+        <textarea className="textarea" value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
+      </Field>
+
+      <div className="row end">
+        <button className="btn ghost" onClick={onClose}>Annuleren</button>
+        <button className="btn primary" onClick={() => void save()}>
+          <UserPlus size={15} /> Toevoegen
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+/* ================================================================== *
+ *  Gegevens en rechten wijzigen
+ * ================================================================== */
+
+function EditPersonDialog({
+  open, person, onClose,
+}: {
+  open: boolean
+  person: User
+  onClose: () => void
+}) {
+  const [form, setForm] = useState({
+    name: person.name,
+    phone: person.phone ?? '',
+    function: person.function ?? '',
+    personnelNumber: person.personnelNumber ?? '',
+    hourlyRate: String(person.hourlyRate ?? ''),
+    contractHours: String(person.contractHours ?? ''),
+    notes: person.notes ?? '',
+    roles: [...person.roles],
+  })
+  const [key, setKey] = useState(person.id)
+
+  if (open && key !== person.id) {
+    setKey(person.id)
+    setForm({
+      name: person.name,
+      phone: person.phone ?? '',
+      function: person.function ?? '',
+      personnelNumber: person.personnelNumber ?? '',
+      hourlyRate: String(person.hourlyRate ?? ''),
+      contractHours: String(person.contractHours ?? ''),
+      notes: person.notes ?? '',
+      roles: [...person.roles],
+    })
+  }
+
+  const set = (patch: Partial<typeof form>) => setForm({ ...form, ...patch })
+
+  async function save() {
+    if (!form.name.trim()) return toast.error('Vul een naam in')
+    if (form.roles.length === 0) return toast.error('Kies minimaal één rol')
+
+    await userRepo.update(person.id, {
+      name: form.name.trim(),
+      phone: form.phone.trim() || undefined,
+      function: form.function.trim() || undefined,
+      personnelNumber: form.personnelNumber.trim() || undefined,
+      hourlyRate: form.hourlyRate ? Number(form.hourlyRate.replace(',', '.')) : undefined,
+      contractHours: form.contractHours ? Number(form.contractHours.replace(',', '.')) : undefined,
+      notes: form.notes.trim() || undefined,
+      roles: form.roles,
+    })
+    toast.ok('Gegevens bijgewerkt')
+    onClose()
+  }
+
+  return (
+    <Modal open={open} title="Gegevens en rechten" subtitle={person.email} onClose={onClose} width={560}>
+      <div className="grid cols-2">
+        <Field label="Naam">
+          <input className="input" value={form.name} onChange={(e) => set({ name: e.target.value })} />
+        </Field>
+        <Field label="Personeelsnummer">
+          <input className="input" value={form.personnelNumber} onChange={(e) => set({ personnelNumber: e.target.value })} />
+        </Field>
+      </div>
+
+      <div className="grid cols-2">
+        <Field label="Telefoon">
+          <input className="input" value={form.phone} onChange={(e) => set({ phone: e.target.value })} />
+        </Field>
+        <Field label="Functie">
+          <input className="input" value={form.function} onChange={(e) => set({ function: e.target.value })} />
+        </Field>
+      </div>
+
+      <div className="grid cols-2">
+        <Field label="Contracturen per week">
+          <input className="input" inputMode="decimal" value={form.contractHours} onChange={(e) => set({ contractHours: e.target.value })} />
+        </Field>
+        <Field label="Uurtarief (€)">
+          <input className="input" inputMode="decimal" value={form.hourlyRate} onChange={(e) => set({ hourlyRate: e.target.value })} />
+        </Field>
+      </div>
+
+      <Field
+        label="Toegang tot welke dashboards"
+        help="Het managementdashboard verschijnt pas als de rol Management is toegekend."
+      >
+        <div className="row" style={{ gap: 6 }}>
+          {ALL_ROLES.map((role) => {
+            const on = form.roles.includes(role)
+            return (
+              <button
+                key={role}
+                type="button"
+                className={`btn sm ${on ? 'primary' : ''}`}
+                onClick={() => set({ roles: on ? form.roles.filter((r) => r !== role) : [...form.roles, role] })}
+              >
+                {role === 'management' && <ShieldCheck size={13} />}
+                {ROLE_LABELS[role]}
+              </button>
+            )
+          })}
+        </div>
+      </Field>
+
+      <Field label="Notitie">
+        <textarea className="textarea" value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
+      </Field>
+
+      <div className="row end">
+        <button className="btn ghost" onClick={onClose}>Annuleren</button>
+        <button className="btn primary" onClick={() => void save()}>Opslaan</button>
+      </div>
+    </Modal>
   )
 }

@@ -1,7 +1,7 @@
 import Dexie, { type Table } from 'dexie'
 import type { ApiAdapter, PullResult, PushChange } from './types'
 import type {
-  Company, EntityName, Expense, InventoryItem, StockMovement,
+  Company, EntityName, Expense, InventoryItem, Shift, StockMovement,
   TimeEntry, User, WashJob,
 } from '../types'
 import { SERVICES } from '../types'
@@ -20,6 +20,7 @@ class MockServerDB extends Dexie {
   stockMovements!: Table<StockMovement, string>
   expenses!: Table<Expense, string>
   timeEntries!: Table<TimeEntry, string>
+  shifts!: Table<Shift, string>
 
   constructor() {
     super('truckwash-mock-server')
@@ -31,6 +32,7 @@ class MockServerDB extends Dexie {
       stockMovements: 'id, at',
       expenses: 'id, updatedAt',
       timeEntries: 'id, updatedAt',
+      shifts: 'id, userId, startAt, updatedAt',
     })
   }
 }
@@ -45,6 +47,7 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   stockMovements: () => server.stockMovements,
   expenses: () => server.expenses,
   timeEntries: () => server.timeEntries,
+  shifts: () => server.shifts,
 }
 
 /* ------------------------------------------------------------------ *
@@ -111,14 +114,23 @@ async function seed() {
     { id: 'co_bulk', name: 'BulkLine Tankvervoer', contact: 'Petra Bos', email: 'planning@bulkline.nl', phone: '050-9988776', city: 'Groningen', contractDiscountPct: 8, updatedAt: t },
   ]
 
+  const YEAR = 365 * DAY
   const users: User[] = [
-    { id: 'u_casper', email: 'casper@truckwash1group.nl', password: 'truckwash', name: 'Casper', roles: ['employee', 'customer', 'management'], active: true, hourlyRate: 0, updatedAt: t },
-    { id: 'u_manager', email: 'manager@truckwash1group.nl', password: 'manager', name: 'Ilse Bakker', roles: ['employee', 'customer', 'management'], active: true, hourlyRate: 34, updatedAt: t },
-    { id: 'u_wasser', email: 'wasser@truckwash1group.nl', password: 'wasser', name: 'Tom Verhoeven', roles: ['employee', 'customer'], active: true, hourlyRate: 22, updatedAt: t },
-    { id: 'u_wasser2', email: 'daan@truckwash1group.nl', password: 'wasser', name: 'Daan Smit', roles: ['employee', 'customer'], active: true, hourlyRate: 21, updatedAt: t },
-    { id: 'u_wasser3', email: 'nour@truckwash1group.nl', password: 'wasser', name: 'Nour El Amrani', roles: ['employee', 'customer'], active: true, hourlyRate: 23.5, updatedAt: t },
-    { id: 'u_klant', email: 'planning@transportjansen.nl', password: 'klant', name: 'Mark Jansen', roles: ['customer'], companyId: 'co_jansen', active: true, updatedAt: t },
-    { id: 'u_klant2', email: 'wagenpark@devrieslogistiek.nl', password: 'klant', name: 'Sanne de Vries', roles: ['customer'], companyId: 'co_devries', active: true, updatedAt: t },
+    { id: 'u_casper', authId: 'u_casper', email: 'casper@truckwash1group.nl', password: 'truckwash', name: 'Casper', roles: ['employee', 'customer', 'management'], active: true, hourlyRate: 0,
+      personnelNumber: 'TW-001', phone: '06-12345678', function: 'Eigenaar', contractHours: 40, startDate: t - 8 * YEAR, updatedAt: t },
+    { id: 'u_manager', authId: 'u_manager', email: 'manager@truckwash1group.nl', password: 'manager', name: 'Ilse Bakker', roles: ['employee', 'customer', 'management'], active: true, hourlyRate: 34,
+      personnelNumber: 'TW-002', phone: '06-23456789', function: 'Vestigingsmanager', contractHours: 38, startDate: t - 4 * YEAR, updatedAt: t },
+    { id: 'u_wasser', authId: 'u_wasser', email: 'wasser@truckwash1group.nl', password: 'wasser', name: 'Tom Verhoeven', roles: ['employee', 'customer'], active: true, hourlyRate: 22,
+      personnelNumber: 'TW-014', phone: '06-34567890', function: 'Wasmedewerker', contractHours: 40, startDate: t - 2 * YEAR, updatedAt: t },
+    { id: 'u_wasser2', authId: 'u_wasser2', email: 'daan@truckwash1group.nl', password: 'wasser', name: 'Daan Smit', roles: ['employee', 'customer'], active: true, hourlyRate: 21,
+      personnelNumber: 'TW-018', phone: '06-45678901', function: 'Wasmedewerker', contractHours: 32, startDate: t - 400 * DAY, updatedAt: t },
+    { id: 'u_wasser3', authId: 'u_wasser3', email: 'nour@truckwash1group.nl', password: 'wasser', name: 'Nour El Amrani', roles: ['employee', 'customer'], active: true, hourlyRate: 23.5,
+      personnelNumber: 'TW-021', phone: '06-56789012', function: 'Voorman wasstraat', contractHours: 40, startDate: t - 640 * DAY, updatedAt: t },
+    // Wel op de loonlijst, nog geen inlogaccount -- laat zien hoe dat eruitziet
+    { id: 'u_nieuw', email: 'joris@truckwash1group.nl', password: '', name: 'Joris Peters', roles: ['employee'], active: true, hourlyRate: 20,
+      personnelNumber: 'TW-024', phone: '06-67890123', function: 'Wasmedewerker', contractHours: 24, startDate: t - 12 * DAY, notes: 'Zaterdaghulp, nog inwerken op tankreiniging.', updatedAt: t },
+    { id: 'u_klant', authId: 'u_klant', email: 'planning@transportjansen.nl', password: 'klant', name: 'Mark Jansen', roles: ['customer'], companyId: 'co_jansen', active: true, updatedAt: t },
+    { id: 'u_klant2', authId: 'u_klant2', email: 'wagenpark@devrieslogistiek.nl', password: 'klant', name: 'Sanne de Vries', roles: ['customer'], companyId: 'co_devries', active: true, updatedAt: t },
   ]
 
   const inventory: InventoryItem[] = [
@@ -139,6 +151,48 @@ async function seed() {
   const washJobs: WashJob[] = []
   const timeEntries: TimeEntry[] = []
   const stockMovements: StockMovement[] = []
+  const shifts: Shift[] = []
+
+  /* --- rooster: 14 dagen terug tot 28 dagen vooruit --- */
+  const rosterStaff = users.filter((u) => u.roles.includes('employee'))
+  const PATTERNS = [
+    { start: 7, end: 15.5, label: 'Ochtenddienst' },
+    { start: 11, end: 19.5, label: 'Middagdienst' },
+    { start: 6, end: 14, label: 'Vroege dienst' },
+  ]
+
+  for (let d = -14; d <= 28; d++) {
+    const day = startOfDay(t + d * DAY)
+    const dow = new Date(day).getDay()
+    if (dow === 0) continue // zondag gesloten
+
+    rosterStaff.forEach((u, idx) => {
+      const seed = idx * 7 + d
+      const deeltijd = (u.contractHours ?? 40) < 32
+      // vaste vrije dag per persoon, en deeltijders werken minder dagen
+      const vrij = dow === (idx % 5) + 1 || (deeltijd && dow % 2 === 0)
+      const kind: Shift['kind'] =
+        seed % 37 === 0 ? 'ziek' :
+        seed % 23 === 0 ? 'verlof' :
+        vrij ? 'vrij' : 'dienst'
+
+      const pat = PATTERNS[Math.abs(seed) % PATTERNS.length]
+      const zaterdag = dow === 6
+
+      shifts.push({
+        id: 'sh_' + u.id + '_' + d,
+        userId: u.id,
+        userName: u.name,
+        kind,
+        startAt: day + (kind === 'dienst' ? (zaterdag ? 8 : pat.start) : 0) * 3_600_000,
+        endAt: day + (kind === 'dienst' ? (zaterdag ? 13 : pat.end) : 24) * 3_600_000,
+        breakMinutes: kind === 'dienst' && !zaterdag ? 30 : 0,
+        note: kind === 'dienst' ? (zaterdag ? 'Zaterdagdienst' : pat.label) : undefined,
+        createdBy: 'u_manager',
+        updatedAt: t,
+      })
+    })
+  }
 
   let n = 0
 
@@ -286,6 +340,7 @@ async function seed() {
     await server.timeEntries.bulkPut(timeEntries)
     await server.stockMovements.bulkPut(stockMovements)
     await server.expenses.bulkPut(expenses)
+    await server.shifts.bulkPut(shifts)
   })
 }
 

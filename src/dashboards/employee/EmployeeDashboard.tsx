@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { CalendarCheck, Package, Receipt, Timer } from 'lucide-react'
+import { CalendarCheck, CalendarDays, Package, Receipt, Timer } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db } from '../../lib/db'
 import { dateFull } from '../../lib/format'
@@ -9,11 +9,13 @@ import Vandaag from './Vandaag'
 import Uren from './Uren'
 import Materiaal from './Materiaal'
 import KostenIndienen from './KostenIndienen'
+import MijnRooster from './MijnRooster'
 
 const DAY = 86_400_000
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
   vandaag: { title: 'Vandaag', subtitle: 'Wasopdrachten en wachtrij' },
+  rooster: { title: 'Mijn rooster', subtitle: 'Wanneer je bent ingeroosterd' },
   uren: { title: 'Mijn uren', subtitle: 'Tijdregistratie' },
   materiaal: { title: 'Materiaal', subtitle: 'Voorraad en verbruik' },
   kosten: { title: 'Kosten', subtitle: 'Bonnen indienen ter goedkeuring' },
@@ -34,6 +36,7 @@ export default function EmployeeDashboard() {
 
   const items: NavItem[] = [
     { key: 'vandaag', label: 'Vandaag', icon: CalendarCheck, badge: openCount || undefined },
+    { key: 'rooster', label: 'Rooster', icon: CalendarDays },
     { key: 'uren', label: 'Mijn uren', icon: Timer },
     { key: 'materiaal', label: 'Materiaal', icon: Package },
     { key: 'kosten', label: 'Kosten', icon: Receipt },
@@ -51,6 +54,7 @@ export default function EmployeeDashboard() {
       subtitle={page === 'vandaag' ? dateFull(Date.now()) : meta.subtitle}
     >
       {page === 'vandaag' && <Vandaag />}
+      {page === 'rooster' && <MijnRooster />}
       {page === 'uren' && <Uren />}
       {page === 'materiaal' && <Materiaal />}
       {page === 'kosten' && <KostenIndienen />}

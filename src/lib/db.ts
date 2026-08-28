@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie'
 import type {
-  Company, Expense, InventoryItem, OutboxRecord,
+  Company, Expense, InventoryItem, OutboxRecord, Shift,
   StockMovement, TimeEntry, User, WashJob,
 } from './types'
 
@@ -16,6 +16,7 @@ class TruckwashDB extends Dexie {
   stockMovements!: Table<StockMovement, string>
   expenses!: Table<Expense, string>
   timeEntries!: Table<TimeEntry, string>
+  shifts!: Table<Shift, string>
   outbox!: Table<OutboxRecord, number>
   meta!: Table<{ key: string; value: unknown }, string>
 
@@ -31,6 +32,12 @@ class TruckwashDB extends Dexie {
       timeEntries: 'id, userId, jobId, start, updatedAt',
       outbox: '++id, entity, recordId, createdAt',
       meta: 'key',
+    })
+
+    // v2: rooster erbij, plus personeelsvelden op users
+    this.version(2).stores({
+      users: 'id, email, active, personnelNumber, updatedAt',
+      shifts: 'id, userId, startAt, updatedAt',
     })
   }
 }

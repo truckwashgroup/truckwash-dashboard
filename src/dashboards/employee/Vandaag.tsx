@@ -6,6 +6,7 @@ import { jobs as jobRepo } from '../../lib/repo'
 import { SERVICES, type WashJob } from '../../lib/types'
 import { duration, money, time } from '../../lib/format'
 import { Badge, Card, Empty, Stat } from '../../components/ui'
+import { ShiftToday } from '../../components/WeekRooster'
 import { toast } from '../../store/useToasts'
 import { useAuth } from '../../store/useAuth'
 import { startOfDay } from '../../lib/analytics'
@@ -56,6 +57,11 @@ export default function Vandaag() {
 
   return (
     <>
+      <div className="row" style={{ marginBottom: 14, gap: 8 }}>
+        <span style={{ fontSize: '.82rem', color: 'var(--text-3)' }}>Jouw dienst vandaag:</span>
+        <ShiftToday userId={user.id} />
+      </div>
+
       <div className="grid cols-4" style={{ marginBottom: 16 }}>
         <Stat label="In de wachtrij" value={wachtrij.length} icon={<Clock size={17} />} tone="warn" />
         <Stat label="Nu bezig" value={bezig.length} icon={<PlayCircle size={17} />} />

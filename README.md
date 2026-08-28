@@ -94,7 +94,7 @@ en kijk hoe de wachtrij leegloopt.
 Het gedrag hierboven staat in een echte testsuite:
 
 ```bash
-npm run selftest        # 46 controles op de sync-motor, analyses en datamapping
+npm run selftest        # 62 controles op de sync-motor, analyses, rooster en datamapping
 ```
 
 ---
@@ -109,29 +109,33 @@ npm run selftest        # 46 controles op de sync-motor, analyses en datamapping
 
 ### Windows publiceren
 
-Zet je uploadlocatie in `electron-builder.yml`:
-
-```yaml
-publish:
-  - provider: generic
-    url: https://updates.truckwash1group.nl/win
-```
-
-Daarna:
+Updates lopen via **GitHub Releases** op
+`github.com/truckwashgroup/truckwash-dashboard`. De app controleert bij het
+opstarten en daarna elk half uur.
 
 ```bash
 npm run electron:build     # installer in release/
-npm run electron:publish   # bouwt én uploadt
+npm run electron:publish   # bouwt en publiceert de release
 ```
 
-De installer plus `latest.yml` moeten op die URL komen te staan; daar kijkt de
-geïnstalleerde app naar. Ook `provider: github` werkt, met releases als kanaal.
+Publiceren vraagt een GitHub-token met `repo`-rechten:
 
-Verhoog per release het `version`-veld in `package.json` — daar vergelijkt de
-updater op.
+```bash
+export GH_TOKEN=ghp_...     # Windows: $env:GH_TOKEN = "ghp_..."
+```
 
-> Zonder eigen icoon gebruikt de installer het standaard Electron-icoon. Zet
-> een `build/icon.ico` (256×256) neer om dat te vervangen.
+**Verhoog per release het `version`-veld in `package.json`** — daar vergelijkt
+de updater op. Naast de installer hoort `latest.yml` mee te gaan; die maakt
+electron-builder zelf en bevat de checksum waarmee de app de download
+controleert.
+
+> **Waarom `signAndEditExecutable: false`?** Windows staat symlinks alleen toe
+> met beheerdersrechten of met Ontwikkelaarsmodus aan. Zonder dat kan
+> electron-builder zijn codesign-hulppakket niet uitpakken en breekt de build,
+> terwijl we helemaal niet ondertekenen. Prijs: het vensterpictogram van de app
+> blijft het Electron-logo; installer en snelkoppelingen gebruiken wel
+> `build/icon.ico`. Zet Ontwikkelaarsmodus aan (Instellingen → Systeem → Voor
+> ontwikkelaars) en haal die regel weg als je het volledig netjes wilt.
 
 ### iOS/Android OTA aanzetten
 

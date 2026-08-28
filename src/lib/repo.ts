@@ -3,7 +3,8 @@ import { enqueue } from './sync'
 import {
   SERVICES,
   type Expense, type ExpenseStatus, type InventoryItem, type Role,
-  type ServiceKind, type TimeEntry, type User, type WashJob, type WashStatus,
+  type ServiceKind, type Shift, type ShiftKind, type TimeEntry,
+  type User, type WashJob, type WashStatus,
 } from './types'
 
 /* ------------------------------------------------------------------ *
@@ -189,9 +190,91 @@ export const timeEntries = {
   },
 }
 
+/* ----------------------------- Rooster ---------------------------- */
+
+export const shifts = {
+  async create(input: {
+    user: Pick<User, 'id' | 'name'>
+    kind: ShiftKind
+    startAt: number
+    endAt: number
+    breakMinutes?: number
+    note?: string
+    createdBy: string
+  }) {
+    const shift: Shift = {
+      id: uid('sh'),
+      userId: input.user.id,
+      userName: input.user.name,
+      kind: input.kind,
+      startAt: input.startAt,
+      endAt: input.endAt,
+      breakMinutes: input.breakMinutes ?? 0,
+      note: input.note,
+      createdBy: input.createdBy,
+      updatedAt: Date.now(),
+    }
+    return put('shifts', db.shifts, shift)
+  },
+
+  async update(id: string, patch: Partial<Shift>) {
+    const shift = await db.shifts.get(id)
+    if (!shift) return
+    return put('shifts', db.shifts, { ...shift, ...patch, id })
+  },
+
+  async remove(id: string) {
+    await db.shifts.delete(id)
+    await enqueue('shifts', 'delete', id, null)
+  },
+}
+
 /* ---------------------------- Gebruikers -------------------------- */
 
 export const users = {
+  /**
+   * Nieuw personeelsdossier. Dit maakt nog geen inlogaccount aan -- dat kan
+   * alleen met beheerdersrechten, die bewust niet in de app zitten. Zodra de
+   * persoon een account krijgt, koppelt de server dat op e-mailadres.
+   */
+  async create(input: {
+    name: string
+    email: string
+    roles: Role[]
+    personnelNumber?: string
+    phone?: string
+    function?: string
+    hourlyRate?: number
+    contractHours?: number
+    startDate?: number
+    companyId?: string
+    notes?: string
+  }) {
+    const user: User = {
+      id: uid('u'),
+      email: input.email.trim().toLowerCase(),
+      password: '',
+      name: input.name.trim(),
+      roles: input.roles,
+      active: true,
+      personnelNumber: input.personnelNumber?.trim() || undefined,
+      phone: input.phone?.trim() || undefined,
+      function: input.function?.trim() || undefined,
+      hourlyRate: input.hourlyRate,
+      contractHours: input.contractHours,
+      startDate: input.startDate,
+      companyId: input.companyId,
+      notes: input.notes?.trim() || undefined,
+      updatedAt: Date.now(),
+    }
+    return put('users', db.users, user)
+  },
+
+  async update(id: string, patch: Partial<User>) {
+    const user = await db.users.get(id)
+    if (!user) return
+    return put('users', db.users, { ...user, ...patch, id })
+  },
   async setRoles(id: string, roles: Role[]) {
     const user = await db.users.get(id)
     if (!user) return

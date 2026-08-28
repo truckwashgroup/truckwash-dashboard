@@ -12,6 +12,19 @@ files:
   - package.json
 
 win:
+  # Windows staat het maken van symlinks alleen toe met beheerdersrechten of
+  # met Ontwikkelaarsmodus aan. Zonder dat kan electron-builder zijn
+  # codesign-hulppakket niet uitpakken en breekt de build af -- terwijl we
+  # helemaal niet ondertekenen.
+  #
+  # Deze regel slaat dat pakket over. Prijs: het venster-icoon van de app zelf
+  # blijft het Electron-logo. De installer en de snelkoppelingen gebruiken wel
+  # build/icon.ico.
+  #
+  # Wil je het volledig netjes? Zet Ontwikkelaarsmodus aan in Windows
+  # (Instellingen -> Systeem -> Voor ontwikkelaars) en haal deze regel weg.
+  signAndEditExecutable: false
+
   target:
     - target: nsis
       arch: [x64]
@@ -25,8 +38,16 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: Truckwash1 Dashboard
 
-# Auto-update kanaal. Zet hier je eigen server of GitHub releases.
+# Auto-update kanaal.
+#
+# De app kijkt bij het opstarten en elk half uur of er een nieuwere release op
+# GitHub staat. Publiceren doe je met: npm run electron:publish
+# (daarvoor heb je een GH_TOKEN nodig met "repo"-rechten).
+#
+# Belangrijk: verhoog eerst het version-veld in package.json. Daar vergelijkt
+# de updater op.
 publish:
-  - provider: generic
-    url: https://updates.truckwash1group.nl/win
-    channel: latest
+  - provider: github
+    owner: truckwashgroup
+    repo: truckwash-dashboard
+    releaseType: release

@@ -65,7 +65,7 @@ const jobCount = await db.washJobs.count()
 const invCount = await db.inventory.count()
 const expCount = await db.expenses.count()
 
-check('gebruikers opgehaald', userCount === 7, `kreeg ${userCount}`)
+check('gebruikers opgehaald', userCount === 8, `kreeg ${userCount}`)
 check('wasopdrachten opgehaald', jobCount > 400, `kreeg ${jobCount}`)
 check('voorraad opgehaald', invCount === 8, `kreeg ${invCount}`)
 check('kostenposten opgehaald', expCount === 46, `kreeg ${expCount}`)
@@ -221,7 +221,7 @@ check('marge klopt met omzet minus kosten',
 check('grafiekreeks heeft 30 dagen', s.length === 30, String(s.length))
 check('reeks telt op tot de omzet-kpi',
   Math.abs(s.reduce((a, b) => a + b.omzet, 0) - k.omzet.value) < 1)
-check('personeelsoverzicht gevuld', staff.length === 5, String(staff.length))
+check('personeelsoverzicht gevuld', staff.length === 6, String(staff.length))
 check('voorraadwaarde berekend', health.waarde > 0, String(health.waarde))
 check('lage voorraad gedetecteerd', Array.isArray(health.low))
 
@@ -300,6 +300,112 @@ await setMeta(LAST_SYNC, 0)
 await sync()
 check('een volledige pull vult de cache opnieuw', (await db.washJobs.count()) > 400,
   String(await db.washJobs.count()))
+
+/* ==================================================================== */
+
+console.log('\n10. Rooster')
+const { shifts: shiftRepo } = await import('../src/lib/repo')
+const { shiftHours, weekStart, shiftsOnDay, totalHours } = await import('../src/lib/roster')
+
+check('rooster opgehaald', (await db.shifts.count()) > 100, String(await db.shifts.count()))
+
+// maandag 00:00 van deze week
+const ws = weekStart(Date.now())
+const wsDate = new Date(ws)
+check('weekStart geeft maandag 00:00',
+  wsDate.getDay() === 1 && wsDate.getHours() === 0 && wsDate.getMinutes() === 0,
+  wsDate.toString())
+
+// netto uren: 07:00-15:30 met 30 min pauze = 8 uur
+check('uren tellen de pauze eraf',
+  shiftHours({
+    id: 'x', userId: 'u', userName: '', kind: 'dienst',
+    startAt: ws + 7 * 3_600_000, endAt: ws + 15.5 * 3_600_000,
+    breakMinutes: 30, createdBy: 'u', updatedAt: 0,
+  }) === 8)
+
+check('verlof telt niet als gewerkte uren',
+  shiftHours({
+    id: 'x', userId: 'u', userName: '', kind: 'verlof',
+    startAt: ws, endAt: ws + 86_400_000, breakMinutes: 0, createdBy: 'u', updatedAt: 0,
+  }) === 0)
+
+// een dienst inplannen, offline, en kijken of hij aankomt
+setForcedOffline(true)
+setOnline(false)
+
+const nieuweDienst = await shiftRepo.create({
+  user: { id: 'u_wasser', name: 'Tom Verhoeven' },
+  kind: 'dienst',
+  startAt: ws + 21 * 86_400_000 + 7 * 3_600_000,
+  endAt: ws + 21 * 86_400_000 + 15.5 * 3_600_000,
+  breakMinutes: 30,
+  note: 'Zelftest',
+  createdBy: 'u_manager',
+})
+
+check('dienst staat direct in de lokale cache', !!(await db.shifts.get(nieuweDienst!.id)))
+check('dienst wacht op verzending',
+  (await db.outbox.where('recordId').equals(nieuweDienst!.id).count()) === 1)
+
+setForcedOffline(false)
+setOnline(true)
+await sync()
+
+await db.shifts.clear()
+await setMeta(LAST_SYNC, 0)
+await sync()
+check('dienst staat op de server', !!(await db.shifts.get(nieuweDienst!.id)))
+
+// dag- en weektotalen
+const tomShifts = (await db.shifts.toArray()).filter((s) => s.userId === 'u_wasser')
+const weekVanTom = tomShifts.filter((s) => s.startAt >= ws && s.startAt < ws + 7 * 86_400_000)
+check('weektotaal is een redelijk aantal uren',
+  totalHours(weekVanTom) >= 0 && totalHours(weekVanTom) <= 60,
+  String(totalHours(weekVanTom)))
+check('diensten per dag worden gefilterd',
+  shiftsOnDay(tomShifts, ws).every((s) => s.startAt >= ws && s.startAt < ws + 86_400_000))
+
+// verwijderen moet ook op de server doorkomen
+await shiftRepo.remove(nieuweDienst!.id)
+check('lokaal verwijderd', !(await db.shifts.get(nieuweDienst!.id)))
+await sync()
+await db.shifts.clear()
+await setMeta(LAST_SYNC, 0)
+await sync()
+check('ook op de server verwijderd', !(await db.shifts.get(nieuweDienst!.id)))
+
+/* ==================================================================== */
+
+console.log('\n11. Medewerker toevoegen')
+const { users: userRepo } = await import('../src/lib/repo')
+
+const nieuw = await userRepo.create({
+  name: 'Testpersoon Zelftest',
+  email: 'Test.Persoon@Truckwash1group.NL',
+  roles: ['employee'],
+  personnelNumber: 'TW-999',
+  phone: '06-11111111',
+  function: 'Wasmedewerker',
+  hourlyRate: 21.5,
+  contractHours: 32,
+  startDate: Date.now(),
+})
+
+check('e-mailadres wordt genormaliseerd',
+  nieuw!.email === 'test.persoon@truckwash1group.nl', nieuw!.email)
+check('nog geen inlogaccount gekoppeld', nieuw!.authId === undefined)
+check('personeelsvelden bewaard',
+  nieuw!.personnelNumber === 'TW-999' && nieuw!.contractHours === 32)
+
+await sync()
+await db.users.clear()
+await setMeta(LAST_SYNC, 0)
+await sync()
+
+const opgehaald = await db.users.get(nieuw!.id)
+check('medewerker staat op de server', !!opgehaald)
+check('functie overleeft de rondgang', opgehaald?.function === 'Wasmedewerker', opgehaald?.function)
 
 /* ==================================================================== */
 

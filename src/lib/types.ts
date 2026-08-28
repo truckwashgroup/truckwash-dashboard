@@ -16,6 +16,25 @@ export interface User {
   hourlyRate?: number
   active: boolean
   updatedAt: number
+
+  /* --- personeelsdossier --- */
+
+  /** Intern personeelsnummer, bijv. TW-014 */
+  personnelNumber?: string
+  phone?: string
+  /** Contracturen per week */
+  contractHours?: number
+  /** Datum in dienst (epoch ms) */
+  startDate?: number
+  /** Datum uit dienst, leeg zolang iemand in dienst is */
+  endDate?: number
+  function?: string
+  notes?: string
+  /**
+   * Het inlogaccount waaraan dit dossier hangt. Leeg betekent: wel op de
+   * loonlijst, nog geen toegang tot de app.
+   */
+  authId?: string
 }
 
 export interface Company {
@@ -117,12 +136,40 @@ export interface TimeEntry {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Rooster
+ * ------------------------------------------------------------------ */
+
+export type ShiftKind = 'dienst' | 'verlof' | 'ziek' | 'vrij'
+
+export const SHIFT_KINDS: Record<ShiftKind, { label: string; tone: string; counts: boolean }> = {
+  dienst: { label: 'Dienst',     tone: 'brand',  counts: true },
+  verlof: { label: 'Verlof',     tone: 'info',   counts: false },
+  ziek:   { label: 'Ziek',       tone: 'danger', counts: false },
+  vrij:   { label: 'Vrije dag',  tone: 'default', counts: false },
+}
+
+export interface Shift {
+  id: string
+  userId: string
+  userName: string
+  kind: ShiftKind
+  /** Begin en eind van de dienst (epoch ms) */
+  startAt: number
+  endAt: number
+  /** Onbetaalde pauze in minuten */
+  breakMinutes: number
+  note?: string
+  createdBy: string
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
  *  Sync
  * ------------------------------------------------------------------ */
 
 export type EntityName =
   | 'users' | 'companies' | 'washJobs' | 'inventory'
-  | 'stockMovements' | 'expenses' | 'timeEntries'
+  | 'stockMovements' | 'expenses' | 'timeEntries' | 'shifts'
 
 export type SyncOp = 'put' | 'delete'
 

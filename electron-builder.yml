@@ -23,11 +23,25 @@ win:
 
 nsis:
   oneClick: false
-  perMachine: false
+
+  # Installeren voor alle gebruikers, in Program Files.
+  #
+  # Stond eerst op false (per gebruiker). Daardoor draaide de installer zonder
+  # beheerdersrechten, terwijl de bestaande installatie in Program Files
+  # stond -- en dan mag hij de oude bestanden niet verwijderen. Dat gaf bij
+  # het bijwerken "Het deinstalleren van oude applicatiebestanden is mislukt".
+  #
+  # Gevolg: bij een update vraagt Windows eenmalig om toestemming. Dat hoort
+  # zo bij een installatie voor alle gebruikers.
+  perMachine: true
+
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: Truckwash1 Dashboard
+
+  # Sluit een draaiende app af voordat we bestanden vervangen.
+  include: build/installer.nsh
 
 # Auto-update kanaal.
 #

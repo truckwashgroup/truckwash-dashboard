@@ -1,0 +1,32 @@
+appId: nl.truckwash1group.dashboard
+productName: Truckwash1 Dashboard
+copyright: Copyright © Truckwash1 Group
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Truckwash1 Dashboard
+
+# Auto-update kanaal. Zet hier je eigen server of GitHub releases.
+publish:
+  - provider: generic
+    url: https://updates.truckwash1group.nl/win
+    channel: latest

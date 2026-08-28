@@ -1,0 +1,117 @@
+name: Mobiel bouwen (Android + iOS)
+
+# Hiermee bouw je de mobiele apps zonder zelf een Mac te bezitten:
+# GitHub draait de iOS-build op een macOS-machine in de cloud.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # met de hand starten via het tabblad Actions
+
+jobs:
+  # ------------------------------------------------------------------
+  #  Android — levert een APK die je direct op een toestel kunt zetten
+  # ------------------------------------------------------------------
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Dependencies installeren
+        run: npm ci
+
+      - name: Webapp bouwen
+        run: npm run build
+
+      - name: Naar het Android-project kopiëren
+        run: npx cap sync android
+
+      - name: APK bouwen (debug — installeerbaar, niet voor de Play Store)
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: APK bewaren
+        uses: actions/upload-artifact@v4
+        with:
+          name: truckwash-android-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+
+      # Onderstaande stap draait alleen als je de keystore-secrets hebt gezet.
+      # Zie README: "Android publiceren".
+      - name: Play Store-bundel bouwen (ondertekend)
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        working-directory: android
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > release.keystore
+          ./gradlew bundleRelease --no-daemon \
+            -Pandroid.injected.signing.store.file=$PWD/release.keystore \
+            -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
+            -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
+            -Pandroid.injected.signing.key.password=$KEY_PASSWORD
+
+      - name: Play Store-bundel bewaren
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: truckwash-android-aab
+          path: android/app/build/outputs/bundle/release/*.aab
+          retention-days: 30
+
+  # ------------------------------------------------------------------
+  #  iOS — draait op een Mac in de cloud van GitHub
+  # ------------------------------------------------------------------
+  ios:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Dependencies installeren
+        run: npm ci
+
+      - name: Webapp bouwen
+        run: npm run build
+
+      - name: Naar het Xcode-project kopiëren
+        run: npx cap sync ios
+
+      - name: CocoaPods installeren
+        working-directory: ios/App
+        run: pod install --repo-update
+
+      # Zonder Apple-certificaat kunnen we niet ondertekenen, maar wel
+      # controleren dat de app foutloos compileert voor iOS.
+      - name: Compileren voor de simulator (zonder ondertekening)
+        working-directory: ios/App
+        run: |
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      # Voor TestFlight en de App Store heb je een Apple Developer-account
+      # nodig. Zie README: "iOS publiceren". Zodra de secrets staan, vervang
+      # je de stap hierboven door een archive + upload naar App Store Connect.

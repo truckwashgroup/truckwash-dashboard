@@ -1,0 +1,32 @@
+node_modules
+dist
+release
+.DS_Store
+*.local
+
+# Native builds (de projectmappen android/ en ios/ horen er WEL in)
+android/.gradle
+android/app/build
+android/build
+android/local.properties
+android/.idea
+android/app/release
+ios/App/Pods
+ios/App/build
+ios/App/App/public
+ios/DerivedData
+*.xcuserstate
+
+# Ondertekening -- nooit in git
+*.keystore
+*.jks
+*.p12
+*.mobileprovision
+
+# gebouwde APK in de projectmap
+Truckwash1-Dashboard.apk
+
+# geheimen
+.env
+.env.local
+.env.*.local

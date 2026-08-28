@@ -4,7 +4,7 @@ import { AlertCircle, Eye, EyeOff, Loader2, LogIn, WifiOff } from 'lucide-react'
 import { useAuth } from '../store/useAuth'
 import { useSync } from '../lib/sync'
 import { useUpdates } from '../lib/updates'
-import { DEMO_ACCOUNTS, configError } from '../lib/api'
+import { backendError } from '../lib/api'
 import Logo from './Logo'
 
 export default function Login() {
@@ -46,13 +46,10 @@ export default function Login() {
           </div>
         )}
 
-        {configError && (
+        {backendError && (
           <div className="auth-error">
             <AlertCircle size={16} style={{ flex: 'none', marginTop: 1 }} />
-            <span>
-              <strong>Instellingsfout.</strong> {configError} De app gebruikt
-              nu de ingebouwde testgegevens.
-            </span>
+            <span><strong>Instellingsfout.</strong> {backendError}</span>
           </div>
         )}
 
@@ -104,26 +101,14 @@ export default function Login() {
           </div>
         </div>
 
-        <button className="btn primary block lg" type="submit" disabled={busy || !email || !password}>
+        <button
+          className="btn primary block lg"
+          type="submit"
+          disabled={busy || !email || !password || !!backendError}
+        >
           {busy ? <Loader2 size={17} className="spin" /> : <LogIn size={17} />}
           {busy ? 'Bezig met inloggen…' : 'Inloggen'}
         </button>
-
-        <div className="auth-foot">
-          <div className="title">Testaccounts</div>
-          {DEMO_ACCOUNTS.map((a) => (
-            <button
-              key={a.email}
-              type="button"
-              className="demo-account"
-              onClick={() => { setEmail(a.email); setPassword(a.password) }}
-              disabled={busy}
-            >
-              <span className="who">{a.email}</span>
-              <span className="what">{a.label}</span>
-            </button>
-          ))}
-        </div>
 
         <div className="auth-meta">
           <span>Versie {version}</span>

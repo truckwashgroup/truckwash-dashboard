@@ -1,21 +1,38 @@
 import type { ApiAdapter } from './types'
 import { mockApi } from './mockApi'
-import { supabaseApi, supabaseConfigured } from './supabaseApi'
+import { supabaseApi, supabaseConfigured, configError } from './supabaseApi'
+
+const ENV: Record<string, string | undefined> =
+  (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {}
 
 /**
- * Welke backend de app gebruikt.
+ * De ingebouwde mock is er alleen nog voor de geautomatiseerde tests. In de
+ * app zelf komt hij niet meer voor: die praat met Supabase, en zonder geldige
+ * inloggegevens kom je er niet in.
  *
- * Staan VITE_SUPABASE_URL en VITE_SUPABASE_ANON_KEY in je .env? Dan praat de
- * app met Supabase. Zo niet, dan valt hij terug op de ingebouwde mock, zodat
- * je altijd iets werkends hebt om in te kijken.
- *
- * De rest van de app kent alleen de ApiAdapter-interface en merkt het verschil
- * niet: dezelfde schermen, dezelfde offline-wachtrij.
+ * Aanzetten kan alleen bewust, met VITE_USE_MOCK=1 (browser) of TW_USE_MOCK=1
+ * (Node, voor scripts/selftest.ts).
  */
-export const api: ApiAdapter = supabaseConfigured ? supabaseApi : mockApi
+const useMock =
+  ENV.VITE_USE_MOCK === '1' ||
+  (typeof process !== 'undefined' && process.env?.TW_USE_MOCK === '1')
 
-export const usingSupabase = supabaseConfigured
+export const api: ApiAdapter = useMock ? mockApi : supabaseApi
+
+/** 'supabase' = klaar voor gebruik, 'none' = niet ingesteld, 'mock' = testmodus. */
+export const activeBackend: 'supabase' | 'mock' | 'none' =
+  useMock ? 'mock' : supabaseConfigured ? 'supabase' : 'none'
+
+export const usingSupabase = activeBackend === 'supabase'
+
+/** Waarom er niet ingelogd kan worden, of null als alles klopt. */
+export const backendError: string | null =
+  activeBackend === 'none'
+    ? configError ??
+      'Er is nog geen verbinding met de database ingesteld. Zet VITE_SUPABASE_URL ' +
+      'en VITE_SUPABASE_ANON_KEY in het .env-bestand en start de app opnieuw.'
+    : null
 
 export type { ApiAdapter, PushChange, PullResult } from './types'
-export { DEMO_ACCOUNTS, isForcedOffline, setForcedOffline, seedMockServer } from './mockApi'
-export { supabase, supabaseSignOut, configError } from './supabaseApi'
+export { isForcedOffline, setForcedOffline } from './mockApi'
+export { supabase, supabaseSignOut } from './supabaseApi'

@@ -18,17 +18,16 @@ npm run electron:dev   # Windows-app met live herladen
 > *"Electron failed to install correctly"*, draai dan eenmalig:
 > `node node_modules/electron/install.js`
 
-### Testaccounts
+### Inloggen
 
-| E-mail | Wachtwoord | Ziet |
-|---|---|---|
-| `casper@truckwash1group.nl` | `truckwash` | alle drie de dashboards |
-| `manager@truckwash1group.nl` | `manager` | alle drie de dashboards |
-| `wasser@truckwash1group.nl` | `wasser` | werknemers + klanten (2 knoppen) |
-| `planning@transportjansen.nl` | `klant` | alleen klanten |
+Er zijn geen testaccounts meer. De app praat uitsluitend met Supabase; zonder
+een echt account kom je er niet in. Gebruikers maak je aan in Supabase onder
+*Authentication → Users*, en rollen ken je toe in de app.
 
-De derde knop (**Management**) verschijnt alleen bij de rol `management`. Die
-rol ken je toe in *Management → Personeel → Rechten*.
+Zijn `VITE_SUPABASE_URL` en `VITE_SUPABASE_ANON_KEY` niet ingevuld, dan meldt
+het inlogscherm dat en is de knop uitgeschakeld. De ingebouwde testgegevens
+zitten er nog wel, maar alleen voor de geautomatiseerde tests, en die zijn
+niet vanuit de app te bereiken.
 
 ---
 
@@ -94,7 +93,8 @@ en kijk hoe de wachtrij leegloopt.
 Het gedrag hierboven staat in een echte testsuite:
 
 ```bash
-npm run selftest        # 62 controles op de sync-motor, analyses, rooster en datamapping
+npm run selftest        # 72 controles op de sync-motor, analyses, rooster en datamapping
+npm run sqltest         # 36 controles: het databaseschema in een echte Postgres
 ```
 
 ---

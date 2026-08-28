@@ -187,12 +187,12 @@ end $$;
 
 create or replace function public.my_roles()
 returns text[] language sql stable security definer set search_path = public as $$
-  select coalesce(roles, array[]::text[]) from public.profiles where id = auth.uid();
+  select coalesce(roles, array[]::text[]) from public.profiles where id::text = auth.uid()::text;
 $$;
 
 create or replace function public.my_company()
 returns text language sql stable security definer set search_path = public as $$
-  select company_id from public.profiles where id = auth.uid();
+  select company_id from public.profiles where id::text = auth.uid()::text;
 $$;
 
 create or replace function public.is_management()
@@ -261,8 +261,10 @@ alter table public.time_entries    enable row level security;
 -- ------------------------------- profiles ---------------------------------
 
 drop policy if exists profiles_select on public.profiles;
+-- De vergelijking gaat via text, zodat deze regel blijft werken nadat
+-- 0002 het id-type omzet naar text.
 create policy profiles_select on public.profiles for select to authenticated
-  using (id = auth.uid() or public.is_staff());
+  using (id::text = auth.uid()::text or public.is_staff());
 
 drop policy if exists profiles_update on public.profiles;
 create policy profiles_update on public.profiles for update to authenticated

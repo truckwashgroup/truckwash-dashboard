@@ -76,6 +76,37 @@ export const useSync = create<SyncStore>((set, get) => ({
 }))
 
 /* ------------------------------------------------------------------ *
+ *  Backendwissel
+ * ------------------------------------------------------------------ */
+
+const BACKEND_KEY = 'backend'
+
+/**
+ * Gegevens uit een andere backend mogen niet blijven rondslingeren. Wie eerst
+ * met de testgegevens werkte en daarna Supabase aanzet, zou anders die
+ * testklanten en -medewerkers in beeld houden.
+ *
+ * Geeft true terug als er iets gewist is; de sessie hoort dan ook te vervallen.
+ */
+export async function ensureBackendMatches(): Promise<boolean> {
+  const stored = await getMeta<string | null>(BACKEND_KEY, null)
+  if (stored === api.name) return false
+
+  await Promise.all([
+    db.users.clear(), db.companies.clear(), db.washJobs.clear(),
+    db.inventory.clear(), db.stockMovements.clear(), db.expenses.clear(),
+    db.timeEntries.clear(), db.shifts.clear(),
+    // Wijzigingen die voor een andere server bedoeld waren zijn onbruikbaar.
+    db.outbox.clear(),
+  ])
+
+  await setMeta(LAST_SYNC, 0)
+  await setMeta(BACKEND_KEY, api.name)
+  useSync.setState({ lastSyncAt: null, pending: 0 })
+  return stored !== null
+}
+
+/* ------------------------------------------------------------------ *
  *  Outbox
  * ------------------------------------------------------------------ */
 

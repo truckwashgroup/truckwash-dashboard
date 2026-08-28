@@ -194,12 +194,12 @@ end $$;
 
 create or replace function public.my_roles()
 returns text[] language sql stable security definer set search_path = public as $$
-  select coalesce(roles, array[]::text[]) from public.profiles where id = auth.uid();
+  select coalesce(roles, array[]::text[]) from public.profiles where id::text = auth.uid()::text;
 $$;
 
 create or replace function public.my_company()
 returns text language sql stable security definer set search_path = public as $$
-  select company_id from public.profiles where id = auth.uid();
+  select company_id from public.profiles where id::text = auth.uid()::text;
 $$;
 
 create or replace function public.is_management()
@@ -268,8 +268,10 @@ alter table public.time_entries    enable row level security;
 -- ------------------------------- profiles ---------------------------------
 
 drop policy if exists profiles_select on public.profiles;
+-- De vergelijking gaat via text, zodat deze regel blijft werken nadat
+-- 0002 het id-type omzet naar text.
 create policy profiles_select on public.profiles for select to authenticated
-  using (id = auth.uid() or public.is_staff());
+  using (id::text = auth.uid()::text or public.is_staff());
 
 drop policy if exists profiles_update on public.profiles;
 create policy profiles_update on public.profiles for update to authenticated
@@ -384,32 +386,55 @@ create policy time_write on public.time_entries for all to authenticated
 
 -- ---------------------------------------------------------------------------
 --  1. profiles losmaken van auth.users
+--
+--  Let op de volgorde: Postgres weigert het type van een kolom te wijzigen
+--  zolang er een beveiligingsregel naar verwijst. De regels op profiles gaan
+--  er dus eerst af, en aan het eind van dit bestand weer op.
 -- ---------------------------------------------------------------------------
 
 alter table public.profiles add column if not exists auth_id uuid;
 
--- Bestaande rijen: het id wás de auth-uuid, dus die nemen we over.
-update public.profiles set auth_id = id::uuid where auth_id is null;
+-- Bestaande rijen: het id was de auth-uuid, dus die nemen we over. De
+-- regexcontrole is er voor het geval dit bestand al eerder deels liep en er
+-- inmiddels door de app gemaakte id's in staan.
+update public.profiles
+   set auth_id = id::text::uuid
+ where auth_id is null
+   and id::text ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+
+-- Alle regels op profiles tijdelijk weghalen, ongeacht hoe ze heten.
+do $$
+declare pol record;
+begin
+  for pol in
+    select policyname from pg_policies
+     where schemaname = 'public' and tablename = 'profiles'
+  loop
+    execute format('drop policy if exists %I on public.profiles', pol.policyname);
+  end loop;
+end $$;
 
 -- De koppeling naar auth.users hangt voortaan aan auth_id, niet aan id.
 alter table public.profiles drop constraint if exists profiles_id_fkey;
 
-alter table public.profiles
-  alter column id type text using id::text;
+do $$
+begin
+  if (select data_type from information_schema.columns
+       where table_schema = 'public' and table_name = 'profiles' and column_name = 'id') <> 'text'
+  then
+    alter table public.profiles alter column id type text using id::text;
+  end if;
+end $$;
 
 do $$
 begin
-  if not exists (
-    select 1 from pg_constraint where conname = 'profiles_auth_id_fkey'
-  ) then
+  if not exists (select 1 from pg_constraint where conname = 'profiles_auth_id_fkey') then
     alter table public.profiles
       add constraint profiles_auth_id_fkey
       foreign key (auth_id) references auth.users(id) on delete set null;
   end if;
 
-  if not exists (
-    select 1 from pg_constraint where conname = 'profiles_auth_id_key'
-  ) then
+  if not exists (select 1 from pg_constraint where conname = 'profiles_auth_id_key') then
     alter table public.profiles add constraint profiles_auth_id_key unique (auth_id);
   end if;
 end $$;

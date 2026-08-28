@@ -1,9 +1,9 @@
 import { create } from 'zustand'
-import { api, supabaseSignOut, usingSupabase } from '../lib/api'
+import { api, backendError, supabaseSignOut, usingSupabase } from '../lib/api'
 import { db, getMeta, setMeta } from '../lib/db'
 import { rememberOfflineLogin, verifyOfflineLogin } from '../lib/offlineAuth'
 import { storageGet, storageRemove, storageSet } from '../lib/storage'
-import { LAST_SYNC, setSyncEnabled, useSync } from '../lib/sync'
+import { ensureBackendMatches, LAST_SYNC, setSyncEnabled, useSync } from '../lib/sync'
 import type { Role, User } from '../lib/types'
 
 const SESSION_KEY = 'tw.session'
@@ -66,6 +66,12 @@ export const useAuth = create<AuthStore>((set, get) => ({
 
   restore: async () => {
     try {
+      // Van backend gewisseld? Dan is de oude sessie niets meer waard.
+      if (await ensureBackendMatches()) {
+        await storageRemove(SESSION_KEY)
+        return
+      }
+
       const raw = await storageGet(SESSION_KEY)
       if (!raw) return
       const session = JSON.parse(raw) as Session
@@ -84,6 +90,11 @@ export const useAuth = create<AuthStore>((set, get) => ({
   },
 
   login: async (email, password) => {
+    if (backendError) {
+      set({ error: backendError })
+      return false
+    }
+
     set({ busy: true, error: null })
     try {
       let userId: string | null = null

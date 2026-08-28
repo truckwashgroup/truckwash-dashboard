@@ -5,6 +5,9 @@
  *   npm run selftest
  */
 
+// De app praat met Supabase; de mock is er alleen nog voor deze test.
+process.env.TW_USE_MOCK = '1'
+
 import 'fake-indexeddb/auto'
 
 /* ---- browsertoestand nabootsen -------------------------------------- */
@@ -406,6 +409,34 @@ await sync()
 const opgehaald = await db.users.get(nieuw!.id)
 check('medewerker staat op de server', !!opgehaald)
 check('functie overleeft de rondgang', opgehaald?.function === 'Wasmedewerker', opgehaald?.function)
+
+/* ==================================================================== */
+
+console.log('\n12. Wisselen van backend laat geen oude gegevens achter')
+const { ensureBackendMatches } = await import('../src/lib/sync')
+
+// Doen alsof de vorige sessie tegen een andere server draaide.
+await setMeta('backend', 'een-andere-server')
+await jobs.update(created!.id, { notes: 'mag niet blijven staan' })
+check('er staat iets in de cache en in de wachtrij',
+  (await db.washJobs.count()) > 0 && (await db.outbox.count()) > 0)
+
+const gewist = await ensureBackendMatches()
+
+check('meldt dat er gewist is', gewist === true)
+check('wasopdrachten weg', (await db.washJobs.count()) === 0)
+check('medewerkers weg', (await db.users.count()) === 0)
+check('rooster weg', (await db.shifts.count()) === 0)
+check('wachtrij weg', (await db.outbox.count()) === 0,
+  'wijzigingen voor een andere server zijn onbruikbaar')
+check('teller teruggezet', (await getMeta(LAST_SYNC, -1)) === 0)
+
+// Tweede keer met dezelfde backend: niets meer te wissen.
+await sync()
+const naHerstel = await db.washJobs.count()
+check('daarna vult de juiste backend de cache weer', naHerstel > 400, String(naHerstel))
+check('geen tweede wisbeurt', (await ensureBackendMatches()) === false)
+check('gegevens blijven staan', (await db.washJobs.count()) === naHerstel)
 
 /* ==================================================================== */
 

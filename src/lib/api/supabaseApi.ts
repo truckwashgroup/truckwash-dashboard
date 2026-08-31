@@ -238,9 +238,47 @@ export async function heeftSessie(): Promise<boolean> {
   if (!supabaseConfigured) return false
   try {
     const { data } = await supabase().auth.getSession()
-    return !!data.session
+    const sessie = data.session
+    if (!sessie) return false
+
+    /*
+     * Een opgeslagen sessie is niet hetzelfde als een geldige sessie. De
+     * toegangssleutel verloopt na een uur; wat er dan nog ligt is papier.
+     * PostgREST behandelt zo'n verlopen sleutel als geen sleutel, en dan
+     * krijg je opnieuw een melding over beveiligingsregels terwijl er met
+     * de regels niets mis is.
+     *
+     * Een halve minuut marge, want de sleutel moet ook de rit naar de
+     * server nog overleven.
+     */
+    const verlooptOver = (sessie.expires_at ?? 0) * 1000 - Date.now()
+    if (verlooptOver > 30_000) return true
+
+    const { data: vers } = await supabase().auth.refreshSession()
+    return !!vers.session
   } catch {
     return false
+  }
+}
+
+/**
+ * De database weigert dit record op zijn beveiligingsregels.
+ *
+ * Ook dit is geen slecht record, en het gaat niet over door het nog eens te
+ * proberen. Het is een rechtenkwestie: of de regels kloppen niet, of het
+ * verzoek komt niet binnen als wie je denkt te zijn.
+ *
+ * Zo'n weigering mag daarom nooit een teller vullen die uiteindelijk iemands
+ * werk weggooit. Hij blijft staan tot de rechten kloppen, en dan gaat hij
+ * alsnog mee.
+ */
+export class GeenRechten extends Error {
+  constructor(readonly tabel: string, boodschap: string) {
+    super(
+      `De database weigert dit voor "${tabel}": ${boodschap} ` +
+      'Dat gaat over rechten, niet over dit record -- het blijft in de ' +
+      'wachtrij staan.',
+    )
   }
 }
 
@@ -316,6 +354,7 @@ export const supabaseApi: ApiAdapter = {
       if (deletes.length) {
         const { error } = await supabase().from(table).delete().in('id', deletes)
         if (error && tabelOntbreekt(error)) throw new OntbrekendeTabel(table)
+        if (error && geenRechten(error)) throw new GeenRechten(table, error.message)
         if (error) fail(`verwijderen in ${table}`, error)
       }
 
@@ -325,6 +364,7 @@ export const supabaseApi: ApiAdapter = {
       if (upserts.length) {
         const { error } = await supabase().from(table).upsert(upserts, { onConflict: 'id' })
         if (error && tabelOntbreekt(error)) throw new OntbrekendeTabel(table)
+        if (error && geenRechten(error)) throw new GeenRechten(table, error.message)
         if (error) fail(`opslaan in ${table}`, error)
       }
     }

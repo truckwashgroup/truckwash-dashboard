@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { api, type PushChange } from './api'
-import { GeenSessie, OntbrekendeTabel, ontbrekendeTabellen } from './api/supabaseApi'
+import {
+  GeenRechten, GeenSessie, OntbrekendeTabel, ontbrekendeTabellen,
+} from './api/supabaseApi'
 import { db, getMeta, setMeta } from './db'
 import { logLive } from './trail'
 import type { EntityName, OutboxRecord, SyncOp, SyncState } from './types'
@@ -18,6 +20,8 @@ import type { EntityName, OutboxRecord, SyncOp, SyncState } from './types'
 export const LAST_SYNC = 'lastSyncAt'
 const MAX_TRIES = 8
 const BATCH = 50
+/** Zoveel logregels mogen er hoogstens tegelijk op verzending wachten. */
+const MAX_LOG_IN_WACHTRIJ = 50
 
 /**
  * Synchroniseren heeft alleen zin met een sessie. Een echte backend geeft een
@@ -171,6 +175,23 @@ export async function enqueue(
     createdAt: Date.now(),
     tries: 0,
   })
+
+  /*
+   * Logregels blijven staan als de server ze weigert, net als al het andere.
+   * Maar het is diagnostiek, geen werk: als er duizend van vastlopen hoeft
+   * de wachtrij daar niet duizend records lang van te worden. De oudste
+   * gaan eruit; wat er is misgegaan staat dan nog steeds in het logboek zelf.
+   */
+  if (entity === 'logEvents') {
+    const wachtend = await db.outbox.where('entity').equals('logEvents').count()
+    if (wachtend > MAX_LOG_IN_WACHTRIJ) {
+      const oudste = await db.outbox
+        .where('entity').equals('logEvents')
+        .sortBy('createdAt')
+      await db.outbox.bulkDelete(
+        oudste.slice(0, wachtend - MAX_LOG_IN_WACHTRIJ).map((r) => r.id!))
+    }
+  }
   await useSync.getState().refreshPending()
   void scheduleFlush()
 }
@@ -275,6 +296,18 @@ async function pushPerStuk(batch: OutboxRecord[]): Promise<Error | null> {
        */
       if (e instanceof GeenSessie) {
         await db.outbox.update(r.id!, { lastError: msg })
+        continue
+      }
+
+      /*
+       * En een weigering op de beveiligingsregels. Die gaat niet over dit
+       * record maar over rechten, en die worden niet beter van acht keer
+       * hetzelfde proberen. Weggooien zou hier betekenen: iemands werk
+       * verdwijnt omdat er een regel scheef staat, en de enige die het merkt
+       * is degene die later ontdekt dat het er niet is.
+       */
+      if (e instanceof GeenRechten) {
+        await db.outbox.update(r.id!, { tries: r.tries + 1, lastError: msg })
         continue
       }
 

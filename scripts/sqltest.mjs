@@ -114,7 +114,8 @@ await run(db, '0012_kassa.sql draait', sqlFile('supabase/migrations/0012_kassa.s
 await run(db, '0013_berichten_mogen_van_iedereen.sql draait', sqlFile('supabase/migrations/0013_berichten_mogen_van_iedereen.sql'))
 await run(db, '0014_wijzigingsverzoeken.sql draait', sqlFile('supabase/migrations/0014_wijzigingsverzoeken.sql'))
 await run(db, '0015_agenda.sql draait', sqlFile('supabase/migrations/0015_agenda.sql'))
-await run(db, '0016_werkgevers.sql draait', sqlFile('supabase/migrations/0016_werkgevers.sql'))
+await run(db, '0016_werkgevers.sql draait', sqlFile('supabase/migrations/0016_werkgevers.sql'))
+await run(db, '0017_berichten_over_de_grens.sql draait', sqlFile('supabase/migrations/0017_berichten_over_de_grens.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -133,7 +134,8 @@ await run(db, '0012 nogmaals', sqlFile('supabase/migrations/0012_kassa.sql'))
 await run(db, '0013 nogmaals', sqlFile('supabase/migrations/0013_berichten_mogen_van_iedereen.sql'))
 await run(db, '0014 nogmaals', sqlFile('supabase/migrations/0014_wijzigingsverzoeken.sql'))
 await run(db, '0015 nogmaals', sqlFile('supabase/migrations/0015_agenda.sql'))
-await run(db, '0016 nogmaals', sqlFile('supabase/migrations/0016_werkgevers.sql'))
+await run(db, '0016 nogmaals', sqlFile('supabase/migrations/0016_werkgevers.sql'))
+await run(db, '0017 nogmaals', sqlFile('supabase/migrations/0017_berichten_over_de_grens.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
 const bedrijven = await db.query('select count(*)::int as n from public.companies')
@@ -1261,6 +1263,93 @@ check('maar wie niet is ingelogd komt er niet in',
 
 check('lezen mag alleen de ontwikkelaar',
   (await countAs(wasser, 'select count(*)::int as n from public.log_events')) === 0)
+
+
+console.log('\n22. Berichten over de grens van het eigen bedrijf heen')
+
+/*
+ * Tweede keer dat deze regel omviel, en om dezelfde reden: hij noemde wie er
+ * mocht sturen in plaats van wat er gestuurd werd. Nu is het een vraag over
+ * de verhouding tussen twee mensen, en die vraag is hier vastgelegd.
+ */
+
+const ontwikkelaar = 'c3c3c3c3-3333-3333-3333-c3c3c3c3c3c3'
+await db.exec(`
+  insert into auth.users (id, email) values ('${ontwikkelaar}', 'dev@truckwash1group.nl');
+  update public.profiles set roles = array['developer']::text[], active = true
+   where email = 'dev@truckwash1group.nl';
+`)
+const { rows: [devRow] } = await db.query(
+  `select id from public.profiles where email = 'dev@truckwash1group.nl'`)
+
+const bericht = (van, naar, id, afzender) => `
+  insert into public.notifications
+    (id, to_user_id, kind, title, body, from_user_id, from_name, created_at)
+  values ('${id}', '${naar}', 'info', 'Zelftest', '', '${afzender}', 'Zelftest', 1);`
+
+/* --- werkgever en chauffeur, beide kanten op --- */
+
+check('een werkgever bereikt zijn chauffeur',
+  await magSchrijven(werkgever,
+    bericht(werkgever, rickRow.id, 'nt_wg_naar_ch', ellenRow.id)))
+
+check('en de chauffeur zijn werkgever',
+  await magSchrijven(chauffeur,
+    bericht(chauffeur, ellenRow.id, 'nt_ch_naar_wg', rickRow.id)))
+
+/* --- maar niet verder dan dat --- */
+
+check('een chauffeur bereikt geen willekeurige wasmedewerker',
+  !(await magSchrijven(chauffeur,
+    bericht(chauffeur, wasserId, 'nt_ch_naar_wasser', rickRow.id))))
+
+check('en een werkgever ook niet',
+  !(await magSchrijven(werkgever,
+    bericht(werkgever, wasserId, 'nt_wg_naar_wasser', ellenRow.id))))
+
+/* --- het kantoor bereikt iedereen --- */
+
+check('een werkgever meldt zijn aanvraag bij het kantoor',
+  await magSchrijven(werkgever,
+    bericht(werkgever, baasId, 'nt_wg_naar_baas', ellenRow.id)))
+
+check('een klant kan het kantoor ook bereiken',
+  await magSchrijven(klant,
+    bericht(klant, baasId, 'nt_klant_naar_baas', klantRow.id)))
+
+check('maar nog steeds geen willekeurige medewerker',
+  !(await magSchrijven(klant,
+    bericht(klant, wasserId, 'nt_klant_naar_wasser', klantRow.id))))
+
+/* --- wie hier werkt maar geen wasser is --- */
+
+check('de ontwikkelaar mag antwoorden op een melding',
+  await magSchrijven(ontwikkelaar,
+    bericht(ontwikkelaar, wasserId, 'nt_dev_naar_wasser', devRow.id)))
+
+/* --- en wat er niet mocht, mag nog steeds niet --- */
+
+check('een werkgever stuurt niet op andermans naam',
+  !(await magSchrijven(werkgever,
+    bericht(werkgever, rickRow.id, 'nt_wg_vals', baasId))))
+
+check('en niet naar een hele rol',
+  !(await magSchrijven(werkgever, `insert into public.notifications
+     (id, to_role, kind, title, body, from_user_id, from_name, created_at)
+     values ('nt_wg_groep', 'employee', 'info', 'Allemaal', '', '${ellenRow.id}', 'Ellen', 1);`)))
+
+check('een chauffeur zonder enkele rol al helemaal niet',
+  !(await magSchrijven(chauffeur, `insert into public.notifications
+     (id, to_role, kind, title, body, from_user_id, from_name, created_at)
+     values ('nt_ch_groep', 'employee', 'info', 'Allemaal', '', '${rickRow.id}', 'Rick', 1);`)))
+
+/* --- losgekoppeld blijft bereikbaar: juist dan moet het bericht aankomen --- */
+
+await db.exec(
+  `update public.employer_links set status = 'beëindigd' where id = 'wgl_open'`)
+check('bij het loskoppelen komt het bericht nog aan',
+  await magSchrijven(werkgever,
+    bericht(werkgever, rickRow.id, 'nt_wg_afscheid', ellenRow.id)))
 
 await db.close()
 

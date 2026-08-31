@@ -117,7 +117,17 @@ export function leesDatum(ruw: string): number | undefined {
     }
   }
 
-  const punten = tekst.match(/(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})/)
+  /*
+   * ISO eerst. Anders leest het patroon hieronder "2026-03-01" van achteren
+   * naar voren als 26 maart 2001 -- een datum die er plausibel uitziet en er
+   * vijfentwintig jaar naast zit.
+   */
+  const iso = tekst.match(/(\d{4})-(\d{1,2})-(\d{1,2})/)
+  if (iso) {
+    return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])).getTime()
+  }
+
+  const punten = tekst.match(/\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})\b/)
   if (punten) {
     const jaar = Number(punten[3])
     return new Date(
@@ -125,11 +135,6 @@ export function leesDatum(ruw: string): number | undefined {
       Number(punten[2]) - 1,
       Number(punten[1]),
     ).getTime()
-  }
-
-  const iso = tekst.match(/(\d{4})-(\d{2})-(\d{2})/)
-  if (iso) {
-    return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])).getTime()
   }
 
   return undefined

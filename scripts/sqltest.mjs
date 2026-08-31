@@ -112,7 +112,7 @@ await run(db, '0010_leestekens_en_rooster.sql draait', sqlFile('supabase/migrati
 await run(db, '0011_postbus.sql draait', sqlFile('supabase/migrations/0011_postbus.sql'))
 await run(db, '0012_kassa.sql draait', sqlFile('supabase/migrations/0012_kassa.sql'))
 await run(db, '0013_berichten_mogen_van_iedereen.sql draait', sqlFile('supabase/migrations/0013_berichten_mogen_van_iedereen.sql'))
-await run(db, '0012_kassa.sql draait', sqlFile('supabase/migrations/0012_kassa.sql'))
+await run(db, '0014_wijzigingsverzoeken.sql draait', sqlFile('supabase/migrations/0014_wijzigingsverzoeken.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -129,7 +129,7 @@ await run(db, '0010 nogmaals', sqlFile('supabase/migrations/0010_leestekens_en_r
 await run(db, '0011 nogmaals', sqlFile('supabase/migrations/0011_postbus.sql'))
 await run(db, '0012 nogmaals', sqlFile('supabase/migrations/0012_kassa.sql'))
 await run(db, '0013 nogmaals', sqlFile('supabase/migrations/0013_berichten_mogen_van_iedereen.sql'))
-await run(db, '0012 nogmaals', sqlFile('supabase/migrations/0012_kassa.sql'))
+await run(db, '0014 nogmaals', sqlFile('supabase/migrations/0014_wijzigingsverzoeken.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
 const bedrijven = await db.query('select count(*)::int as n from public.companies')

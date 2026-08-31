@@ -1610,6 +1610,265 @@ await sync()
 check('de postbus staat op de server',
   (await db.mailbox.get(metBon.id))?.status === 'verwerkt')
 
+
+/* ==================================================================== */
+
+console.log('\n25. Een contract uitlezen')
+
+const {
+  vindGegevens, leesDatum, leesBedrag, aantalGevonden, afgeleidUurloon,
+} = await import('../src/lib/contractLezen')
+
+/* --- bedragen --- */
+
+check('Nederlandse notatie', leesBedrag('2.850,00') === 2850)
+check('punt als decimaal', leesBedrag('2850.00') === 2850)
+check('duizendtallen met een punt', leesBedrag('12.500') === 12500)
+check('komma als decimaal', leesBedrag('22,50') === 22.5)
+check('met euroteken ervoor', leesBedrag('€ 1.975,50') === 1975.5)
+check('onzin levert niets op', leesBedrag('abc') === undefined)
+
+/* --- datums --- */
+
+const eersteMaart = leesDatum('1 maart 2026')
+check('geschreven datum', new Date(eersteMaart!).getMonth() === 2
+  && new Date(eersteMaart!).getDate() === 1
+  && new Date(eersteMaart!).getFullYear() === 2026)
+
+const metStreepjes = leesDatum('01-03-2026')
+check('datum met streepjes', new Date(metStreepjes!).getMonth() === 2
+  && new Date(metStreepjes!).getFullYear() === 2026)
+
+const isoDatum = leesDatum('2026-03-01')
+check('datum in ISO', new Date(isoDatum!).getMonth() === 2
+  && new Date(isoDatum!).getFullYear() === 2026)
+
+check('afgekorte maand', leesDatum('15 sep 2025') !== undefined)
+check('geen datum levert niets op', leesDatum('ergens volgend jaar') === undefined)
+
+/* --- een heel contract --- */
+
+const CONTRACT = `
+ARBEIDSOVEREENKOMST VOOR BEPAALDE TIJD
+
+De ondergetekenden: Truckwash1 Group B.V., hierna te noemen werkgever, en
+de heer T. Verhoeven, hierna te noemen werknemer.
+
+Artikel 1 - Functie en aanvang
+Werknemer treedt in dienst per 1 maart 2026 in de functie van Wasmedewerker.
+De overeenkomst is aangegaan voor bepaalde tijd en eindigt van rechtswege op
+28 februari 2027.
+
+Artikel 2 - Arbeidsduur
+De arbeidsduur bedraagt 38 uur per week.
+
+Artikel 3 - Salaris
+Het bruto maandsalaris bedraagt EUR 2.850,00 per maand bij een volledige
+arbeidsduur, exclusief 8% vakantiebijslag.
+`
+
+const uitContract = vindGegevens(CONTRACT)
+
+check('de functie komt eruit', uitContract.functie?.waarde === 'Wasmedewerker',
+  String(uitContract.functie?.waarde))
+check('het maandsalaris komt eruit', uitContract.maandloon?.waarde === 2850,
+  String(uitContract.maandloon?.waarde))
+check('de uren komen eruit', uitContract.urenPerWeek?.waarde === 38,
+  String(uitContract.urenPerWeek?.waarde))
+
+const gevondenStart = uitContract.startDatum?.waarde
+check('de ingangsdatum komt eruit',
+  !!gevondenStart && new Date(gevondenStart).getFullYear() === 2026
+  && new Date(gevondenStart).getMonth() === 2,
+  gevondenStart ? new Date(gevondenStart).toISOString() : 'niets')
+
+const gevondenEind = uitContract.eindDatum?.waarde
+check('de einddatum komt eruit',
+  !!gevondenEind && new Date(gevondenEind).getFullYear() === 2027
+  && new Date(gevondenEind).getMonth() === 1,
+  gevondenEind ? new Date(gevondenEind).toISOString() : 'niets')
+
+check('bij een einddatum wordt onbepaalde tijd niet gemeld',
+  uitContract.onbepaaldeTijd === undefined)
+check('er is genoeg gevonden om voor te stellen', aantalGevonden(uitContract) >= 5,
+  String(aantalGevonden(uitContract)))
+check('bij elke vondst staat de zin waarin hij stond',
+  (uitContract.maandloon?.bron ?? '').toLowerCase().includes('bruto'),
+  String(uitContract.maandloon?.bron))
+
+/* --- onbepaalde tijd, met een uurloon --- */
+
+const ONBEPAALD = `
+Werknemer treedt in dienst per 01-09-2025 in de functie van Voorman wasstraat.
+De overeenkomst wordt aangegaan voor onbepaalde tijd.
+De arbeidsduur bedraagt 40 uur per week.
+Het bruto uurloon bedraagt EUR 24,50.
+`
+
+const contractOnbepaald = vindGegevens(ONBEPAALD)
+check('onbepaalde tijd wordt herkend', contractOnbepaald.onbepaaldeTijd?.waarde === true)
+check('en er is dan geen einddatum', contractOnbepaald.eindDatum === undefined)
+check('het uurloon komt eruit', contractOnbepaald.uurloon?.waarde === 24.5,
+  String(contractOnbepaald.uurloon?.waarde))
+check('de functie met twee woorden ook',
+  contractOnbepaald.functie?.waarde === 'Voorman wasstraat',
+  String(contractOnbepaald.functie?.waarde))
+
+/* --- onzin mag niets opleveren --- */
+
+const ONZIN = 'Beste Tom, hierbij de notulen van de vergadering van dinsdag.'
+const contractOnzin = vindGegevens(ONZIN)
+check('uit een gewone brief komt niets', aantalGevonden(contractOnzin) === 0,
+  JSON.stringify(contractOnzin))
+
+/* --- bedragen die geen salaris zijn worden niet aangezien --- */
+
+const RAAR = 'Het bruto maandsalaris bedraagt EUR 12,00 per maand.'
+check('een onmogelijk maandloon wordt niet overgenomen',
+  vindGegevens(RAAR).maandloon === undefined)
+
+/* --- uurloon uit een maandloon --- */
+
+check('uurloon afgeleid uit maandloon en uren',
+  afgeleidUurloon(2850, 38) === 17.31, String(afgeleidUurloon(2850, 38)))
+
+/* ==================================================================== */
+
+console.log('\n26. Wijzigingen in een dossier')
+
+const {
+  wijzigingen: wijzigRepo, huidigeWaarde, toonWaarde, gelijk, openVerzoeken,
+} = await import('../src/lib/wijzigingen')
+
+const alleMensen2 = await db.users.toArray()
+const tomW = alleMensen2.find((u) => u.id === 'u_wasser')!
+const nourW = alleMensen2.find((u) => u.id === 'u_wasser3')!
+const ilseW = alleMensen2.find((u) => u.id === 'u_manager')!
+
+check('de huidige functie komt uit het profiel',
+  huidigeWaarde('function', tomW) === tomW.function)
+check('het uurtarief komt uit het afgeschermde deel',
+  huidigeWaarde('hourlyRate', tomW, await db.personnelPrivate.get(tomW.id)) === 24.5)
+
+check('twee lijsten met dezelfde inhoud zijn gelijk',
+  gelijk(['a', 'b'], ['b', 'a']))
+check('een lege waarde en niets zijn gelijk', gelijk('', undefined))
+check('verschillende waarden zijn niet gelijk', !gelijk(38, 40))
+
+/* --- een verzoek indienen --- */
+
+const verzoek = await wijzigRepo.aanvragen({
+  persoon: tomW,
+  prive: await db.personnelPrivate.get(tomW.id),
+  // Hij stond al op 40; 42 is dus een echte verandering.
+  voorstel: { contractHours: 42, function: 'Allround wasmedewerker' },
+  reden: 'Draait sinds september structureel meer uren.',
+  door: nourW,
+})
+
+check('het verzoek is aangemaakt', !!verzoek)
+check('met twee velden erin', verzoek?.velden.length === 2, String(verzoek?.velden.length))
+check('de oude waarde staat erbij',
+  verzoek?.velden.find((v) => v.veld === 'contractHours')?.oud === tomW.contractHours)
+check('het staat open', verzoek?.status === 'open')
+
+const crBericht = (await db.notifications.toArray()).filter(
+  (n) => n.title.includes('Wijziging voorgesteld'))
+check('het management krijgt bericht', crBericht.length > 0)
+
+/* --- velden die niet veranderen vallen eruit --- */
+
+const leegVerzoek = await wijzigRepo.aanvragen({
+  persoon: tomW,
+  voorstel: { function: tomW.function },
+  reden: 'Niets aan de hand',
+  door: nourW,
+})
+check('een voorstel zonder verandering levert niets op', leegVerzoek === null)
+
+/* --- goedkeuren voert door --- */
+
+await wijzigRepo.goedkeuren(verzoek!, ilseW)
+
+const naGoedkeuren = await db.users.get(tomW.id)
+check('de contracturen zijn doorgevoerd', naGoedkeuren?.contractHours === 42,
+  String(naGoedkeuren?.contractHours))
+check('de functie ook', naGoedkeuren?.function === 'Allround wasmedewerker')
+check('het verzoek staat op goedgekeurd',
+  (await db.changeRequests.get(verzoek!.id))?.status === 'goedgekeurd')
+check('met wie het goedkeurde',
+  (await db.changeRequests.get(verzoek!.id))?.beslistDoorNaam === ilseW.name)
+
+check('een tweede keer goedkeuren doet niets',
+  (await wijzigRepo.goedkeuren(
+    (await db.changeRequests.get(verzoek!.id))!, ilseW))?.beslistOp
+  === (await db.changeRequests.get(verzoek!.id))?.beslistOp)
+
+/* --- een uurloon gaat naar het afgeschermde deel --- */
+
+const loonVerzoek = await wijzigRepo.aanvragen({
+  persoon: naGoedkeuren!,
+  prive: await db.personnelPrivate.get(tomW.id),
+  voorstel: { hourlyRate: 26 },
+  reden: 'Hoort bij de nieuwe functie.',
+  door: nourW,
+})
+await wijzigRepo.goedkeuren(loonVerzoek!, ilseW)
+
+check('het uurloon staat in het afgeschermde deel',
+  (await db.personnelPrivate.get(tomW.id))?.hourlyRate === 26)
+check('en niet in het profiel',
+  (await db.users.get(tomW.id))?.hourlyRate !== 26)
+
+/* --- afwijzen --- */
+
+const afTeWijzenVerzoek = await wijzigRepo.aanvragen({
+  persoon: naGoedkeuren!,
+  voorstel: { function: 'Vestigingsmanager' },
+  reden: 'Wil doorgroeien.',
+  door: nourW,
+})
+await wijzigRepo.afwijzen(afTeWijzenVerzoek!, 'Eerst het gesprek voeren.', ilseW)
+
+check('het verzoek is afgewezen',
+  (await db.changeRequests.get(afTeWijzenVerzoek!.id))?.status === 'afgewezen')
+check('met de reden erbij',
+  (await db.changeRequests.get(afTeWijzenVerzoek!.id))?.afwijzingReden
+  === 'Eerst het gesprek voeren.')
+check('en de functie is niet veranderd',
+  (await db.users.get(tomW.id))?.function === 'Allround wasmedewerker')
+
+/* --- intrekken --- */
+
+const intrekbaar = await wijzigRepo.aanvragen({
+  persoon: (await db.users.get(tomW.id))!,
+  voorstel: { contractHours: 32 },
+  reden: 'Toch even navragen.',
+  door: nourW,
+})
+await wijzigRepo.intrekken(intrekbaar!)
+check('een ingetrokken verzoek telt niet meer mee',
+  !openVerzoeken(await db.changeRequests.toArray()).some((v) => v.id === intrekbaar!.id))
+
+/* --- leesbaar in het scherm --- */
+
+const locatiesW = await db.locations.toArray()
+check('een uurtarief leest als bedrag',
+  toonWaarde('hourlyRate', 26, { locaties: locatiesW, mensen: alleMensen2 }) === '€ 26,00')
+check('een vestiging leest als naam',
+  toonWaarde('locationId', 'loc_utr', { locaties: locatiesW, mensen: alleMensen2 }) === 'Utrecht')
+check('lege waarden lezen als een streepje',
+  toonWaarde('function', undefined, { locaties: locatiesW, mensen: alleMensen2 }) === '—')
+
+/* --- alles overleeft de rondgang --- */
+
+await sync()
+await db.changeRequests.clear()
+await setMeta(LAST_SYNC, 0)
+await sync()
+check('de verzoeken staan op de server',
+  (await db.changeRequests.get(verzoek!.id))?.status === 'goedgekeurd')
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

@@ -82,7 +82,16 @@ export async function sendMail(request: MailRequest): Promise<MailResult | null>
         )
         return null
       }
-      console.warn(`[mail] ${request.template} niet verstuurd: ${msg}`)
+
+      /*
+       * "non-2xx status code" zegt niemand iets. De functie zelf stuurt wél
+       * een reden mee -- geen rechten, sjabloon onbekend, sleutel ontbreekt --
+       * en die staat in het antwoord. Even uitpakken, want anders sta je te
+       * raden bij een fout die precies vertelt wat eraan schort.
+       */
+      const uitgepakt = await leesFout(error)
+      console.warn(`[mail] ${request.template} niet verstuurd: ${uitgepakt ?? msg}`)
+      laatsteFout = uitgepakt ?? msg
       return null
     }
 
@@ -92,6 +101,33 @@ export async function sendMail(request: MailRequest): Promise<MailResult | null>
       e instanceof Error ? e.message : String(e)}`)
     return null
   }
+}
+
+/**
+ * De reden die de serverfunctie meestuurde.
+ *
+ * supabase-js verpakt een foutstatus in een FunctionsHttpError met het
+ * oorspronkelijke antwoord erin. Daar staat wat er werkelijk misging.
+ */
+async function leesFout(error: unknown): Promise<string | null> {
+  const context = (error as { context?: unknown })?.context
+  if (!context || typeof context !== 'object') return null
+  try {
+    const response = context as Response
+    if (typeof response.json !== 'function') return null
+    const body = await response.json()
+    const reden = body?.error ?? body?.message ?? body?.skipped
+    return reden ? String(reden) : null
+  } catch {
+    return null
+  }
+}
+
+/** De laatste reden waarom er geen post uitging, voor in het scherm. */
+let laatsteFout: string | null = null
+
+export function laatsteMailFout(): string | null {
+  return laatsteFout
 }
 
 /* ------------------------------------------------------------------ *

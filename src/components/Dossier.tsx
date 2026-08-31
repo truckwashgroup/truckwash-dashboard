@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  AlertTriangle, CalendarClock, CreditCard, Download, Eye, EyeOff, FileSignature,
-  FileText, Fingerprint, Heart, Loader2, Lock, PenLine, ScanLine, ShieldCheck,
-  Trash2, Upload, X,
+  AlertTriangle, CalendarClock, Check, CreditCard, Download, Eye, EyeOff,
+  FileSignature, FileText, Fingerprint, Heart, Loader2, Lock, PenLine, ScanLine,
+  ShieldCheck, Trash2, Upload, X,
 } from 'lucide-react'
 import { db } from '../lib/db'
 import {
@@ -14,6 +14,12 @@ import {
   bsnFormatteer, bsnGemaskeerd, bsnProbleem, ibanFormatteer, ibanProbleem,
   kortHash, leesMrz, type MrzResultaat,
 } from '../lib/identiteit'
+import {
+  aantalGevonden, afgeleidUurloon, GeenTekstlaag, leesContract,
+  type ContractGegevens,
+} from '../lib/contractLezen'
+import { users as userRepo } from '../lib/repo'
+import { WijzigingenVan } from './Wijzigingen'
 import {
   DOCUMENT_KINDS, type DocumentKind, type PersonnelDocument,
   type PersonnelPrivate, type User,
@@ -178,6 +184,8 @@ export default function Dossier({ person }: { person: User }) {
           </div>
         )}
       </Card>
+
+      <WijzigingenVan person={person} />
 
       <GegevensDialoog
         open={gegevens}
@@ -719,11 +727,92 @@ function UploadDialoog({
   const [reden, setReden] = useState('')
   const [bezig, setBezig] = useState(false)
 
+  /* Wat er uit het contract kwam, en wat daarvan overgenomen mag worden. */
+  const [lezen, setLezen] = useState(false)
+  const [gelezen, setGelezen] = useState<ContractGegevens | null>(null)
+  const [leesFout, setLeesFout] = useState<string | null>(null)
+  const [overnemen, setOvernemen] = useState<Set<string>>(new Set())
+
   useEffect(() => {
     if (!open) return
     setZichtbaar(DOCUMENT_KINDS[kind].standaardZichtbaar)
     setTekenen(kind === 'contract')
   }, [kind, open])
+
+  /**
+   * Een contract uitlezen.
+   *
+   * Wat eruit komt wordt vóórgesteld, niet opgeslagen. Bij elk voorstel
+   * staat de zin waarin het gevonden is, zodat je het kunt nakijken zonder
+   * het bestand te openen. Alleen wat je aanvinkt gaat mee.
+   */
+  async function lezenUitContract(bestand: File) {
+    setLezen(true)
+    setLeesFout(null)
+    try {
+      const uitkomst = await leesContract(bestand)
+      setGelezen(uitkomst)
+
+      // Alles wat met hoge zekerheid is gevonden staat standaard aan; de
+      // rest kijk je zelf na.
+      const zeker = new Set<string>()
+      for (const [sleutel, vondst] of Object.entries(uitkomst)) {
+        if (sleutel === 'tekst' || sleutel === 'bladzijden') continue
+        if (vondst && typeof vondst === 'object' && 'zekerheid' in vondst
+            && vondst.zekerheid === 'hoog') {
+          zeker.add(sleutel)
+        }
+      }
+      setOvernemen(zeker)
+
+      const aantal = aantalGevonden(uitkomst)
+      if (aantal === 0) {
+        setLeesFout(
+          'Er is niets herkenbaars in gevonden. Vul de gegevens met de hand in; ' +
+          'het contract zelf komt gewoon in het dossier.',
+        )
+      }
+    } catch (e) {
+      setLeesFout(e instanceof GeenTekstlaag
+        ? e.message
+        : 'Het contract kon niet gelezen worden. Vul de gegevens met de hand in.')
+    } finally {
+      setLezen(false)
+    }
+  }
+
+  /** De aangevinkte waarden doorvoeren, na het uploaden. */
+  async function neemOver() {
+    if (!gelezen) return
+
+    const patch: Partial<User> = {}
+    if (overnemen.has('functie') && gelezen.functie) {
+      patch.function = gelezen.functie.waarde
+    }
+    if (overnemen.has('urenPerWeek') && gelezen.urenPerWeek) {
+      patch.contractHours = gelezen.urenPerWeek.waarde
+    }
+    if (overnemen.has('startDatum') && gelezen.startDatum) {
+      patch.startDate = gelezen.startDatum.waarde
+    }
+    if (overnemen.has('eindDatum') && gelezen.eindDatum) {
+      patch.endDate = gelezen.eindDatum.waarde
+    }
+    if (overnemen.has('onbepaaldeTijd') && gelezen.onbepaaldeTijd) {
+      // Onbepaalde tijd betekent: geen einddatum.
+      patch.endDate = undefined
+    }
+    if (Object.keys(patch).length > 0) await userRepo.update(person.id, patch)
+
+    // Het uurloon hoort in het afgeschermde deel.
+    let uurloon: number | undefined
+    if (overnemen.has('uurloon') && gelezen.uurloon) {
+      uurloon = gelezen.uurloon.waarde
+    } else if (overnemen.has('maandloon') && gelezen.maandloon && gelezen.urenPerWeek) {
+      uurloon = afgeleidUurloon(gelezen.maandloon.waarde, gelezen.urenPerWeek.waarde)
+    }
+    if (uurloon !== undefined) await dossierRepo.save(person.id, { hourlyRate: uurloon })
+  }
 
   async function verstuur() {
     if (!bestand) return toast.error('Kies eerst een bestand')
@@ -744,10 +833,18 @@ function UploadDialoog({
         requiresSignature: tekenen,
         door,
       })
+      // Pas overnemen als het bestand er werkelijk staat.
+      await neemOver()
+
+      const aantal = overnemen.size
       toast.ok(tekenen
         ? `${titel} staat klaar — ${person.name.split(' ')[0]} krijgt bericht om te tekenen`
         : `${titel} is toegevoegd aan het dossier`)
+      if (aantal > 0) {
+        toast.info(`${aantal} ${aantal === 1 ? 'gegeven' : 'gegevens'} uit het contract overgenomen`)
+      }
       setBestand(null); setTitel(''); setOmschrijving(''); setVerloopt(''); setReden('')
+      setGelezen(null); setOvernemen(new Set())
       onClose()
     } catch (e) {
       toast.error(e instanceof DossierFout ? e.message : 'Uploaden mislukt')
@@ -792,10 +889,43 @@ function UploadDialoog({
           onChange={(e) => {
             const f = e.target.files?.[0] ?? null
             setBestand(f)
+            setGelezen(null)
+            setLeesFout(null)
+            setOvernemen(new Set())
             if (f && !titel) setTitel(f.name.replace(/\.[a-z0-9]+$/i, ''))
+            if (f && f.type === 'application/pdf' && kind === 'contract') {
+              void lezenUitContract(f)
+            }
           }}
         />
       </Field>
+
+      {lezen && (
+        <div className="signup-note">
+          <Loader2 size={16} className="spin" />
+          <span>Het contract wordt gelezen…</span>
+        </div>
+      )}
+
+      {leesFout && (
+        <div className="signup-note">
+          <AlertTriangle size={16} />
+          <span>{leesFout}</span>
+        </div>
+      )}
+
+      {gelezen && aantalGevonden(gelezen) > 0 && (
+        <ContractVoorstel
+          gegevens={gelezen}
+          gekozen={overnemen}
+          onWissel={(sleutel) => {
+            const volgende = new Set(overnemen)
+            if (volgende.has(sleutel)) volgende.delete(sleutel)
+            else volgende.add(sleutel)
+            setOvernemen(volgende)
+          }}
+        />
+      )}
 
       <div className="grid cols-2">
         <Field label="Naam van het document">
@@ -1156,4 +1286,97 @@ export function TekenDialoog({
       )}
     </Modal>
   )
+}
+
+/* ================================================================== *
+ *  Wat er uit het contract kwam
+ *
+ *  Voorstellen, geen feiten. Bij elke regel staat de zin waarin het is
+ *  gevonden, zodat je het kunt nakijken zonder het bestand te openen. Wat
+ *  met hoge zekerheid is herkend staat aangevinkt; de rest zet je zelf aan.
+ * ================================================================== */
+
+const VOORSTEL_LABELS: Record<string, string> = {
+  functie: 'Functie',
+  maandloon: 'Bruto per maand',
+  uurloon: 'Uurtarief',
+  urenPerWeek: 'Contracturen per week',
+  startDatum: 'In dienst per',
+  eindDatum: 'Uit dienst per',
+  onbepaaldeTijd: 'Onbepaalde tijd',
+}
+
+function ContractVoorstel({
+  gegevens, gekozen, onWissel,
+}: {
+  gegevens: ContractGegevens
+  gekozen: Set<string>
+  onWissel: (sleutel: string) => void
+}) {
+  const regels = (Object.keys(VOORSTEL_LABELS) as (keyof ContractGegevens)[])
+    .map((sleutel) => ({ sleutel: String(sleutel), vondst: gegevens[sleutel] }))
+    .filter((r) => r.vondst && typeof r.vondst === 'object' && 'waarde' in r.vondst)
+
+  return (
+    <div className="contract-voorstel">
+      <div className="kop">
+        <ScanLine size={16} />
+        <span>
+          <strong>Uit het contract gehaald</strong>
+          <span>
+            {gegevens.bladzijden} {gegevens.bladzijden === 1 ? 'bladzijde' : 'bladzijden'} gelezen.
+            Vink aan wat overgenomen mag worden — niets gaat automatisch mee.
+          </span>
+        </span>
+      </div>
+
+      {regels.map(({ sleutel, vondst }) => {
+        const v = vondst as { waarde: unknown; zekerheid: string; bron: string }
+        const aan = gekozen.has(sleutel)
+        return (
+          <button
+            key={sleutel}
+            type="button"
+            className={`voorstel ${aan ? 'on' : ''}`}
+            onClick={() => onWissel(sleutel)}
+          >
+            <span className="vink">{aan && <Check size={13} />}</span>
+            <span className="inhoud">
+              <span className="rij">
+                <strong>{VOORSTEL_LABELS[sleutel]}</strong>
+                <span className="waarde">{toonVoorstel(sleutel, v.waarde)}</span>
+                {v.zekerheid !== 'hoog' && (
+                  <Badge tone="warn">controleer</Badge>
+                )}
+              </span>
+              <span className="bron">{v.bron}</span>
+            </span>
+          </button>
+        )
+      })}
+
+      {gegevens.maandloon && !gegevens.uurloon && gegevens.urenPerWeek && (
+        <div className="voorstel-hint">
+          Er staat een maandloon in, geen uurloon. Neem je het maandloon over,
+          dan reken ik het uurtarief eruit:{' '}
+          <strong>
+            {money(afgeleidUurloon(gegevens.maandloon.waarde, gegevens.urenPerWeek.waarde))}
+          </strong>{' '}
+          per uur.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function toonVoorstel(sleutel: string, waarde: unknown): string {
+  if (sleutel === 'onbepaaldeTijd') return 'ja — geen einddatum'
+  if (sleutel === 'maandloon' || sleutel === 'uurloon') return money(Number(waarde))
+  if (sleutel === 'urenPerWeek') return `${waarde} uur`
+  if (sleutel === 'startDatum' || sleutel === 'eindDatum') {
+    return new Date(Number(waarde)).toLocaleDateString('nl-NL', {
+      day: 'numeric', month: 'long', year: 'numeric',
+    })
+  }
+  return String(waarde)
 }

@@ -15,6 +15,7 @@ import BerichtVersturen from '../../components/BerichtVersturen'
 import OpleidingOverzicht from '../../components/OpleidingOverzicht'
 import Opleiding from '../../components/Opleiding'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
+import Personeel from '../management/Personeel'
 import { Start, type Tegel, type TegelTint } from '../../components/Tegels'
 import { useAuth } from '../../store/useAuth'
 import { usePerms, useNavTarget } from '../../store/useNav'
@@ -32,6 +33,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   opleiding: { title: 'Opleiding', subtitle: 'Voortgang van je team' },
   mijn: { title: 'Mijn opleiding', subtitle: 'Cursussen die jij moet doen' },
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
+  personeel: { title: 'Dossiers', subtitle: 'Gegevens inzien en wijzigingen aanvragen' },
 }
 
 export default function SupervisorDashboard() {
@@ -73,6 +75,9 @@ export default function SupervisorDashboard() {
     ...(perms.can('roster.edit') ? [{ key: 'smart', label: 'Smartroster', icon: Sparkles }] : []),
     ...(perms.can('hours.viewTeam') ? [{ key: 'uren', label: 'Uren', icon: Timer }] : []),
     ...(perms.can('learning.assign') ? [{ key: 'opleiding', label: 'Opleiding', icon: GraduationCap }] : []),
+    ...(perms.can('staff.view')
+      ? [{ key: 'personeel', label: 'Dossiers', icon: Users }]
+      : []),
     { key: 'mijn', label: 'Mijn cursussen', icon: ClipboardList },
     ...(perms.can('chat.use')
       ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
@@ -133,6 +138,14 @@ export default function SupervisorDashboard() {
       urgent: ongelezen > 0,
       onClick: () => setPage('overleg'),
     }] : []),
+    ...(perms.can('staff.view') ? [{
+      key: 'personeel',
+      label: 'Dossiers',
+      hint: 'Gegevens inzien en een wijziging aanvragen',
+      icon: Users,
+      tint: 'neutraal' as TegelTint,
+      onClick: () => setPage('personeel'),
+    }] : []),
     ...(perms.can('learning.assign') ? [{
       key: 'opleiding',
       label: 'Opleiding',
@@ -182,6 +195,7 @@ export default function SupervisorDashboard() {
       {page === 'opleiding' && <OpleidingOverzicht team={team} />}
       {page === 'mijn' && <Opleiding />}
       {page === 'overleg' && <Overleg />}
+      {page === 'personeel' && <Personeel days={30} />}
 
       <BerichtVersturen open={messaging} onClose={() => setMessaging(false)} team={team} />
     </Shell>

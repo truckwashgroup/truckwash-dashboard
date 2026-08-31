@@ -1,6 +1,6 @@
 import { db, uid } from './db'
 import { enqueue } from './sync'
-import { mailVrij } from './mail'
+import { laatsteMailFout, mailVrij } from './mail'
 import { supabase, supabaseConfigured } from './api/supabaseApi'
 import type { Expense, MailBericht, MailBijlage, MailStatus, User } from './types'
 
@@ -87,9 +87,10 @@ export const postbus = {
   }) {
     const uitkomst = await mailVrij(input.aan, input.onderwerp, input.tekst)
     if (!uitkomst || uitkomst.sent === 0) {
+      const reden = uitkomst?.skipped ?? laatsteMailFout()
       throw new Error(
-        uitkomst?.skipped
-          ? `Niet verstuurd: ${uitkomst.skipped}`
+        reden
+          ? `Niet verstuurd: ${reden}`
           : 'Versturen lukte niet. Kijk bij Post wat de server terugzei.',
       )
     }

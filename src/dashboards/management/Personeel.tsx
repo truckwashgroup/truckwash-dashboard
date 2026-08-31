@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  ArrowLeft, BadgeCheck, FolderLock, KeyRound, Mail, MapPin, Phone, Send,
-  ShieldCheck, SlidersHorizontal,
+  ArrowLeft, BadgeCheck, ClipboardCheck, FolderLock, KeyRound, Mail, MapPin,
+  Phone, Send, ShieldCheck, SlidersHorizontal,
   Timer, UserCog, UserPlus, Users,
 } from 'lucide-react'
 import { db } from '../../lib/db'
@@ -14,6 +14,7 @@ import WeekRooster from '../../components/WeekRooster'
 import PermissionEditor, { PermissionSummary } from '../../components/PermissionEditor'
 import BerichtVersturen from '../../components/BerichtVersturen'
 import Dossier from '../../components/Dossier'
+import { OpenWijzigingen, WijzigingAanvragen } from '../../components/Wijzigingen'
 import SmartRosterPanel from '../../components/SmartRosterPanel'
 import { useAuth } from '../../store/useAuth'
 import { usePerms } from '../../store/useNav'
@@ -69,6 +70,8 @@ export default function Personeel({ days }: { days: number }) {
 
   return (
     <>
+      <OpenWijzigingen />
+
       <div className="grid cols-4" style={{ marginBottom: 16 }}>
         <Stat label="Medewerkers" value={rows.length} icon={<Users size={17} />} />
         <Stat label={`Uren (${days}d)`} value={duration(totaalUren * 60000)} icon={<Timer size={17} />} />
@@ -181,7 +184,9 @@ function PersonDetail({
   const [editing, setEditing] = useState(false)
   const [permissions, setPermissions] = useState(false)
   const [berichten, setBerichten] = useState(false)
+  const [aanvragen, setAanvragen] = useState(false)
   const [tab, setTab] = useState<'overzicht' | 'dossier'>('overzicht')
+  const perms = usePerms()
 
   const jobs = useLiveQuery(() => db.washJobs.toArray(), [], [] as WashJob[])
   const entries = useLiveQuery(() => db.timeEntries.toArray(), [], [] as TimeEntry[])
@@ -191,6 +196,8 @@ function PersonDetail({
     [] as Shift[],
   )
   const locaties = useLiveQuery(() => db.locations.toArray(), [], [] as Location[])
+  const prive = useLiveQuery(
+    () => db.personnelPrivate.get(person.id), [person.id], undefined)
 
   const stats = useMemo(
     () => staffPerformance([person], jobs, entries, days)[0],
@@ -236,6 +243,11 @@ function PersonDetail({
               <button className="btn sm" onClick={() => setBerichten(true)}>
                 <Send size={14} /> Bericht
               </button>
+              {perms.can('staff.request') && !perms.can('staff.edit') && (
+                <button className="btn primary sm" onClick={() => setAanvragen(true)}>
+                  <ClipboardCheck size={14} /> Wijziging aanvragen
+                </button>
+              )}
               <button className="btn sm" onClick={() => setEditing(true)}>
                 <UserCog size={14} /> Gegevens
               </button>
@@ -364,6 +376,13 @@ function PersonDetail({
         open={berichten}
         onClose={() => setBerichten(false)}
         team={[person]}
+      />
+
+      <WijzigingAanvragen
+        open={aanvragen}
+        person={person}
+        prive={prive}
+        onClose={() => setAanvragen(false)}
       />
 
       <Modal

@@ -217,7 +217,9 @@ function Bericht({
     size: b.size,
     geblokkeerd: magOpenen(b)
       ? undefined
-      : (b.controleReden || 'Deze bijlage kwam niet door de controle.'),
+      : (b.controleReden || (b.path
+          ? 'Deze bijlage kwam niet door de controle.'
+          : 'Van deze bijlage staat er niets in de opslag.')),
     haal: () => postbus.openBijlage(b),
   }))
 
@@ -293,7 +295,19 @@ function Bericht({
               onWissel={setKijkt}
             />
 
-            {bericht.attachments.some((b) => !b.controle) && (
+            {/*
+              * Waarom een bijlage er niet is, hoort erbij te staan. Anders
+              * zie je een naam waar niets achter zit en weet je niet of het
+              * aan de mail lag, aan de controle of aan ons.
+              */}
+            {bericht.attachments.filter((b) => !b.path && b.controleReden).map((b) => (
+              <div className="signup-note" style={{ marginTop: 8 }} key={'r' + b.naam}>
+                <AlertTriangle size={16} />
+                <span><strong>{b.naam}</strong> — {b.controleReden}</span>
+              </div>
+            ))}
+
+            {bericht.attachments.some((b) => b.path && !b.controle) && (
               <div className="signup-note" style={{ marginTop: 8 }}>
                 <AlertTriangle size={16} />
                 <span>

@@ -2404,6 +2404,23 @@ console.log('\n— bijlagen bekijken —')
     controleLabel({ naam: 'a.pdf', mime: 'application/pdf', size: 1, path: 'p' })?.tone === 'warn')
   check('en een schone krijgt geen stempel',
     controleLabel({ naam: 'a.pdf', mime: 'application/pdf', size: 1, path: 'p', controle: 'schoon' }) === null)
+
+  /*
+   * En het geval waar het om ging: de bijlage zat wel in de mail, maar er
+   * staat niets in de opslag. Dat is iets anders dan tegengehouden, en het
+   * hoort ook anders te heten.
+   */
+  const nietBinnen = {
+    naam: 'factuur.pdf', mime: 'application/pdf', size: 0, path: '',
+    controle: 'mislukt' as const,
+    controleReden: 'De webhook bevatte geen inhoud voor deze bijlage.',
+  }
+  check('zonder pad valt er niets te openen', !magOpenen(nietBinnen))
+  check('en dat heet niet "tegengehouden"',
+    controleLabel(nietBinnen)?.label === 'Niet binnengekomen',
+    String(controleLabel(nietBinnen)?.label))
+  check('een bijlage zonder pad die wel verdacht is heet dat ook',
+    controleLabel({ ...nietBinnen, controle: 'verdacht' })?.label !== 'Niet binnengekomen')
 }
 
 /* ==================================================================== */

@@ -26,6 +26,9 @@ import { controleerBijlage } from './controle.ts'
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 const WEBHOOK_SECRET = Deno.env.get('RESEND_WEBHOOK_SECRET') ?? ''
+// Niet elke aanbieder zet de inhoud van een bijlage in de webhook zelf. Komt
+// er alleen een verwijzing mee, dan halen we hem hiermee alsnog op.
+const RESEND_KEY = Deno.env.get('RESEND_API_KEY') ?? ''
 
 const EMMER = 'post'
 const MAX_BIJLAGE = 25 * 1024 * 1024
@@ -163,6 +166,104 @@ const TOEGESTAAN = new Set([
   'application/vnd.ms-excel',
 ])
 
+interface Bijlage {
+  naam: string
+  mime: string
+  size: number
+  /** Leeg als er niets is opgeslagen; dan valt er ook niets te openen. */
+  path: string
+  controle: string
+  controleReden?: string
+  controleOp: number
+  scanner?: string
+}
+
+/**
+ * De inhoud van een bijlage te pakken krijgen.
+ *
+ * Drie manieren, in deze volgorde:
+ *
+ *  1. de inhoud zit in de webhook zelf, als base64
+ *  2. er staat een adres bij waar hij te halen is
+ *  3. er staat alleen een id bij; dan vragen we hem op bij Resend
+ *
+ * Welke van de drie het is verschilt per aanbieder en per formaat van de
+ * mail. Ze alle drie proberen is goedkoper dan uitzoeken welke het deze
+ * keer was.
+ */
+async function haalInhoud(a: Willekeurig, emailId: string | null): Promise<Uint8Array | null> {
+  const inhoud = a.content ?? a.data ?? a.body ?? a.base64
+  if (typeof inhoud === 'string' && inhoud.length > 0) {
+    try {
+      const schoon = inhoud.replace(/^data:[^;]+;base64,/, '')
+      return Uint8Array.from(atob(schoon), (c) => c.charCodeAt(0))
+    } catch (e) {
+      console.warn('[ontvang-mail] inhoud niet te lezen als base64: ' + String(e))
+    }
+  }
+
+  const adres = pak(a, 'url', 'download_url', 'content_url', 'href', 'link')
+  if (typeof adres === 'string' && /^https:\/\//.test(adres)) {
+    const bytes = await haalVan(adres)
+    if (bytes) return bytes
+  }
+
+  const bijlageId = pak(a, 'id', 'attachment_id', 'content_id')
+  if (RESEND_KEY && emailId && typeof bijlageId === 'string') {
+    // Twee vormen, want Resend heeft dit onderweg veranderd.
+    for (const url of [
+      `https://api.resend.com/emails/${emailId}/attachments/${bijlageId}`,
+      `https://api.resend.com/emails/${emailId}/attachments/${bijlageId}/download`,
+    ]) {
+      const bytes = await haalVan(url, RESEND_KEY)
+      if (bytes) return bytes
+    }
+  }
+
+  return null
+}
+
+async function haalVan(url: string, sleutel?: string): Promise<Uint8Array | null> {
+  try {
+    const res = await fetch(url, {
+      headers: sleutel ? { Authorization: `Bearer ${sleutel}` } : {},
+    })
+    if (!res.ok) {
+      console.warn(`[ontvang-mail] ophalen ${url} gaf ${res.status}`)
+      return null
+    }
+    return new Uint8Array(await res.arrayBuffer())
+  } catch (e) {
+    console.warn(`[ontvang-mail] ophalen ${url} mislukte: ` + String(e))
+    return null
+  }
+}
+
+/**
+ * De ruwe payload, zonder de blobs.
+ *
+ * Elke tekst van meer dan vijfhonderd tekens wordt vervangen door hoeveel
+ * het er waren. Wat overblijft is de vorm van het bericht -- welke velden
+ * er zijn en wat erin staat -- en dat is precies wat je wilt zien als een
+ * bijlage niet aankomt.
+ */
+function kortePayload(ruw: string): string {
+  let uit = ruw
+  try {
+    uit = JSON.stringify(
+      JSON.parse(ruw),
+      (_sleutel, waarde) =>
+        typeof waarde === 'string' && waarde.length > 500
+          ? `[… ${waarde.length} tekens weggelaten …]`
+          : waarde,
+      2,
+    )
+  } catch {
+    /* geen geldige JSON: dan maar zoals het binnenkwam */
+  }
+  return uit.length > 12_000 ? uit.slice(0, 12_000) + '\n… (ingekort)' : uit
+}
+
 function veiligeNaam(naam: string): string {
   return naam
     .replace(/[^\w.\- ]+/g, '_')
@@ -219,32 +320,54 @@ Deno.serve(async (req) => {
 
   /* ---- bijlagen ---- */
 
-  const binnen = (pak(data, 'attachments') ?? []) as Willekeurig[]
-  const bijlagen: {
-    naam: string; mime: string; size: number; path: string
-    controle: string; controleReden?: string; controleOp: number; scanner?: string
-  }[] = []
+  const binnen = (pak(data, 'attachments', 'attachment', 'files') ?? []) as Willekeurig[]
+  const bijlagen: Bijlage[] = []
 
   /** Bijlagen die zijn tegengehouden, voor in het bericht. */
   const geweigerd: string[] = []
 
-  for (const [i, a] of (Array.isArray(binnen) ? binnen : []).entries()) {
+  const lijst = Array.isArray(binnen) ? binnen : []
+  console.log(`[ontvang-mail] ${berichtId}: ${lijst.length} bijlage(n) in de webhook`)
+
+  for (const [i, a] of lijst.entries()) {
+    const naam = veiligeNaam(String(a.filename ?? a.name ?? a.file_name ?? `bijlage-${i + 1}`))
+    const mime = String(
+      a.content_type ?? a.contentType ?? a.type ?? a.mime_type ?? 'application/octet-stream')
+
+    /*
+     * Eén regel per bijlage in het logboek van de functie, met de velden die
+     * eraan hangen -- niet de inhoud. Zonder dit weet je bij een bijlage die
+     * niet aankomt niet eens of hij er wel bij zat.
+     */
+    console.log(
+      `[ontvang-mail] bijlage ${i + 1}: ${naam} (${mime}) velden=${Object.keys(a).join(',')}`)
+
+    /** Wat er ook misgaat: de bijlage blijft in het bericht staan, met reden. */
+    const mislukt = (reden: string): void => {
+      console.warn(`[ontvang-mail] bijlage ${naam}: ${reden}`)
+      bijlagen.push({
+        naam, mime, size: Number(a.size ?? a.content_length ?? 0), path: '',
+        controle: 'mislukt', controleReden: reden, controleOp: nu(),
+      })
+    }
+
     try {
-      const naam = veiligeNaam(String(a.filename ?? a.name ?? `bijlage-${i + 1}`))
-      const mime = String(a.content_type ?? a.contentType ?? a.type ?? 'application/octet-stream')
       if (!TOEGESTAAN.has(mime)) {
-        console.warn(`[ontvang-mail] bijlage ${naam} overgeslagen: ${mime}`)
+        mislukt(`Dit soort bestand nemen we niet aan (${mime}).`)
         continue
       }
 
-      const inhoud = a.content ?? a.data ?? a.body
-      if (typeof inhoud !== 'string') continue
-
-      // Base64, eventueel met een data-URL ervoor.
-      const schoon = inhoud.replace(/^data:[^;]+;base64,/, '')
-      const bytes = Uint8Array.from(atob(schoon), (c) => c.charCodeAt(0))
+      const bytes = await haalInhoud(a, providerId)
+      if (!bytes) {
+        mislukt(
+          'De webhook bevatte geen inhoud voor deze bijlage, en ophalen bij ' +
+          'Resend lukte ook niet. Kijk of RESEND_API_KEY als geheim staat ' +
+          'ingesteld bij de functie.',
+        )
+        continue
+      }
       if (bytes.byteLength > MAX_BIJLAGE) {
-        console.warn(`[ontvang-mail] bijlage ${naam} te groot: ${bytes.byteLength}`)
+        mislukt(`Te groot om te bewaren (${Math.round(bytes.byteLength / 1024 / 1024)} MB).`)
         continue
       }
 
@@ -258,6 +381,11 @@ Deno.serve(async (req) => {
       if (uitkomst.uitkomst === 'verdacht') {
         console.warn(`[ontvang-mail] bijlage ${naam} geweigerd: ${uitkomst.reden}`)
         geweigerd.push(`${naam} — ${uitkomst.reden}`)
+        bijlagen.push({
+          naam, mime, size: bytes.byteLength, path: '',
+          controle: 'verdacht', controleReden: uitkomst.reden, controleOp: nu(),
+          scanner: uitkomst.scanner,
+        })
         continue
       }
 
@@ -267,7 +395,10 @@ Deno.serve(async (req) => {
         upsert: false,
       })
       if (error) {
-        console.error(`[ontvang-mail] bijlage ${naam} niet opgeslagen: ${error.message}`)
+        mislukt(
+          `Opslaan in de emmer "${EMMER}" lukte niet: ${error.message}. ` +
+          'Bestaat die emmer wel? Draai supabase/setup.sql opnieuw.',
+        )
         continue
       }
 
@@ -282,7 +413,7 @@ Deno.serve(async (req) => {
         scanner: uitkomst.scanner,
       })
     } catch (e) {
-      console.error('[ontvang-mail] bijlage overslaan: ' + String(e))
+      mislukt('Er ging iets mis bij het verwerken: ' + String(e))
     }
   }
 
@@ -303,9 +434,12 @@ Deno.serve(async (req) => {
     status: 'nieuw',
     attachments: bijlagen,
     provider_id: providerId,
-    // Ingekort: genoeg om te zien wat er binnenkwam, niet zoveel dat de
-    // tabel volloopt met bijlagen in base64.
-    raw: ruw.length > 8000 ? ruw.slice(0, 8000) + '\n… (ingekort)' : ruw,
+    /*
+     * Ingekort, maar wel eerst de blobs eruit. Zomaar de eerste 8000 tekens
+     * bewaren leverde bij een mail mét bijlage precies het verkeerde op: een
+     * halve base64-sliert en niet het stuk waar je naar zoekt.
+     */
+    raw: kortePayload(ruw),
   })
 
   if (bericht) {

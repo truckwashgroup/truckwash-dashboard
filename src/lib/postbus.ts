@@ -53,6 +53,14 @@ export class BijlageGeweigerd extends Error {
 
 /** Mag deze bijlage geopend worden? */
 export function magOpenen(bijlage: MailBijlage): boolean {
+  /*
+   * Zonder pad staat er niets in de opslag. Dat gebeurt als de bijlage wel
+   * in de mail zat maar er niet uit te halen was -- de webhook stuurde geen
+   * inhoud mee, of het opslaan liep stuk. Hij blijft in het rijtje staan met
+   * de reden erbij, maar er valt niets te openen.
+   */
+  if (!bijlage.path) return false
+
   // Geen uitkomst betekent: van vóór de controle. Die laten we door, met
   // een waarschuwing in beeld.
   return !bijlage.controle || bijlage.controle === 'schoon'
@@ -60,6 +68,9 @@ export function magOpenen(bijlage: MailBijlage): boolean {
 
 /** Wat er bij een bijlage in het scherm hoort te staan. */
 export function controleLabel(bijlage: MailBijlage): { label: string; tone: string } | null {
+  if (!bijlage.path && bijlage.controle !== 'verdacht') {
+    return { label: 'Niet binnengekomen', tone: 'warn' }
+  }
   if (!bijlage.controle) {
     return { label: 'Niet gecontroleerd', tone: 'warn' }
   }
@@ -107,6 +118,12 @@ export const postbus = {
      */
     if (bijlage.controle && bijlage.controle !== 'schoon') {
       throw new BijlageGeweigerd(bijlage.controle, bijlage.controleReden)
+    }
+    if (!bijlage.path) {
+      throw new Error(
+        'Van deze bijlage staat er niets in de opslag; er valt dus niets te ' +
+        'openen. Vraag de afzender om hem opnieuw te sturen.',
+      )
     }
     const { data, error } = await supabase().storage
       .from(EMMER)

@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, Inbox, X } from 'lucide-react'
@@ -200,13 +200,53 @@ export function Dropdown({
   className?: string
 }) {
   const [open, setOpen] = useState(false)
+  const [plek, setPlek] = useState<{ top: number; left: number; boven: boolean } | null>(null)
+  const knop = useRef<HTMLButtonElement>(null)
+
+  /*
+   * Het paneel gaat door een portaal naar de <body>.
+   *
+   * Waarom niet gewoon een z-index: de balk bovenin heeft een
+   * backdrop-filter en het werkvlak eronder krijgt van framer-motion een
+   * transform. Allebei maken een eigen stapelcontext, en binnen zo'n context
+   * telt je z-index alleen mee ten opzichte van buren -- niet ten opzichte
+   * van de rest van de pagina. Het menu verdween daardoor achter een kaart.
+   *
+   * Via een portaal staat het paneel buiten die contexten en is er niets
+   * meer om achter te verdwijnen.
+   */
+  const plaats = useCallback(() => {
+    const r = knop.current?.getBoundingClientRect()
+    if (!r) return
+
+    const ruimteOnder = window.innerHeight - r.bottom
+    const boven = ruimteOnder < 260 && r.top > ruimteOnder
+
+    setPlek({
+      top: boven ? r.top - 7 : r.bottom + 7,
+      left: align === 'right' ? r.right : r.left,
+      boven,
+    })
+  }, [align])
 
   useEffect(() => {
     if (!open) return
+    plaats()
+
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    const opnieuw = () => plaats()
+
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open])
+    window.addEventListener('resize', opnieuw)
+    // Meescrollen heeft geen zin: dan zweeft het menu los van zijn knop.
+    window.addEventListener('scroll', () => setOpen(false), true)
+
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', opnieuw)
+      window.removeEventListener('scroll', () => setOpen(false), true)
+    }
+  }, [open, plaats])
 
   const zichtbaar = items
     .map((g) => ({ ...g, items: g.items.filter(Boolean) }))
@@ -215,6 +255,7 @@ export function Dropdown({
   return (
     <div className={`menu-wrap ${className}`}>
       <button
+        ref={knop}
         className={`menu-trigger ${open ? 'open' : ''}`}
         onClick={() => setOpen((v) => !v)}
         title={title}
@@ -226,12 +267,18 @@ export function Dropdown({
         <ChevronDown size={14} className="pijl" />
       </button>
 
-      {open && (
+      {open && plek && createPortal(
         <>
           <div className="menu-layer" onClick={() => setOpen(false)} />
           <motion.div
-            className={`menu-panel ${align}`}
-            initial={{ opacity: 0, y: -6, scale: .97 }}
+            className={`menu-panel ${align} ${plek.boven ? 'omhoog' : ''}`}
+            style={{
+              top: plek.top,
+              ...(align === 'right'
+                ? { right: Math.max(8, window.innerWidth - plek.left) }
+                : { left: Math.max(8, plek.left) }),
+            }}
+            initial={{ opacity: 0, y: plek.boven ? 6 : -6, scale: .97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: .14, ease: [.22, .61, .36, 1] }}
             role="menu"
@@ -258,7 +305,8 @@ export function Dropdown({
               </div>
             ))}
           </motion.div>
-        </>
+        </>,
+        document.body,
       )}
     </div>
   )

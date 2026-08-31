@@ -15,6 +15,10 @@ jobs:
   # ------------------------------------------------------------------
   android:
     runs-on: ubuntu-latest
+    env:
+      # De secrets-context mag niet in een `if` van een stap. Via env wel,
+      # dus zetten we hem hier één keer klaar.
+      KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
     steps:
       - uses: actions/checkout@v5
 
@@ -64,7 +68,7 @@ jobs:
       # Onderstaande stap draait alleen als je de keystore-secrets hebt gezet.
       # Zie README: "Android publiceren".
       - name: Play Store-bundel bouwen (ondertekend)
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        if: env.KEYSTORE != ''
         working-directory: android
         env:
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -79,7 +83,7 @@ jobs:
             -Pandroid.injected.signing.key.password=$KEY_PASSWORD
 
       - name: Play Store-bundel bewaren
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        if: env.KEYSTORE != ''
         uses: actions/upload-artifact@v4
         with:
           name: truckwash-android-aab

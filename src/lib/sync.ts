@@ -112,6 +112,7 @@ export async function ensureBackendMatches(): Promise<boolean> {
     db.ticketMessages.clear(), db.logEvents.clear(),
     db.signups.clear(), db.channels.clear(),
     db.chatMessages.clear(), db.channelReads.clear(), db.emailLog.clear(),
+    db.personnelPrivate.clear(), db.documents.clear(),
     // Wijzigingen die voor een andere server bedoeld waren zijn onbruikbaar.
     db.outbox.clear(),
   ])
@@ -161,13 +162,13 @@ export async function enqueue(
  * Daarom leggen we hem hier expliciet vast: ouders eerst.
  */
 export const PUSH_ORDER: EntityName[] = [
-  'locations', 'companies', 'users',
+  'locations', 'companies', 'users', 'personnelPrivate',
   'channels', 'courses', 'assets',
   'washJobs', 'inventory', 'maintenancePlans', 'tickets',
   'faults', 'shifts', 'expenses', 'timeEntries', 'stockMovements',
   'workOrders', 'courseProgress', 'notifications',
   'chatMessages', 'channelReads', 'ticketMessages', 'logEvents',
-  'signups', 'emailLog',
+  'signups', 'emailLog', 'documents',
 ]
 
 const RANG = new Map(PUSH_ORDER.map((e, i) => [e, i]))
@@ -273,6 +274,8 @@ const TABLE_OF: Record<EntityName, () => any> = {
   chatMessages: () => db.chatMessages,
   channelReads: () => db.channelReads,
   emailLog: () => db.emailLog,
+  personnelPrivate: () => db.personnelPrivate,
+  documents: () => db.documents,
 }
 
 async function pullChanges(): Promise<{ serverTime: number; opgehaald: number }> {

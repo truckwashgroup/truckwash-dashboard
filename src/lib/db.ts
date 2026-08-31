@@ -2,7 +2,8 @@ import Dexie, { type Table } from 'dexie'
 import type {
   AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   CourseProgress, EmailLog, Expense, Fault, InventoryItem, Location, LogEvent,
-  MaintenancePlan, OutboxRecord, Shift, Signup, StockMovement, Ticket,
+  MaintenancePlan, OutboxRecord, PersonnelDocument, PersonnelPrivate,
+  Shift, Signup, StockMovement, Ticket,
   TicketMessage, TimeEntry, User, WashJob, WorkOrder,
 } from './types'
 
@@ -35,6 +36,8 @@ class TruckwashDB extends Dexie {
   chatMessages!: Table<ChatMessage, string>
   channelReads!: Table<ChannelRead, string>
   emailLog!: Table<EmailLog, string>
+  personnelPrivate!: Table<PersonnelPrivate, string>
+  documents!: Table<PersonnelDocument, string>
   outbox!: Table<OutboxRecord, number>
   meta!: Table<{ key: string; value: unknown }, string>
 
@@ -98,6 +101,12 @@ class TruckwashDB extends Dexie {
       chatMessages: 'id, channelId, authorId, at, updatedAt',
       channelReads: 'id, userId, channelId, updatedAt',
       emailLog: 'id, template, status, at, updatedAt',
+    })
+
+    // v8: het afgeschermde deel van het dossier, en de documenten
+    this.version(8).stores({
+      personnelPrivate: 'id, userId, updatedAt',
+      documents: 'id, userId, kind, requiresSignature, updatedAt',
     })
   }
 }

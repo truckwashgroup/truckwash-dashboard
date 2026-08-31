@@ -5,6 +5,7 @@ import type {
   InventoryItem, Location, Shift, StockMovement, TimeEntry, User, WashJob,
   Asset, Fault, MaintenancePlan, WorkOrder, Ticket, TicketMessage, LogEvent,
   Signup, Channel, ChatMessage, ChannelRead, EmailLog,
+  PersonnelPrivate, PersonnelDocument,
 } from '../types'
 import { SERVICES } from '../types'
 import { COURSES } from '../courses'
@@ -40,6 +41,8 @@ class MockServerDB extends Dexie {
   chatMessages!: Table<ChatMessage, string>
   channelReads!: Table<ChannelRead, string>
   emailLog!: Table<EmailLog, string>
+  personnelPrivate!: Table<PersonnelPrivate, string>
+  documents!: Table<PersonnelDocument, string>
 
   constructor() {
     super('truckwash-mock-server')
@@ -68,6 +71,8 @@ class MockServerDB extends Dexie {
       chatMessages: 'id, channelId, updatedAt',
       channelReads: 'id, updatedAt',
       emailLog: 'id, updatedAt',
+      personnelPrivate: 'id, updatedAt',
+      documents: 'id, userId, updatedAt',
     })
   }
 }
@@ -99,6 +104,8 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   chatMessages: () => server.chatMessages,
   channelReads: () => server.channelReads,
   emailLog: () => server.emailLog,
+  personnelPrivate: () => server.personnelPrivate,
+  documents: () => server.documents,
 }
 
 /* ------------------------------------------------------------------ *

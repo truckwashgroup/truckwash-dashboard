@@ -882,6 +882,164 @@ export interface ChannelRead {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Het personeelsdossier: het afgeschermde deel
+ *
+ *  Dit staat met opzet niet in `profiles`. Die tabel mag iedereen die bij
+ *  Truckwash1 werkt lezen -- dat moet ook, want je wilt de naam van je
+ *  collega kunnen zien. Maar dan zou zijn burgerservicenummer op het
+ *  toestel van iedere wasser terechtkomen, en dat is precies wat je niet
+ *  wilt.
+ *
+ *  Alles wat hieronder staat komt in een eigen tabel waar alleen het
+ *  management bij mag, plus de persoon zelf voor zijn eigen regel. Wie er
+ *  niet bij mag krijgt geen lege velden maar helemaal geen rij: de
+ *  synchronisatie levert hem simpelweg niets.
+ * ------------------------------------------------------------------ */
+
+export interface PersonnelPrivate {
+  /** Gelijk aan het dossier-id; één regel per persoon */
+  id: string
+  userId: string
+
+  /* --- persoonsgegevens --- */
+  birthDate?: number
+  birthPlace?: string
+  nationality?: string
+
+  /* --- identiteitsbewijs --- */
+  documentType?: 'paspoort' | 'id-kaart' | 'verblijfsdocument' | 'rijbewijs'
+  documentNumber?: string
+  documentExpires?: number
+  /** Is het nummer met de controlecijfers uit de MRZ nagelopen? */
+  documentVerified?: boolean
+
+  /* --- loonadministratie --- */
+  /**
+   * Burgerservicenummer. Een werkgever mag dit verwerken voor de
+   * loonaangifte; dat is precies waar het voor bedoeld is. Het wordt
+   * gecontroleerd met de elfproef, zodat een typefout er meteen uitspringt.
+   */
+  bsn?: string
+  iban?: string
+  /** Uurtarief hoort hier: je collega's loon gaat niemand anders aan. */
+  hourlyRate?: number
+
+  /* --- noodgeval --- */
+  emergencyName?: string
+  emergencyPhone?: string
+  emergencyRelation?: string
+
+  /** Notities van het management. De medewerker ziet deze nooit. */
+  internalNotes?: string
+
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
+ *  Documenten
+ *
+ *  Het bestand zelf staat in de opslag van Supabase, in een emmer die van
+ *  buitenaf dicht zit. Hier staat alleen wat erover te zeggen valt --
+ *  inclusief of de medewerker het mag zien.
+ * ------------------------------------------------------------------ */
+
+export type DocumentKind =
+  | 'identiteitsbewijs' | 'contract' | 'loonstrook' | 'diploma'
+  | 'verklaring' | 'beoordeling' | 'overig'
+
+export const DOCUMENT_KINDS: Record<DocumentKind, {
+  label: string
+  hint: string
+  /** Ziet de medewerker dit standaard? */
+  standaardZichtbaar: boolean
+}> = {
+  identiteitsbewijs: {
+    label: 'Identiteitsbewijs',
+    hint: 'Paspoort, ID-kaart of verblijfsdocument',
+    standaardZichtbaar: true,
+  },
+  contract: {
+    label: 'Contract',
+    hint: 'Arbeidsovereenkomst, verlenging of wijziging',
+    standaardZichtbaar: true,
+  },
+  loonstrook: {
+    label: 'Loonstrook',
+    hint: 'Maandelijkse afrekening of jaaropgave',
+    standaardZichtbaar: true,
+  },
+  diploma: {
+    label: 'Diploma of certificaat',
+    hint: 'Opleiding, VCA, heftruckcertificaat',
+    standaardZichtbaar: true,
+  },
+  verklaring: {
+    label: 'Verklaring',
+    hint: 'VOG, medische keuring, geheimhouding',
+    standaardZichtbaar: true,
+  },
+  beoordeling: {
+    label: 'Beoordeling of gespreksverslag',
+    hint: 'Functioneren, verzuim, waarschuwing',
+    standaardZichtbaar: false,
+  },
+  overig: {
+    label: 'Overig',
+    hint: 'Alles wat hierboven niet past',
+    standaardZichtbaar: true,
+  },
+}
+
+export interface PersonnelDocument {
+  id: string
+  /** Van wie is dit dossierstuk */
+  userId: string
+  userName: string
+  kind: DocumentKind
+  title: string
+  description?: string
+
+  /** Pad in de opslag-emmer. Nooit een openbare link. */
+  storagePath: string
+  mime: string
+  sizeBytes: number
+  /** SHA-256 van het bestand; hiermee toon je aan dat het niet is gewijzigd */
+  hash?: string
+
+  /**
+   * Mag de medewerker dit zelf zien?
+   *
+   * Op onzichtbaar zetten is een bewuste handeling met een reden erbij.
+   * Een gespreksverslag over disfunctioneren hoort niet in het postvak van
+   * de betrokkene te belanden voordat het gesprek is gevoerd.
+   */
+  visibleToEmployee: boolean
+  hiddenReason?: string
+
+  uploadedBy: string
+  uploadedByName: string
+  uploadedAt: number
+  /** Vervaldatum, bijvoorbeeld van een ID-kaart of een VOG */
+  expiresAt?: number
+
+  /* --- ondertekenen --- */
+  requiresSignature: boolean
+  signedAt?: number
+  signedBy?: string
+  signedName?: string
+  /** Wat er getekend is: de vingerafdruk van het bestand op dat moment */
+  signedHash?: string
+  /** De getekende krabbel, als afbeelding */
+  signatureImage?: string
+  signedPlatform?: string
+  /** Afgewezen door de medewerker, met reden */
+  declinedAt?: number
+  declineReason?: string
+
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
  *  Sync
  * ------------------------------------------------------------------ */
 
@@ -892,6 +1050,7 @@ export type EntityName =
   | 'assets' | 'faults' | 'workOrders' | 'maintenancePlans'
   | 'tickets' | 'ticketMessages' | 'logEvents'
   | 'signups' | 'channels' | 'chatMessages' | 'channelReads' | 'emailLog'
+  | 'personnelPrivate' | 'documents'
 
 export type SyncOp = 'put' | 'delete'
 

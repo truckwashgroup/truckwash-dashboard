@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { api, type PushChange } from './api'
-import { OntbrekendeTabel, ontbrekendeTabellen } from './api/supabaseApi'
+import { GeenSessie, OntbrekendeTabel, ontbrekendeTabellen } from './api/supabaseApi'
 import { db, getMeta, setMeta } from './db'
 import { logLive } from './trail'
 import type { EntityName, OutboxRecord, SyncOp, SyncState } from './types'
@@ -38,6 +38,8 @@ interface SyncStore extends SyncState {
    * uitkomt met een nieuwe tabel en het schema nog niet is bijgewerkt.
    */
   schemaAchter: string[]
+  /** De sessie bij de server is weg; opnieuw inloggen is nodig. */
+  sessieWeg: boolean
   setOnline: (v: boolean) => void
   refreshPending: () => Promise<void>
   sync: (opts?: { silent?: boolean }) => Promise<void>
@@ -50,6 +52,7 @@ export const useSync = create<SyncStore>((set, get) => ({
   lastSyncAt: null,
   lastError: null,
   schemaAchter: [],
+  sessieWeg: false,
 
   setOnline: (v) => set({ online: v }),
 
@@ -77,6 +80,7 @@ export const useSync = create<SyncStore>((set, get) => ({
         lastSyncAt: serverTime,
         lastError: null,
         schemaAchter: [...ontbrekendeTabellen],
+        sessieWeg: false,
       })
 
       logLive('sync', `Ronde klaar — ${geduwd} verstuurd, ${opgehaald} opgehaald`, {
@@ -84,7 +88,18 @@ export const useSync = create<SyncStore>((set, get) => ({
       })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      set({ lastError: msg, online: navigator.onLine && !msg.includes('verbinding') })
+      /*
+       * Zonder sessie gaat elk verzoek als onbekende bezoeker naar de
+       * database. Die weigert dan alles met een melding over
+       * beveiligingsregels, en die melding wijst naar de verkeerde kant: het
+       * record is niet fout, de inlog is weg. Dat apart benoemen scheelt een
+       * zoektocht in de regels van een tabel waar niets mis mee is.
+       */
+      set({
+        lastError: msg,
+        online: navigator.onLine && !msg.includes('verbinding'),
+        sessieWeg: e instanceof GeenSessie,
+      })
       logLive('netwerk', `Synchroniseren mislukt: ${msg}`, {
         duur: Date.now() - begin,
         detail: e instanceof Error ? e.stack : undefined,
@@ -248,6 +263,17 @@ async function pushPerStuk(batch: OutboxRecord[]): Promise<Error | null> {
        * reden die niets met dat werk te maken heeft.
        */
       if (e instanceof OntbrekendeTabel) {
+        await db.outbox.update(r.id!, { lastError: msg })
+        continue
+      }
+
+      /*
+       * En hetzelfde voor een verlopen sessie. Die weigering zegt niets over
+       * dit record -- zonder inlog wordt alles geweigerd. Doortellen zou hier
+       * betekenen dat acht rondes zonder verbinding met de server genoeg zijn
+       * om iemands werk weg te gooien.
+       */
+      if (e instanceof GeenSessie) {
         await db.outbox.update(r.id!, { lastError: msg })
         continue
       }

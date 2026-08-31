@@ -51,7 +51,7 @@ export default function Shell({
   roleLabel, items, active, onNavigate, title, subtitle, actions, menu, children,
 }: Props) {
   const { user, clearRole, logout } = useAuth()
-  const { lastSyncAt, sync, syncing, schemaAchter } = useSync()
+  const { lastSyncAt, sync, syncing, schemaAchter, sessieWeg } = useSync()
   const version = useUpdates((s) => s.version)
   const openSearch = useNav((s) => s.openSearch)
   const goto = useNav((s) => s.goto)
@@ -264,6 +264,21 @@ export default function Shell({
 
           <SyncPill />
         </header>
+
+        {sessieWeg && (
+          <div className="schema-banner">
+            <AlertTriangle size={17} />
+            <span>
+              <strong>Je bent niet meer ingelogd bij de server.</strong>{' '}
+              De app werkt door op wat er op dit apparaat staat, maar versturen
+              lukt niet. Log opnieuw in — wat je hebt ingevoerd blijft in de
+              wachtrij staan en gaat daarna alsnog mee.
+            </span>
+            <button className="btn sm" onClick={() => void logout()}>
+              Opnieuw inloggen
+            </button>
+          </div>
+        )}
 
         {schemaAchter.length > 0 && perms.canAny('admin.settings', 'dev.logs') && (
           <div className="schema-banner">

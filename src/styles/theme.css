@@ -2690,6 +2690,12 @@ table.data.matrix th { vertical-align: bottom; }
   flex: none;
 }
 .schema-banner svg { flex: none; margin-top: 1px; color: var(--warn); }
+.schema-banner span { flex: 1; min-width: 0; }
+.schema-banner .btn { flex: none; align-self: center; }
+@media (max-width: 620px) {
+  .schema-banner { flex-wrap: wrap; padding: 11px 16px; }
+  .schema-banner .btn { width: 100%; justify-content: center; }
+}
 
 /* ==================================================================
    Wijzigingsverzoeken

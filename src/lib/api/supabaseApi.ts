@@ -207,6 +207,43 @@ export class OntbrekendeTabel extends Error {
   }
 }
 
+/**
+ * Er is geen geldige sessie meer bij de server.
+ *
+ * Ook dit is geen slecht record. Zonder sessie gaat elk verzoek als
+ * onbekende bezoeker naar de database, en die weigert terecht alles -- met
+ * een melding over beveiligingsregels, die naar de verkeerde kant wijst.
+ *
+ * Dat gebeurt vaker dan je zou denken: iemand logt zonder internet in met de
+ * gegevens die dit apparaat heeft onthouden, of een sessie van weken oud
+ * wordt hersteld terwijl de vernieuwsleutel allang is verlopen. De app werkt
+ * dan gewoon door op de lokale gegevens -- maar versturen kan niet, en wat in
+ * de wachtrij staat hoort daar te blijven tot er weer echt is ingelogd.
+ */
+export class GeenSessie extends Error {
+  constructor() {
+    super(
+      'Je bent niet meer ingelogd bij de server. Log opnieuw in; je ' +
+      'wijzigingen blijven zolang in de wachtrij staan.',
+    )
+  }
+}
+
+/**
+ * Is er een bruikbare sessie? getSession() vernieuwt zelf een verlopen
+ * toegangssleutel zolang de vernieuwsleutel nog geldig is, dus dit is
+ * tegelijk de plek waar dat gebeurt.
+ */
+export async function heeftSessie(): Promise<boolean> {
+  if (!supabaseConfigured) return false
+  try {
+    const { data } = await supabase().auth.getSession()
+    return !!data.session
+  } catch {
+    return false
+  }
+}
+
 export const supabaseApi: ApiAdapter = {
   name: 'supabase',
 
@@ -261,7 +298,10 @@ export const supabaseApi: ApiAdapter = {
   },
 
   async push(changes: PushChange[]) {
+    if (!(await heeftSessie())) throw new GeenSessie()
+
     // Per tabel bundelen scheelt netwerkrondes.
+
     const byTable = new Map<EntityName, PushChange[]>()
     for (const c of changes) {
       const list = byTable.get(c.entity) ?? []
@@ -291,6 +331,8 @@ export const supabaseApi: ApiAdapter = {
   },
 
   async pull(since: number): Promise<PullResult> {
+    if (!(await heeftSessie())) throw new GeenSessie()
+
     const changes: PullResult['changes'] = {}
 
     // Parallel ophalen: zeven kleine queries in plaats van zeven wachtrondes.

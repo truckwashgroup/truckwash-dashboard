@@ -300,6 +300,40 @@ await sync()
 check('na inloggen loopt de wachtrij alsnog leeg', (await db.outbox.count()) === 0)
 check('en staat de teller op de servertijd', (await getMeta(LAST_SYNC, 0)) > 0)
 
+/* --- een verlopen sessie mag geen werk kosten --- */
+
+/*
+ * Dit ging mis in het echt: iemand logt zonder internet in, of een oude
+ * sessie wordt hersteld terwijl de sleutel allang is verlopen. Elk verzoek
+ * gaat dan als onbekende bezoeker naar de database, die alles weigert met
+ * een melding over beveiligingsregels. Acht rondes later was de wijziging
+ * weggegooid -- om een reden die niets met die wijziging te maken had.
+ */
+const { GeenSessie } = await import('../src/lib/api/supabaseApi')
+const { useSync: syncStore } = await import('../src/lib/sync')
+
+await jobs.update(created!.id, { notes: 'gemaakt terwijl de sessie weg was' })
+const inDeWachtrij = await db.outbox.count()
+check('er staat iets klaar om te versturen', inDeWachtrij > 0)
+
+const echtePush = api.push.bind(api)
+api.push = async () => { throw new GeenSessie() }
+
+for (let ronde = 0; ronde < 10; ronde++) await sync()
+
+check('zonder sessie blijft de wachtrij staan',
+  (await db.outbox.count()) === inDeWachtrij, String(await db.outbox.count()))
+check('en kost het geen pogingen -- ook niet na tien rondes',
+  (await db.outbox.toArray()).every((r) => r.tries === 0),
+  (await db.outbox.toArray()).map((r) => r.tries).join(','))
+check('de app zegt dat je opnieuw moet inloggen', syncStore.getState().sessieWeg)
+
+api.push = echtePush
+await sync()
+
+check('na opnieuw inloggen gaat het alsnog mee', (await db.outbox.count()) === 0)
+check('en is de melding weg', !syncStore.getState().sessieWeg)
+
 // Volledige pull na het inloggen: teller op 0 en de cache moet weer vullen.
 await db.washJobs.clear()
 await setMeta(LAST_SYNC, 0)

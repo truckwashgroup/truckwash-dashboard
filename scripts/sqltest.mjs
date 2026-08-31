@@ -1217,6 +1217,51 @@ await db.exec(`
   update public.profiles set roles = array['employee']::text[]
    where email = 'wasser@truckwash1group.nl';`)
 
+
+console.log('\n21. Het logboek: wie mag erin schrijven')
+
+/*
+ * Aanleiding: "opslaan in log_events: new row violates row-level security
+ * policy". Die melding wijst naar de verkeerde kant. De regel op deze tabel
+ * laat namelijk iederéén schrijven die is ingelogd -- de app doet dat
+ * automatisch, en een foutmelding die je niet kunt wegschrijven is een
+ * foutmelding die je nooit ziet.
+ *
+ * Het ging mis omdat er hélemaal geen inlog was. Dan gaat het verzoek als
+ * onbekende bezoeker naar de database, en die weigert alles. Deze twee
+ * controles leggen dat verschil vast.
+ */
+
+await db.exec('alter table public.log_events force row level security;')
+
+async function alsAnon(sql) {
+  await db.exec("select set_config('test.uid', '', true);")
+  await db.exec('set role anon;')
+  try {
+    await db.exec(sql)
+    return true
+  } catch {
+    return false
+  } finally {
+    await db.exec('reset role;')
+  }
+}
+
+check('een werknemer mag een fout wegschrijven',
+  await magSchrijven(wasser, `insert into public.log_events (id, level, message, at)
+     values ('lg_wasser', 'fout', 'Baan 2 gaf een storing', 1);`))
+
+check('een chauffeur van een werkgever ook -- die heeft niet eens een rol',
+  await magSchrijven(chauffeur, `insert into public.log_events (id, level, message, at)
+     values ('lg_chauffeur', 'fout', 'App liep vast bij het openen', 2);`))
+
+check('maar wie niet is ingelogd komt er niet in',
+  !(await alsAnon(`insert into public.log_events (id, level, message, at)
+     values ('lg_anon', 'fout', 'Van niemand', 3);`)))
+
+check('lezen mag alleen de ontwikkelaar',
+  (await countAs(wasser, 'select count(*)::int as n from public.log_events')) === 0)
+
 await db.close()
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

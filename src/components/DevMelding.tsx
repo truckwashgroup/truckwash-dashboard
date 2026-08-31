@@ -5,10 +5,12 @@ import {
 import { tickets as ticketRepo } from '../lib/tickets'
 import { deviceInfo, trail } from '../lib/trail'
 import {
-  TICKET_KINDS, type TicketKind, type TicketPriority, type TrailEntry,
+  TICKET_KINDS, type Ticket, type TicketKind, type TicketPriority,
+  type TrailEntry,
 } from '../lib/types'
 import { Badge, Field, Modal } from './ui'
 import MijnMeldingen from './MijnMeldingen'
+import Doorvragen from './Doorvragen'
 import { useAuth } from '../store/useAuth'
 import { usePerms } from '../store/useNav'
 import { useSync } from '../lib/sync'
@@ -65,9 +67,22 @@ export default function DevMelding({
   const [description, setDescription] = useState('')
   const [toonSpoor, setToonSpoor] = useState(false)
   const [busy, setBusy] = useState(false)
+  /*
+   * De melding is verstuurd, maar het gesprek begint pas. Versturen en dan
+   * meteen dichtklappen was het makkelijkst -- en precies waarom er zo vaak
+   * een melding lag waar niemand iets mee kon.
+   */
+  const [gesprek, setGesprek] = useState<Ticket | null>(null)
 
   const spoor = useMemo(() => (open ? trail.recent() : []), [open])
   const device = useMemo(() => deviceInfo(), [])
+
+  /** Dichtdoen zet het gesprek ook weg; anders staat het er morgen nog. */
+  function sluit() {
+    setGesprek(null)
+    setTab(startTab)
+    onClose()
+  }
 
   async function versturen() {
     if (title.trim().length < 5) return toast.error('Geef kort aan wat er aan de hand is')
@@ -88,12 +103,12 @@ export default function DevMelding({
         pendingChanges: sync.pending,
       })
 
-      toast.ok(`Melding ${melding.number} verstuurd — je krijgt bericht zodra er een reactie is`)
+      toast.ok(`Melding ${melding.number} verstuurd`)
       setTitle('')
       setDescription('')
       setKind('fout')
       setPriority('normaal')
-      onClose()
+      setGesprek(melding)
     } finally {
       setBusy(false)
     }
@@ -104,9 +119,23 @@ export default function DevMelding({
       open={open}
       title="Melding aan de ontwikkelaar"
       subtitle="Werkt iets niet, of mist er iets? Laat het weten."
-      onClose={onClose}
+      onClose={sluit}
       width={620}
     >
+      {gesprek && (
+        <>
+          <Doorvragen
+            ticket={gesprek}
+            door={{ id: me.id, name: me.name }}
+            onKlaar={() => { /* het scherm blijft staan tot iemand sluit */ }}
+          />
+          <div className="row end" style={{ marginTop: 16 }}>
+            <button className="btn" onClick={sluit}>Sluiten</button>
+          </div>
+        </>
+      )}
+
+      {!gesprek && (<>
       <div className="row" style={{ gap: 6, marginBottom: 16 }}>
         <button
           className={`btn sm ${tab === 'nieuw' ? 'primary' : 'ghost'}`}
@@ -242,6 +271,7 @@ export default function DevMelding({
       </div>
 
       </>}
+      </>)}
     </Modal>
   )
 }

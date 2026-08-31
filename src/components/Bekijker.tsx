@@ -219,7 +219,7 @@ export default function Bekijker({ bestanden, index, onSluiten, onWissel }: Prop
               {!bezig && fout && (
                 <div className="kijker-midden fout">
                   {bestand.geblokkeerd ? <ShieldX size={30} /> : <AlertTriangle size={30} />}
-                  <strong>{bestand.geblokkeerd ? 'Deze bijlage is tegengehouden' : 'Dit lukte niet'}</strong>
+                  <strong>{bestand.geblokkeerdKop ?? (bestand.geblokkeerd ? 'Deze bijlage is tegengehouden' : 'Dit lukte niet')}</strong>
                   <span>{fout}</span>
                   {!bestand.geblokkeerd && (
                     <button className="btn sm" onClick={() => void opslaanZonderTonen()}>

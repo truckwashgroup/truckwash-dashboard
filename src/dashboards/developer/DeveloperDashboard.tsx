@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  ArrowLeft, Bug, Check, Code2, Copy, Inbox, Lock, Mail, MessageSquare,
-  Radio, ScrollText, Search, Send, Server, Trash2, TriangleAlert,
+  ArrowLeft, Bug, Check, Code2, Copy, Inbox, ListChecks, Lock, Mail,
+  MessageSquare, Radio, ScrollText, Search, Send, Server, Trash2,
+  TriangleAlert, Wand2,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db } from '../../lib/db'
@@ -11,7 +12,8 @@ import {
   TICKET_PRIORITY_TONE, TICKET_STATUS_TONE,
 } from '../../lib/tickets'
 import {
-  TICKET_KINDS, type LogEvent, type Ticket, type TicketMessage,
+  PLAN_STATUS, TICKET_KINDS,
+  type DevPlan, type LogEvent, type Ticket, type TicketMessage,
   type TicketPriority, type TicketStatus, type TrailEntry, type User,
 } from '../../lib/types'
 import { dateTime, duration, relative } from '../../lib/format'
@@ -26,6 +28,8 @@ import Overleg, { useOverlegTeller } from '../../components/Overleg'
 import Post from './Post'
 import Meekijken from './Meekijken'
 import Postbus from '../../components/Postbus'
+import Plannen from './Plannen'
+import { gesprekUit, planVan, plannen as plannenRepo } from '../../lib/devplan'
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
   tickets: { title: 'Meldingen', subtitle: 'Wat gebruikers tegenkomen' },
@@ -35,6 +39,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   meekijken: { title: 'Meekijken', subtitle: 'Alles wat er nu gebeurt, op volgorde' },
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
   postbus: { title: 'Postbus', subtitle: 'Post die binnenkomt, en zelf mailen' },
+  plannen: { title: 'Plannen', subtitle: 'Wat er uit een melding komt, en wat ervan gebouwd wordt' },
 }
 
 export default function DeveloperDashboard() {
@@ -45,11 +50,17 @@ export default function DeveloperDashboard() {
   const open = alleTickets.filter((t) => t.status !== 'opgelost' && t.status !== 'gesloten')
 
   const logs = useLiveQuery(() => db.logEvents.toArray(), [], [] as LogEvent[])
+  const alleP = useLiveQuery(() => db.devPlans.toArray(), [], [] as DevPlan[])
+  const teBeslissen = alleP.filter((p) => p.status === 'ter beoordeling').length
   const fouten = logs.filter((l) => l.level === 'fout')
   const ongelezen = useOverlegTeller()
 
   const items: NavItem[] = [
     { key: 'tickets', label: 'Meldingen', icon: Inbox, badge: open.length || undefined },
+    ...(perms.canAny('dev.plan', 'dev.approve')
+      ? [{ key: 'plannen', label: 'Plannen', icon: ListChecks,
+           badge: teBeslissen || undefined }]
+      : []),
     ...(perms.can('dev.logs')
       ? [{ key: 'logboek', label: 'Logboek', icon: ScrollText, badge: fouten.length || undefined }]
       : []),
@@ -67,7 +78,7 @@ export default function DeveloperDashboard() {
   ]
 
   useNavTarget(
-  ['tickets', 'logboek', 'meekijken', 'systeem', 'post', 'postbus', 'overleg'],
+  ['tickets', 'plannen', 'logboek', 'meekijken', 'systeem', 'post', 'postbus', 'overleg'],
   (p) => setPage(p))
 
   const meta = TITLES[page] ?? TITLES.tickets
@@ -82,6 +93,7 @@ export default function DeveloperDashboard() {
       subtitle={meta.subtitle}
     >
       {page === 'tickets' && <Tickets tickets={alleTickets} />}
+      {page === 'plannen' && <Plannen />}
       {page === 'logboek' && <Logboek logs={logs} />}
       {page === 'systeem' && <Systeem tickets={alleTickets} logs={logs} />}
       {page === 'meekijken' && <Meekijken />}
@@ -252,6 +264,35 @@ function TicketDetail({ ticket, onBack }: { ticket: Ticket; onBack: () => void }
   const devs = users.filter((u) => u.active && u.roles.includes('developer'))
 
   const mag = perms.can('dev.respond')
+
+  const plannen = useLiveQuery(() => db.devPlans.toArray(), [], [] as DevPlan[])
+  const bestaandPlan = planVan(plannen, ticket.id)
+  const [planBezig, setPlanBezig] = useState(false)
+
+  /**
+   * Uit de melding en het gesprek een plan destilleren.
+   *
+   * De vragen die de melder heeft beantwoord staan als berichten bij de
+   * melding; die halen we er weer uit. Zonder verbinding komt er een
+   * geraamte terug dat je zelf afmaakt -- beter dan een knop die niets doet.
+   */
+  async function maakPlan() {
+    setPlanBezig(true)
+    try {
+      const plan = await plannenRepo.opstellen({
+        ticket,
+        gesprek: gesprekUit(berichten, ticket.id),
+        door: { id: me.id, name: me.name },
+      })
+      toast.ok(plan.bron === 'gesprek'
+        ? `Plan gemaakt met ${plan.stappen.length} stappen`
+        : 'Geraamte gemaakt — zonder verbinding kon er niet meegedacht worden')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Een plan maken lukte niet')
+    } finally {
+      setPlanBezig(false)
+    }
+  }
 
   async function stuur() {
     if (antwoord.trim().length < 2) return
@@ -443,6 +484,28 @@ function TicketDetail({ ticket, onBack }: { ticket: Ticket; onBack: () => void }
                   <option value="gesloten">Gesloten</option>
                 </select>
               </Field>
+
+              {perms.can('dev.plan') && !bestaandPlan && (
+                <button
+                  className="btn primary block"
+                  disabled={planBezig}
+                  onClick={() => void maakPlan()}
+                >
+                  <Wand2 size={15} /> {planBezig ? 'Bezig…' : 'Maak er een plan van'}
+                </button>
+              )}
+
+              {bestaandPlan && (
+                <div className="signup-note" style={{ marginBottom: 12 }}>
+                  <ListChecks size={16} />
+                  <span>
+                    Er ligt een plan bij deze melding
+                    ({PLAN_STATUS[bestaandPlan.status].label.toLowerCase()}),
+                    met {bestaandPlan.stappen.length} stappen. Je vindt het
+                    onder <strong>Plannen</strong>.
+                  </span>
+                </div>
+              )}
 
               {ticket.status !== 'opgelost' && (
                 <button className="btn ok block" onClick={() => setAfronden(true)}>

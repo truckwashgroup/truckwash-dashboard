@@ -280,6 +280,7 @@ export type Permission =
   | 'locations.view' | 'locations.manage' | 'locations.all'
   /* meldingen aan de ontwikkelaar */
   | 'dev.report' | 'dev.tickets' | 'dev.respond' | 'dev.logs'
+  | 'dev.plan' | 'dev.approve'
   /* overleg */
   | 'chat.use' | 'chat.manage' | 'chat.moderate'
   /* aanmeldingen */
@@ -375,6 +376,8 @@ export const PERMISSIONS: PermissionMeta[] = [
   { key: 'dev.tickets',       group: 'Ontwikkeling', label: 'Alle meldingen zien', hint: 'Het volledige ticketoverzicht van iedereen.', sensitive: true },
   { key: 'dev.respond',       group: 'Ontwikkeling', label: 'Reageren en afhandelen', hint: 'Antwoorden op meldingen en de status bijwerken.', sensitive: true },
   { key: 'dev.logs',          group: 'Ontwikkeling', label: 'Logboek zien',       hint: 'Foutmeldingen en gebeurtenissen uit de app.', sensitive: true },
+  { key: 'dev.plan',          group: 'Ontwikkeling', label: 'Plannen maken',      hint: 'Uit een melding een plan met stappen destilleren.', sensitive: true },
+  { key: 'dev.approve',       group: 'Ontwikkeling', label: 'Plannen goedkeuren', hint: 'Bepalen welke stappen er gebouwd worden. Dit is de knop die telt.', sensitive: true },
 
   { key: 'chat.use',          group: 'Overleg',    label: 'Meedoen aan het overleg', hint: 'Kanalen lezen en berichten plaatsen.' },
   { key: 'chat.manage',       group: 'Overleg',    label: 'Kanalen beheren',      hint: 'Kanalen aanmaken, hernoemen en archiveren.' },
@@ -783,6 +786,98 @@ export interface TicketMessage {
   internal: boolean
   body: string
   createdAt: number
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
+ *  Van melding naar plan
+ *
+ *  Een melding is zelden meteen een opdracht. "Hij doet het niet" en "kan
+ *  dit handiger" zijn allebei waar en allebei onbruikbaar zonder de vragen
+ *  die erachter zitten. Daarom eerst een gesprek met de melder, en daarna
+ *  pas een plan.
+ *
+ *  Het plan is opgedeeld in stappen die je los kunt aan- of uitzetten. Dat
+ *  is het hele punt: bij een wens van drie dingen wil je er misschien twee,
+ *  en dan hoort de melder ook te horen wat er níét is gedaan en waarom.
+ *
+ *  Wat er daarna gebeurt staat buiten de app. Het goedgekeurde plan is een
+ *  opdracht: alleen de aangevinkte stappen, met wat er verandert en waarom.
+ * ------------------------------------------------------------------ */
+
+export type PlanStatus =
+  | 'concept' | 'ter beoordeling' | 'goedgekeurd' | 'afgewezen' | 'uitgevoerd'
+
+export const PLAN_STATUS: Record<PlanStatus, { label: string; tone: string }> = {
+  'concept':         { label: 'Concept',          tone: 'default' },
+  'ter beoordeling': { label: 'Wacht op akkoord', tone: 'warn' },
+  'goedgekeurd':     { label: 'Goedgekeurd',      tone: 'ok' },
+  'afgewezen':       { label: 'Afgewezen',        tone: 'danger' },
+  'uitgevoerd':      { label: 'Uitgevoerd',       tone: 'info' },
+}
+
+export type PlanOmvang = 'klein' | 'middel' | 'groot'
+
+export const PLAN_OMVANG: Record<PlanOmvang, { label: string; hint: string }> = {
+  klein:  { label: 'Klein',  hint: 'Een tekst, een knop, een veld erbij' },
+  middel: { label: 'Middel', hint: 'Een scherm of een stuk logica' },
+  groot:  { label: 'Groot',  hint: 'Raakt de database of meerdere schermen' },
+}
+
+export type PlanRisico = 'klein' | 'gemiddeld' | 'groot'
+
+export const PLAN_RISICO: Record<PlanRisico, { label: string; tone: string }> = {
+  klein:     { label: 'Weinig risico',  tone: 'ok' },
+  gemiddeld: { label: 'Let op',         tone: 'warn' },
+  groot:     { label: 'Riskant',        tone: 'danger' },
+}
+
+export interface PlanStap {
+  id: string
+  titel: string
+  /** Wat er verandert, in gewone woorden */
+  wat: string
+  /** Waarom dit erin zit -- waar de melder om vroeg */
+  waarom?: string
+  /** Welk deel van de app dit raakt */
+  raakt?: string
+  risico: PlanRisico
+  omvang: PlanOmvang
+  /** Aangevinkt door wie het beoordeelt. Uit betekent: dit doen we niet. */
+  gekozen: boolean
+  /** Aantekening bij deze stap, gaat mee in de opdracht */
+  opmerking?: string
+}
+
+export interface DevPlan {
+  id: string
+  ticketId: string
+  ticketNumber: string
+  titel: string
+  /** Wat de melder wil, in één alinea, zoals het uit het gesprek kwam */
+  aanleiding: string
+  stappen: PlanStap[]
+  /** Wat er bewust niet in zit, zodat dat niet stil verdwijnt */
+  buitenScope?: string
+
+  status: PlanStatus
+  /** Kwam dit uit een gesprek of uit de vaste vragenlijst? */
+  bron: 'gesprek' | 'vragenlijst' | 'handmatig'
+
+  gemaaktDoor: string
+  gemaaktDoorNaam: string
+  gemaaktOp: number
+
+  beoordeeldDoor?: string
+  beoordeeldDoorNaam?: string
+  beoordeeldOp?: number
+  /** Aantekening bij het akkoord of de afwijzing */
+  opmerking?: string
+
+  /** In welke versie het terechtkwam */
+  uitgevoerdIn?: string
+  uitgevoerdOp?: number
+
   updatedAt: number
 }
 
@@ -1443,7 +1538,7 @@ export type EntityName =
   | 'stockMovements' | 'expenses' | 'timeEntries' | 'shifts'
   | 'notifications' | 'courses' | 'courseProgress'
   | 'assets' | 'faults' | 'workOrders' | 'maintenancePlans'
-  | 'tickets' | 'ticketMessages' | 'logEvents'
+  | 'tickets' | 'ticketMessages' | 'logEvents' | 'devPlans'
   | 'signups' | 'channels' | 'chatMessages' | 'channelReads' | 'emailLog'
   | 'personnelPrivate' | 'documents' | 'mailbox' | 'changeRequests'
   | 'agendaItems' | 'employers' | 'employerLinks' | 'employerRules'

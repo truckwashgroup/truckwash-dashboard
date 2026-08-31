@@ -27,8 +27,13 @@ export interface Bekijkbaar {
   size?: number
   /** Haalt een adres op dat kort geldig is. */
   haal: () => Promise<string>
-  /** Reden waarom dit bestand niet open mag; is die er, dan tonen we niets. */
+  /** Reden waarom dit bestand niet open gaat; is die er, dan tonen we niets. */
   geblokkeerd?: string
+  /**
+   * De kop erboven. Tegengehouden door de controle is iets anders dan
+   * nooit aangekomen, en dat hoort er niet hetzelfde uit te zien.
+   */
+  geblokkeerdKop?: string
 }
 
 const BEELD = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif', 'heic', 'heif']

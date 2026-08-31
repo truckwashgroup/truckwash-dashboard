@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie'
 import type {
-  AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
+    DevPlan,
+AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   CourseProgress, EmailLog, Expense, Fault, InventoryItem, Location, LogEvent,
   AgendaItem, DossierWijziging, MailBericht, MaintenancePlan, OutboxRecord,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel,
@@ -33,6 +34,7 @@ class TruckwashDB extends Dexie {
   tickets!: Table<Ticket, string>
   ticketMessages!: Table<TicketMessage, string>
   logEvents!: Table<LogEvent, string>
+  devPlans!: Table<DevPlan, string>
   signups!: Table<Signup, string>
   channels!: Table<Channel, string>
   chatMessages!: Table<ChatMessage, string>
@@ -137,6 +139,11 @@ class TruckwashDB extends Dexie {
       employers: 'id, status, naam, updatedAt',
       employerLinks: 'id, werkgeverId, userId, status, updatedAt',
       employerRules: 'id, werkgeverId, kenteken, updatedAt',
+    })
+
+    // v13: van melding naar plan
+    this.version(13).stores({
+      devPlans: 'id, ticketId, status, gemaaktOp, updatedAt',
     })
   }
 }

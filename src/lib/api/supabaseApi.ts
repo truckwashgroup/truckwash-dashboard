@@ -107,6 +107,7 @@ const TABLES: Record<EntityName, string> = {
   tickets: 'tickets',
   ticketMessages: 'ticket_messages',
   logEvents: 'log_events',
+  devPlans: 'dev_plans',
   signups: 'signups',
   channels: 'channels',
   chatMessages: 'chat_messages',

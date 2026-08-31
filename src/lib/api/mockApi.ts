@@ -6,7 +6,7 @@ import type {
   Asset, Fault, MaintenancePlan, WorkOrder, Ticket, TicketMessage, LogEvent,
   Signup, Channel, ChatMessage, ChannelRead, EmailLog,
   PersonnelPrivate, PersonnelDocument, MailBericht, DossierWijziging, AgendaItem,
-  Werkgever, WerkgeverKoppeling, WerkgeverRegel,
+  Werkgever, WerkgeverKoppeling, WerkgeverRegel, DevPlan,
 } from '../types'
 import { SERVICES } from '../types'
 import { COURSES } from '../courses'
@@ -37,6 +37,7 @@ class MockServerDB extends Dexie {
   tickets!: Table<Ticket, string>
   ticketMessages!: Table<TicketMessage, string>
   logEvents!: Table<LogEvent, string>
+  devPlans!: Table<DevPlan, string>
   signups!: Table<Signup, string>
   channels!: Table<Channel, string>
   chatMessages!: Table<ChatMessage, string>
@@ -73,6 +74,7 @@ class MockServerDB extends Dexie {
       tickets: 'id, updatedAt',
       ticketMessages: 'id, updatedAt',
       logEvents: 'id, updatedAt',
+      devPlans: 'id, updatedAt',
       signups: 'id, updatedAt',
       channels: 'id, updatedAt',
       chatMessages: 'id, channelId, updatedAt',
@@ -112,6 +114,7 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   tickets: () => server.tickets,
   ticketMessages: () => server.ticketMessages,
   logEvents: () => server.logEvents,
+  devPlans: () => server.devPlans,
   signups: () => server.signups,
   channels: () => server.channels,
   chatMessages: () => server.chatMessages,

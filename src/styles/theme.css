@@ -3318,3 +3318,127 @@ table.data.matrix th { vertical-align: bottom; }
   font-variant-numeric: tabular-nums;
 }
 .klok-nu .sinds { font-size: .82rem; color: var(--text-3); }
+
+/* ===================== Van melding naar plan ======================= */
+
+/* --------------------------- Doorvragen --------------------------- */
+
+.doorvragen {
+  display: grid; gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+}
+.doorvragen > .kop {
+  display: flex; align-items: center; gap: 8px;
+  font-size: .82rem; color: var(--text-2);
+}
+.doorvragen > .kop svg { color: var(--brand); flex: none; }
+.doorvragen > .kop .teller { margin-left: auto; font-size: .73rem; color: var(--text-3); }
+
+.doorvragen .beurt {
+  padding: 9px 12px;
+  border-left: 2px solid var(--line);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--surface);
+}
+.doorvragen .beurt .v { font-size: .76rem; color: var(--text-3); margin-bottom: 3px; }
+.doorvragen .beurt .a { font-size: .85rem; line-height: 1.55; white-space: pre-wrap; }
+
+.doorvragen .denkt {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 2px;
+  font-size: .82rem; color: var(--text-3);
+}
+
+.doorvragen .nu { display: grid; gap: 9px; }
+.doorvragen .nu .v { font-size: .95rem; font-weight: 600; line-height: 1.5; }
+.doorvragen .nu .hint { font-size: .78rem; color: var(--text-3); line-height: 1.5; }
+.doorvragen .nu .keuzes { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.doorvragen.klaar {
+  display: flex; align-items: flex-start; gap: 11px;
+  border-color: var(--line-ok);
+  background: var(--tint-ok);
+}
+.doorvragen.klaar svg { color: var(--ok); flex: none; margin-top: 2px; }
+.doorvragen.klaar strong { display: block; font-size: .9rem; margin-bottom: 3px; }
+.doorvragen.klaar span { font-size: .83rem; color: var(--text-2); line-height: 1.6; }
+
+/* ----------------------------- Plannen ---------------------------- */
+
+.plan-lijst { display: grid; }
+
+.plan-regel {
+  display: grid; gap: 4px;
+  padding: 13px 16px;
+  border: 0; border-bottom: 1px solid var(--line-soft);
+  background: none;
+  text-align: left; cursor: pointer;
+  transition: background .16s var(--ease);
+}
+.plan-regel:last-child { border-bottom: 0; }
+.plan-regel:hover { background: var(--bg-2); }
+.plan-regel .kop { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.plan-regel .kop strong { font-size: .9rem; }
+.plan-regel .meta { font-size: .75rem; color: var(--text-3); }
+
+.plan-kop {
+  display: flex; align-items: flex-start; gap: 12px;
+  margin-bottom: 12px;
+}
+.plan-kop h2 { font-size: 1.15rem; letter-spacing: -.02em; margin-bottom: 4px; }
+.plan-kop .meta { font-size: .77rem; color: var(--text-3); }
+
+.plan-aanleiding {
+  font-size: .88rem; color: var(--text-2); line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.plan-besluit {
+  display: flex; align-items: flex-start; gap: 9px;
+  margin-top: 14px; padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  font-size: .82rem; color: var(--text-2); line-height: 1.55;
+}
+.plan-besluit svg { flex: none; margin-top: 2px; color: var(--text-3); }
+
+/* --------------------------- De stappen --------------------------- */
+
+.stap-lijst { display: grid; }
+
+.stap {
+  display: flex; gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line-soft);
+  transition: opacity .18s var(--ease);
+}
+.stap:last-child { border-bottom: 0; }
+.stap.uit { opacity: .45; }
+
+.stap .vink { flex: none; padding-top: 2px; }
+.stap .vink input { width: 17px; height: 17px; cursor: pointer; accent-color: var(--brand); }
+
+.stap .tekst { display: grid; gap: 5px; flex: 1; min-width: 0; }
+.stap .tekst .kop { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.stap .tekst .kop strong { font-size: .89rem; }
+.stap .tekst .raakt { font-size: .72rem; color: var(--text-3); }
+.stap .wat { font-size: .85rem; color: var(--text-2); line-height: 1.6; }
+.stap .waarom,
+.stap .opmerking { font-size: .78rem; color: var(--text-3); line-height: 1.55; }
+.stap .opmerking { font-style: italic; }
+.stap .input.sm { padding: 6px 9px; font-size: .8rem; }
+
+/* --------------------- Het gesprek terugkijken -------------------- */
+
+.gesprek-terug { display: grid; }
+.gesprek-terug .beurt {
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.gesprek-terug .beurt:last-child { border-bottom: 0; }
+.gesprek-terug .beurt .v { font-size: .76rem; color: var(--text-3); margin-bottom: 3px; }
+.gesprek-terug .beurt .a { font-size: .85rem; line-height: 1.55; white-space: pre-wrap; }

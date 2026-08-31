@@ -220,6 +220,7 @@ function Bericht({
       : (b.controleReden || (b.path
           ? 'Deze bijlage kwam niet door de controle.'
           : 'Van deze bijlage staat er niets in de opslag.')),
+    geblokkeerdKop: b.path ? undefined : 'Deze bijlage is nooit aangekomen',
     haal: () => postbus.openBijlage(b),
   }))
 

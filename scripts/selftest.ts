@@ -2423,6 +2423,207 @@ console.log('\n— bijlagen bekijken —')
     controleLabel({ ...nietBinnen, controle: 'verdacht' })?.label !== 'Niet binnengekomen')
 }
 
+/* ==================================================================== *
+ *  Van melding naar plan
+ *
+ *  De kern: een plan bestaat uit stappen die je los kunt uitzetten, en wat
+ *  er uitstaat is een besluit dat de melder hoort te horen -- geen "later
+ *  misschien" dat stil verdwijnt.
+ * ==================================================================== */
+
+console.log('\n— van melding naar plan —')
+
+{
+  const {
+    plannen: planRepo, vragenVoor, opdrachtTekst, omvangVan, terBeoordeling,
+    planVan, gesprekUit,
+  } = await import('../src/lib/devplan')
+  const { tickets: tkRepo, ticketMessages: tmRepo } = await import('../src/lib/tickets')
+
+  const dev = { id: 'zt_dev', name: 'Sem' }
+  const baas = { id: 'zt_baas2', name: 'Ilse' }
+  const melder = { id: 'zt_melder', name: 'Tom Verhoeven', locationId: 'loc_utr' }
+
+  await db.users.bulkPut([
+    { id: 'zt_dev', email: 'dev@zt.nl', password: '', name: 'Sem',
+      roles: ['developer'], active: true, updatedAt: 0 },
+    { id: 'zt_baas2', email: 'ilse@zt.nl', password: '', name: 'Ilse',
+      roles: ['management'], active: true, updatedAt: 0 },
+    { id: 'zt_melder', email: 'tom@zt.nl', password: '', name: 'Tom Verhoeven',
+      roles: ['employee'], active: true, locationId: 'loc_utr', updatedAt: 0 },
+  ] as never)
+
+  /* --- de vaste vragen --- */
+
+  check('een fout krijgt andere vragen dan een wens',
+    vragenVoor('fout')[0].id !== vragenVoor('wens')[0].id)
+  check('bij een fout wordt gevraagd wat je verwachtte',
+    vragenVoor('fout').some((v) => v.id === 'verwacht'))
+  check('bij een wens juist hoe je het nu doet',
+    vragenVoor('wens').some((v) => v.id === 'nu'))
+  check('elke soort melding heeft vragen',
+    (['fout', 'wens', 'traag', 'vraag'] as const).every((k) => vragenVoor(k).length > 0))
+  check('er staan keuzes bij waar dat kan',
+    vragenVoor('fout').some((v) => (v.keuzes?.length ?? 0) > 0))
+
+  /* --- een melding met een gesprek eronder --- */
+
+  const melding = await tkRepo.create({
+    title: 'Kan geen wasbeurt afmelden op de telefoon',
+    description: 'Ik druk op gereed en er gebeurt niets.',
+    kind: 'fout',
+    priority: 'hoog',
+    by: melder,
+    fromPage: 'vandaag',
+    appVersion: '1.12.1',
+    online: true,
+    pendingChanges: 0,
+  })
+
+  await tmRepo.send({
+    ticketId: melding.id,
+    body: '**Wat deed je precies, vlak voordat het misging?**\nIk stond bij baan 2 en tikte op gereed.',
+    internal: false,
+    by: melder,
+  })
+  await tmRepo.send({
+    ticketId: melding.id,
+    body: '**Gebeurt dit elke keer, of af en toe?**\nElke keer',
+    internal: false,
+    by: melder,
+  })
+  await tmRepo.send({
+    ticketId: melding.id,
+    body: 'Even gekeken, lijkt de knop zelf te zijn.',
+    internal: true,
+    by: dev,
+  })
+
+  const berichten = await db.ticketMessages.toArray()
+  const gesprek = gesprekUit(berichten, melding.id)
+  check('het gesprek komt weer uit de berichten', gesprek.length === 2)
+  check('met de vraag apart van het antwoord',
+    gesprek[0].vraag === 'Wat deed je precies, vlak voordat het misging?' &&
+    gesprek[0].antwoord.startsWith('Ik stond bij baan 2'))
+  check('een interne notitie is geen gesprek',
+    !gesprek.some((b) => b.antwoord.includes('lijkt de knop')))
+
+  /* --- er komt een plan uit --- */
+
+  const plan = await planRepo.opstellen({ ticket: melding, gesprek, door: dev })
+  check('zonder server komt er een geraamte', plan.bron === 'vragenlijst')
+  check('en dat geraamte heeft een stap', plan.stappen.length >= 1)
+  check('het plan begint als concept', plan.status === 'concept')
+  check('alle stappen staan aan', plan.stappen.every((s) => s.gekozen))
+  check('de aanleiding bevat wat de melder zei',
+    plan.aanleiding.includes('baan 2'))
+  check('het plan is bij de melding te vinden',
+    planVan(await db.devPlans.toArray(), melding.id)?.id === plan.id)
+
+  /* --- stappen aan en uit --- */
+
+  const metStappen = await planRepo.update(plan.id, {
+    stappen: [
+      { id: 's1', titel: 'Knop repareren', wat: 'De knop doet weer wat hij belooft',
+        risico: 'klein', omvang: 'klein', gekozen: true },
+      { id: 's2', titel: 'Bevestiging tonen', wat: 'Kort zichtbaar dat het gelukt is',
+        risico: 'klein', omvang: 'klein', gekozen: true },
+      { id: 's3', titel: 'Hele scherm herbouwen', wat: 'Alles opnieuw',
+        risico: 'groot', omvang: 'groot', gekozen: true },
+    ],
+  })
+  check('drie stappen erin', metStappen?.stappen.length === 3)
+
+  await planRepo.zetStap(plan.id, 's3', false)
+  await planRepo.zetStapOpmerking(plan.id, 's3', 'Te groot voor nu, later kijken')
+  const naVinkjes = (await db.devPlans.get(plan.id))!
+  check('een stap gaat uit', naVinkjes.stappen.find((s) => s.id === 's3')?.gekozen === false)
+  check('met de reden erbij',
+    naVinkjes.stappen.find((s) => s.id === 's3')?.opmerking === 'Te groot voor nu, later kijken')
+
+  const omvang = omvangVan(naVinkjes)
+  check('alleen wat aanstaat telt mee', omvang.stappen === 2)
+  check('twee kleine stappen is klein werk', omvang.zwaarte === 'klein')
+  check('met de grote stap erbij wordt het groter',
+    omvangVan({ ...naVinkjes, stappen: naVinkjes.stappen.map((s) => ({ ...s, gekozen: true })) })
+      .zwaarte !== 'klein')
+
+  /* --- beoordelen --- */
+
+  await planRepo.indienen(naVinkjes)
+  const ingediend = (await db.devPlans.get(plan.id))!
+  check('indienen zet hem op ter beoordeling', ingediend.status === 'ter beoordeling')
+  check('en hij staat in de lijst die wacht',
+    terBeoordeling(await db.devPlans.toArray()).some((p) => p.id === plan.id))
+
+  const seintje = (await db.notifications.toArray())
+    .find((n) => n.title.includes('Plan klaar'))
+  check('het management krijgt er bericht van', !!seintje)
+
+  await planRepo.goedkeuren(ingediend, baas, 'Graag eerst op één vestiging')
+  const akkoord = (await db.devPlans.get(plan.id))!
+  check('goedkeuren legt vast wie het deed', akkoord.beoordeeldDoorNaam === 'Ilse')
+  check('en de aantekening', akkoord.opmerking === 'Graag eerst op één vestiging')
+
+  const naarMelder = (await db.ticketMessages.toArray())
+    .filter((m) => m.ticketId === melding.id && !m.internal)
+    .sort((a, b) => b.createdAt - a.createdAt)[0]
+  check('de melder hoort wat er gebouwd wordt',
+    naarMelder.body.includes('Knop repareren'))
+  check('en ook wat er niet gebeurt',
+    naarMelder.body.includes('Hele scherm herbouwen') &&
+    naarMelder.body.includes('Te groot voor nu'))
+  check('de melding staat daarna in behandeling',
+    (await db.tickets.get(melding.id))?.status === 'in behandeling')
+
+  /* --- niets aanvinken is geen akkoord --- */
+
+  const leegPlan = await planRepo.opstellen({ ticket: melding, gesprek: [], door: dev })
+  await planRepo.update(leegPlan.id, {
+    stappen: leegPlan.stappen.map((s) => ({ ...s, gekozen: false })),
+  })
+  let geweigerd = false
+  try {
+    await planRepo.goedkeuren((await db.devPlans.get(leegPlan.id))!, baas)
+  } catch {
+    geweigerd = true
+  }
+  check('een plan zonder aangevinkte stappen kun je niet goedkeuren', geweigerd)
+
+  /* --- de opdracht --- */
+
+  const opdracht = opdrachtTekst(akkoord, melding)
+  check('de opdracht noemt wat er gebouwd wordt', opdracht.includes('Knop repareren'))
+  check('en zet apart wat er niet in zit',
+    opdracht.includes('Wat er bewust niet in zit'))
+  check('met de reden erbij', opdracht.includes('Te groot voor nu'))
+  check('de melding staat erin', opdracht.includes(melding.number))
+  check('en wie het goedkeurde', opdracht.includes('Ilse'))
+  check('een uitgezette stap staat niet bij het werk',
+    opdracht.indexOf('Hele scherm herbouwen') > opdracht.indexOf('Wat er bewust niet in zit'))
+
+  /* --- uitgeleverd --- */
+
+  await planRepo.uitgevoerd(akkoord, '1.13.0', dev)
+  const klaar = (await db.devPlans.get(plan.id))!
+  check('uitvoeren legt de versie vast', klaar.uitgevoerdIn === '1.13.0')
+  check('en de melding gaat op opgelost',
+    (await db.tickets.get(melding.id))?.status === 'opgelost')
+  check('met het versienummer erbij',
+    (await db.tickets.get(melding.id))?.fixedIn === '1.13.0')
+
+  /* --- alles overleeft de rondgang --- */
+
+  await sync()
+  await db.devPlans.clear()
+  await setMeta(LAST_SYNC, 0)
+  await sync()
+  const terug = await db.devPlans.get(plan.id)
+  check('het plan staat op de server', !!terug)
+  check('inclusief de vinkjes',
+    terug?.stappen.find((s) => s.id === 's3')?.gekozen === false)
+}
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

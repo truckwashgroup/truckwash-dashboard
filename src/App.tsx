@@ -11,6 +11,7 @@ import { useNav } from './store/useNav'
 import { useTheme } from './lib/theme'
 import { feliciteer } from './lib/agenda'
 import Login from './components/Login'
+import WachtwoordWijzigen from './components/WachtwoordWijzigen'
 import CarwashAnimation from './components/CarwashAnimation'
 import RolePicker from './components/RolePicker'
 import Toasts from './components/Toasts'
@@ -21,6 +22,7 @@ import CustomerDashboard from './dashboards/customer/CustomerDashboard'
 import SupervisorDashboard from './dashboards/supervisor/SupervisorDashboard'
 import TechnicianDashboard from './dashboards/technician/TechnicianDashboard'
 import DeveloperDashboard from './dashboards/developer/DeveloperDashboard'
+import EmployerDashboard from './dashboards/employer/EmployerDashboard'
 import ManagementDashboard from './dashboards/management/ManagementDashboard'
 
 export default function App() {
@@ -151,6 +153,14 @@ export default function App() {
     <MotionConfig reducedMotion={rustig ? 'always' : 'never'}>
       {!user ? (
         <Login />
+      ) : user.mustChangePassword ? (
+        /*
+         * Uitgenodigd met een tijdelijk wachtwoord uit een mail. Verder komt
+         * hij niet tot hij zelf iets kiest -- overslaan zou betekenen dat het
+         * bij een deel van de mensen blijft staan, en juist bij dat deel gaat
+         * het mis.
+         */
+        <WachtwoordWijzigen />
       ) : !washed ? (
         <AnimatePresence>
           <CarwashAnimation key="wash" onDone={() => setWashed(true)} userName={user.name} />
@@ -165,6 +175,8 @@ export default function App() {
         <TechnicianDashboard />
       ) : role === 'developer' ? (
         <DeveloperDashboard />
+      ) : role === 'employer' ? (
+        <EmployerDashboard />
       ) : role === 'customer' ? (
         <CustomerDashboard />
       ) : (

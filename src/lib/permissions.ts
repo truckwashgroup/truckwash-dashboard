@@ -80,6 +80,18 @@ const SUPERVISOR: Permission[] = [
   'pos.discount', 'pos.refund', 'pos.cash',
 ]
 
+/**
+ * Een werkgever ziet zijn eigen bedrijf en verder niets van Truckwash1.
+ * Geen rooster, geen voorraad, geen collega's -- alleen zijn chauffeurs, hun
+ * wasbeurten en de afspraken die daarover gemaakt zijn.
+ */
+const EMPLOYER: Permission[] = [
+  'employer.view', 'employer.staff', 'employer.rules',
+  'jobs.view',
+  'chat.use',
+  'dev.report',
+]
+
 const CUSTOMER: Permission[] = [
   // Een klant ziet alleen zijn eigen omgeving; die schermen vragen geen
   // losse rechten, de database schermt de gegevens al af.
@@ -92,6 +104,7 @@ export const ROLE_DEFAULTS: Record<Role, Permission[]> = {
   supervisor: SUPERVISOR,
   technician: TECHNICIAN,
   developer: DEVELOPER,
+  employer: EMPLOYER,
   customer: CUSTOMER,
   management: MANAGEMENT,
 }

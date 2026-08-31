@@ -114,6 +114,7 @@ await run(db, '0012_kassa.sql draait', sqlFile('supabase/migrations/0012_kassa.s
 await run(db, '0013_berichten_mogen_van_iedereen.sql draait', sqlFile('supabase/migrations/0013_berichten_mogen_van_iedereen.sql'))
 await run(db, '0014_wijzigingsverzoeken.sql draait', sqlFile('supabase/migrations/0014_wijzigingsverzoeken.sql'))
 await run(db, '0015_agenda.sql draait', sqlFile('supabase/migrations/0015_agenda.sql'))
+await run(db, '0016_werkgevers.sql draait', sqlFile('supabase/migrations/0016_werkgevers.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -132,6 +133,7 @@ await run(db, '0012 nogmaals', sqlFile('supabase/migrations/0012_kassa.sql'))
 await run(db, '0013 nogmaals', sqlFile('supabase/migrations/0013_berichten_mogen_van_iedereen.sql'))
 await run(db, '0014 nogmaals', sqlFile('supabase/migrations/0014_wijzigingsverzoeken.sql'))
 await run(db, '0015 nogmaals', sqlFile('supabase/migrations/0015_agenda.sql'))
+await run(db, '0016 nogmaals', sqlFile('supabase/migrations/0016_werkgevers.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
 const bedrijven = await db.query('select count(*)::int as n from public.companies')
@@ -1008,6 +1010,212 @@ check('een klant komt er helemaal niet in',
   !(await magSchrijven(klant, `insert into public.notifications
      (id, to_user_id, kind, title, body, from_user_id, from_name, created_at)
      values ('nt_klant', '${voormanId}', 'info', 'Hoi', '', '${klantRow.id}', 'Klant', 1);`)))
+
+
+console.log('\n20. Werkgevers: wie eruit ligt, ziet niets meer')
+
+/*
+ * Dit is de vraag die het hele blok moest beantwoorden. Een werkgever
+ * nodigt een chauffeur uit; die ziet daarna de wasbeurten van dat bedrijf.
+ * Gooit de werkgever hem eruit, dan zijn ze weg -- ook de beurten die hij
+ * zelf heeft gebracht. Daarom is de koppeling een eigen rij en geen kolom
+ * op het profiel: een kolom leegmaken is vergeten, een koppeling
+ * beëindigen is vastleggen dát het is gebeurd.
+ */
+
+const werkgever = 'a1a1a1a1-1111-1111-1111-a1a1a1a1a1a1'
+const chauffeur = 'b2b2b2b2-2222-2222-2222-b2b2b2b2b2b2'
+
+await db.exec(`
+  insert into auth.users (id, email) values
+    ('${werkgever}', 'ellen@transportjansen.nl'),
+    ('${chauffeur}', 'rick@transportjansen.nl');
+
+  update public.profiles set roles = array['employer']::text[], active = true
+   where email = 'ellen@transportjansen.nl';
+  -- De chauffeur werkt niet bij Truckwash1; hij rijdt voor het bedrijf.
+  update public.profiles set roles = array[]::text[], active = true
+   where email = 'rick@transportjansen.nl';
+
+  alter table public.employers      force row level security;
+  alter table public.employer_links force row level security;
+  alter table public.employer_rules force row level security;
+  grant select, insert, update, delete on all tables in schema public to authenticated;
+`)
+
+const { rows: [ellenRow] } = await db.query(
+  `select id from public.profiles where email = 'ellen@transportjansen.nl'`)
+const { rows: [rickRow] } = await db.query(
+  `select id from public.profiles where email = 'rick@transportjansen.nl'`)
+
+await db.exec(`
+  insert into public.employers (id, naam, contact_naam, email, status, beheerders) values
+    ('wg_test',  'Transport Jansen BV', 'Ellen Jansen', 'ellen@transportjansen.nl',
+     'actief', array['${ellenRow.id}']::text[]),
+    ('wg_ander', 'Bergman Koeltransport', 'Wouter Bergman', 'w@bergman.nl',
+     'actief', array[]::text[]);
+
+  insert into public.employer_links
+    (id, werkgever_id, werkgever_naam, user_id, naam, email, status) values
+    ('wgl_rick', 'wg_test', 'Transport Jansen BV', '${rickRow.id}',
+     'Rick Molenaar', 'rick@transportjansen.nl', 'actief');
+
+  insert into public.employer_rules (id, werkgever_id, service, soort) values
+    ('wgr_test',  'wg_test',  'polish', 'niet toegestaan'),
+    ('wgr_ander', 'wg_ander', 'polish', 'niet toegestaan');
+
+  insert into public.companies (id, name) values ('co_wgtest', 'Wagenpark testrit');
+
+  insert into public.wash_jobs (id, company_id, plate, service, scheduled_at, employer_id) values
+    ('job_wg_1', 'co_wgtest', '12-BND-4', 'buitenwas', 1, 'wg_test'),
+    ('job_wg_2', 'co_wgtest', 'VJ-701-P', 'combi',     2, 'wg_test'),
+    ('job_wg_3', 'co_wgtest', '99-XYZ-9', 'buitenwas', 3, 'wg_ander');
+`)
+
+/* --- de werkgever ziet zijn eigen bedrijf en verder niets --- */
+
+check('een werkgever ziet zijn eigen bedrijf',
+  (await countAs(werkgever,
+    "select count(*)::int as n from public.employers where id = 'wg_test'")) === 1)
+check('en niet dat van een ander',
+  (await countAs(werkgever,
+    "select count(*)::int as n from public.employers where id = 'wg_ander'")) === 0)
+check('hij ziet de wasbeurten van zijn bedrijf',
+  (await countAs(werkgever, 'select count(*)::int as n from public.wash_jobs')) === 2)
+check('hij ziet zijn eigen afspraken',
+  (await countAs(werkgever, 'select count(*)::int as n from public.employer_rules')) === 1)
+
+/* --- en nergens bij Truckwash1 zelf --- */
+
+check('een werkgever komt niet in het rooster',
+  (await countAs(werkgever, 'select count(*)::int as n from public.shifts')) === 0)
+check('niet in de voorraad',
+  (await countAs(werkgever, 'select count(*)::int as n from public.inventory_items')) === 0)
+check('en niet in het personeelsdossier',
+  (await countAs(werkgever, 'select count(*)::int as n from public.personnel_private')) === 0)
+check('ook niet in de documenten',
+  (await countAs(werkgever, 'select count(*)::int as n from public.documents')) === 0)
+
+/* --- wat de chauffeur ziet zolang hij gekoppeld is --- */
+
+check('een gekoppelde chauffeur ziet de beurten van zijn werkgever',
+  (await countAs(chauffeur, 'select count(*)::int as n from public.wash_jobs')) === 2)
+check('hij ziet het bedrijf zelf ook',
+  (await countAs(chauffeur, 'select count(*)::int as n from public.employers')) === 1)
+check('maar niet het personeelsdossier van Truckwash1',
+  (await countAs(chauffeur, 'select count(*)::int as n from public.personnel_private')) === 0)
+
+/* --- en dit is de kern --- */
+
+await db.exec(
+  `update public.employer_links set status = 'beëindigd', beeindigd_op = 9
+    where id = 'wgl_rick'`)
+
+check('losgekoppeld ziet hij de beurten niet meer',
+  (await countAs(chauffeur, 'select count(*)::int as n from public.wash_jobs')) === 0)
+check('ook niet het bedrijf',
+  (await countAs(chauffeur, 'select count(*)::int as n from public.employers')) === 0)
+check('en niet de afspraken',
+  (await countAs(chauffeur, 'select count(*)::int as n from public.employer_rules')) === 0)
+check('de koppeling zelf blijft hij wel zien -- hij mag weten dat het gebeurd is',
+  (await countAs(chauffeur, 'select count(*)::int as n from public.employer_links')) === 1)
+check('de werkgever ziet zijn oud-chauffeur ook nog',
+  (await countAs(werkgever, 'select count(*)::int as n from public.employer_links')) === 1)
+
+/* --- een uitnodiging op mijn adres, nog zonder koppeling --- */
+
+await db.exec(`
+  insert into public.employer_links
+    (id, werkgever_id, werkgever_naam, naam, email, status, bestaand_account)
+  values ('wgl_open', 'wg_test', 'Transport Jansen BV', 'Rick Molenaar',
+          'RICK@transportjansen.nl', 'wacht op akkoord', true);
+`)
+check('een verzoek op mijn mailadres komt bij mij binnen',
+  (await countAs(chauffeur,
+    "select count(*)::int as n from public.employer_links where id = 'wgl_open'")) === 1)
+check('en niet bij een willekeurige collega',
+  (await countAs(wasser,
+    "select count(*)::int as n from public.employer_links where id = 'wgl_open'")) === 1)
+
+check('de chauffeur mag zijn eigen verzoek aannemen',
+  await magSchrijven(chauffeur,
+    `update public.employer_links set status = 'actief', user_id = '${rickRow.id}'
+      where id = 'wgl_open';`))
+check('en dan ziet hij de beurten weer',
+  (await countAs(chauffeur, 'select count(*)::int as n from public.wash_jobs')) === 2)
+
+/* --- wat een werkgever niet zelf mag beslissen --- */
+
+check('een werkgever zet zichzelf niet op actief of geblokkeerd',
+  !(await magSchrijven(werkgever,
+    "update public.employers set status = 'geblokkeerd' where id = 'wg_test';")))
+check('en schrijft zichzelf geen extra beheerders bij',
+  !(await magSchrijven(werkgever,
+    `update public.employers set beheerders = array['${rickRow.id}']::text[]
+      where id = 'wg_test';`)))
+check('zijn eigen adresgegevens mag hij wel bijwerken',
+  await magSchrijven(werkgever,
+    "update public.employers set plaats = 'Utrecht' where id = 'wg_test';"))
+
+check('een werkgever legt afspraken vast voor zijn eigen bedrijf',
+  await magSchrijven(werkgever, `insert into public.employer_rules
+     (id, werkgever_id, service, soort) values
+     ('wgr_mijn', 'wg_test', 'tankreiniging', 'alleen met akkoord');`))
+check('maar niet voor dat van een ander',
+  !(await magSchrijven(werkgever, `insert into public.employer_rules
+     (id, werkgever_id, service, soort) values
+     ('wgr_stiekem', 'wg_ander', 'buitenwas', 'niet toegestaan');`)))
+check('en hij nodigt niemand uit bij een ander bedrijf',
+  !(await magSchrijven(werkgever, `insert into public.employer_links
+     (id, werkgever_id, naam, email, status) values
+     ('wgl_stiekem', 'wg_ander', 'Iemand', 'iemand@x.nl', 'uitgenodigd');`)))
+
+/* --- een aanvraag doen mag, op eigen naam --- */
+
+check('iedereen mag een werkgever aanvragen, op eigen naam',
+  await magSchrijven(chauffeur, `insert into public.employers
+     (id, naam, contact_naam, email, status, aangevraagd_door) values
+     ('wg_aanvraag', 'Nieuw Transport', 'Rick', 'rick@x.nl',
+      'aangevraagd', '${rickRow.id}');`))
+check('maar niet meteen actief',
+  !(await magSchrijven(chauffeur, `insert into public.employers
+     (id, naam, contact_naam, email, status, aangevraagd_door) values
+     ('wg_sluipweg', 'Sluipweg BV', 'Rick', 'rick@x.nl',
+      'actief', '${rickRow.id}');`)))
+check('en niet op naam van een ander',
+  !(await magSchrijven(chauffeur, `insert into public.employers
+     (id, naam, contact_naam, email, status, aangevraagd_door) values
+     ('wg_vals', 'Vals BV', 'Ellen', 'e@x.nl',
+      'aangevraagd', '${ellenRow.id}');`)))
+check('de aanvrager blijft zijn eigen aanvraag zien',
+  (await countAs(chauffeur,
+    "select count(*)::int as n from public.employers where id = 'wg_aanvraag'")) === 1)
+
+/* --- het management houdt de sleutels --- */
+
+check('het management ziet alle werkgevers',
+  (await countAs(baas, 'select count(*)::int as n from public.employers')) >= 3)
+check('en beslist wel over de status',
+  await magSchrijven(baas,
+    "update public.employers set status = 'actief' where id = 'wg_aanvraag';"))
+await magSchrijven(werkgever,
+  "delete from public.employer_links where id = 'wgl_rick';")
+check('een werkgever gooit geen koppelingen weg -- die zijn de historie',
+  (await db.query("select count(*)::int as n from public.employer_links where id = 'wgl_rick'"))
+    .rows[0].n === 1)
+
+/* --- iemand die én bij Truckwash1 werkt én een bedrijf beheert --- */
+
+await db.exec(`
+  update public.profiles set roles = array['employee','employer']::text[]
+   where email = 'wasser@truckwash1group.nl';`)
+check('wie ook werknemer is, houdt toegang tot zijn eigen dossier',
+  (await countAs(wasser,
+    `select count(*)::int as n from public.personnel_private
+      where user_id = '${wasserId}'`)) === 1)
+await db.exec(`
+  update public.profiles set roles = array['employee']::text[]
+   where email = 'wasser@truckwash1group.nl';`)
 
 await db.close()
 

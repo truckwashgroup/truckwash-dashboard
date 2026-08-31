@@ -3054,3 +3054,130 @@ table.data.matrix th { vertical-align: bottom; }
 .papier svg { color: var(--text-3); flex: none; }
 .papier .n { flex: 1; min-width: 0; font-size: .83rem; overflow: hidden; text-overflow: ellipsis; }
 .papier .s { font-size: .73rem; color: var(--text-3); }
+
+/* ============================ Werkgevers =========================== */
+
+.role-card.werkgever .icon { color: var(--info); }
+.role-card.werkgever .go { color: var(--info); }
+
+/* --- Een werkgever wil je koppelen (staat bij de werknemer) -------- */
+
+.koppelverzoek {
+  display: flex; align-items: flex-start; gap: 14px;
+  flex-wrap: wrap;
+}
+.koppelverzoek > .ico {
+  display: grid; place-items: center;
+  width: 44px; height: 44px; flex: none;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-info);
+  background: var(--tint-info);
+  color: var(--info);
+}
+.koppelverzoek .tekst { flex: 1; min-width: 240px; }
+.koppelverzoek .tekst h3 { font-size: .98rem; margin-bottom: 5px; }
+.koppelverzoek .tekst p {
+  font-size: .85rem; color: var(--text-2); line-height: 1.6;
+  margin-bottom: 4px;
+}
+.koppelverzoek .tekst p.klein { font-size: .78rem; color: var(--text-3); }
+.koppelverzoek .knoppen { display: flex; gap: 7px; flex: none; align-self: center; }
+@media (max-width: 620px) {
+  .koppelverzoek .knoppen { width: 100%; }
+  .koppelverzoek .knoppen .btn { flex: 1; justify-content: center; }
+}
+
+/* ------------------------- De chauffeurs -------------------------- */
+
+.chauffeur-lijst { display: grid; gap: 7px; }
+
+.chauffeur {
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 13px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  transition: border-color .18s var(--ease), background .18s var(--ease);
+}
+.chauffeur:hover { border-color: var(--line); }
+.chauffeur.weg { opacity: .55; }
+.chauffeur.weg .av { filter: grayscale(1); }
+
+.chauffeur .av {
+  display: grid; place-items: center;
+  width: 36px; height: 36px; flex: none;
+  border-radius: 50%;
+  background: var(--tint-brand-soft);
+  border: 1px solid var(--line-soft);
+  font-size: .74rem; font-weight: 700; letter-spacing: .03em;
+  color: var(--text-2);
+}
+.chauffeur > .tekst { display: grid; gap: 3px; flex: 1; min-width: 0; }
+.chauffeur .kop { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.chauffeur .kop strong { font-size: .88rem; }
+.chauffeur .meta,
+.chauffeur .reden { font-size: .75rem; color: var(--text-3); }
+.chauffeur .reden { font-style: italic; }
+
+.kentekens { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 2px; }
+
+.kenteken {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: var(--brand);
+  color: #1a1a1a;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: .72rem; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* --------------------- Afspraken met management ------------------- */
+
+.regel-lijst { display: grid; gap: 7px; }
+
+.regel {
+  display: flex; align-items: center; gap: 11px; flex-wrap: wrap;
+  padding: 10px 13px;
+  border: 1px solid var(--line-soft);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+}
+.regel.t-danger { border-left-color: var(--danger); background: var(--tint-danger-weak); }
+.regel.t-warn   { border-left-color: var(--warn);   background: var(--tint-warn-weak); }
+
+.regel .wat { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; flex: 1; min-width: 160px; }
+.regel .wat strong { font-size: .86rem; }
+.regel .waar { flex: none; }
+.regel .waar .alles { font-size: .75rem; color: var(--text-3); }
+.regel .reden {
+  flex-basis: 100%;
+  font-size: .75rem; color: var(--text-3); line-height: 1.5;
+}
+
+/* ------------------- Wat geldt er voor deze wagen? ---------------- */
+
+.proef-lijst { display: grid; gap: 6px; margin-top: 4px; }
+
+.proef {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+}
+.proef > .ico { display: grid; place-items: center; flex: none; }
+.proef > .tekst { display: grid; gap: 1px; flex: 1; min-width: 0; }
+.proef > .tekst strong { font-size: .85rem; }
+.proef > .tekst span { font-size: .74rem; color: var(--text-3); }
+.proef .prijs { font-size: .8rem; font-weight: 600; color: var(--text-2); flex: none; }
+
+.proef.ja > .ico { color: var(--ok); }
+.proef.misschien { border-color: var(--line-warn); background: var(--tint-warn-weak); }
+.proef.misschien > .ico { color: var(--warn); }
+.proef.nee { border-color: var(--line-danger); background: var(--tint-danger-weak); }
+.proef.nee > .ico { color: var(--danger); }
+.proef.nee > .tekst strong { text-decoration: line-through; opacity: .7; }

@@ -16,6 +16,7 @@ import MijnRooster from './MijnRooster'
 import Opleiding from '../../components/Opleiding'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
 import Dossier from '../../components/Dossier'
+import Koppelverzoek from '../../components/Koppelverzoek'
 import Agenda from '../../components/Agenda'
 import { Start, type Tegel } from '../../components/Tegels'
 import { useNavTarget, usePerms } from '../../store/useNav'
@@ -231,7 +232,12 @@ export default function EmployeeDashboard() {
       title={meta.title}
       subtitle={page === 'vandaag' ? dateFull(Date.now()) : meta.subtitle}
     >
-      {page === 'start' && <Start tegels={tegels} />}
+      {page === 'start' && (
+        <>
+          <Koppelverzoek />
+          <Start tegels={tegels} />
+        </>
+      )}
       {page === 'vandaag' && <Vandaag />}
       {page === 'rooster' && <MijnRooster />}
       {page === 'uren' && <Uren />}

@@ -22,6 +22,8 @@ interface AuthStore {
   error: string | null
 
   restore: () => Promise<void>
+  /** Het profiel opnieuw uit de cache halen, bijv. na een wachtwoordwissel. */
+  herlaadProfiel: () => Promise<void>
   login: (email: string, password: string) => Promise<boolean>
   logout: () => Promise<void>
   chooseRole: (role: Role) => void
@@ -63,6 +65,13 @@ export const useAuth = create<AuthStore>((set, get) => ({
   booting: true,
   busy: false,
   error: null,
+
+  herlaadProfiel: async () => {
+    const huidig = get().user
+    if (!huidig) return
+    const vers = await db.users.get(huidig.id)
+    if (vers) set({ user: vers })
+  },
 
   restore: async () => {
     try {

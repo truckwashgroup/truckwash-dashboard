@@ -3,7 +3,8 @@
  * ------------------------------------------------------------------ */
 
 export type Role =
-  | 'employee' | 'supervisor' | 'technician' | 'customer' | 'management' | 'developer'
+  | 'employee' | 'supervisor' | 'technician' | 'customer' | 'management'
+  | 'developer' | 'employer'
 
 export const ROLE_LABELS: Record<Role, string> = {
   employee: 'Werknemer',
@@ -12,10 +13,11 @@ export const ROLE_LABELS: Record<Role, string> = {
   customer: 'Klant',
   management: 'Management',
   developer: 'Ontwikkelaar',
+  employer: 'Werkgever',
 }
 
 export const ROLE_ORDER: Role[] =
-  ['employee', 'supervisor', 'technician', 'customer', 'management', 'developer']
+  ['employee', 'supervisor', 'technician', 'customer', 'employer', 'management', 'developer']
 
 export interface User {
   id: string
@@ -71,6 +73,16 @@ export interface User {
   manages?: string[]
   /** Hoofdkantoor: ziet en mag alles, op alle vestigingen */
   allLocations?: boolean
+
+  /**
+   * Dit account is aangemaakt met een tijdelijk wachtwoord dat per mail is
+   * verstuurd. Zolang dit aanstaat komt diegene niet verder dan het scherm
+   * waar hij een eigen wachtwoord kiest.
+   *
+   * Een wachtwoord dat per mail is verstuurd staat in het postvak van de
+   * ontvanger, in dat van de afzender, en op elke server ertussenin.
+   */
+  mustChangePassword?: boolean
 }
 
 /* ------------------------------------------------------------------ *
@@ -131,6 +143,14 @@ export interface WashJob {
   locationId: string
   companyId: string
   companyName: string
+  /**
+   * De werkgever waarop deze beurt is geschreven.
+   *
+   * Nodig om te bepalen wie hem mag zien: een chauffeur ziet de beurten van
+   * de werkgever waar hij aan gekoppeld is. Raakt die koppeling verbroken,
+   * dan verdwijnen ze uit zijn beeld -- ook al heeft hij ze zelf gebracht.
+   */
+  werkgeverId?: string
   plate: string
   service: ServiceKind
   status: WashStatus
@@ -270,6 +290,9 @@ export type Permission =
   | 'staff.request' | 'staff.approve'
   /* agenda */
   | 'agenda.view' | 'agenda.edit'
+  /* werkgevers */
+  | 'employer.view' | 'employer.manage' | 'employer.approve'
+  | 'employer.staff' | 'employer.rules'
   /* kassa */
   | 'pos.use' | 'pos.discount' | 'pos.refund' | 'pos.cash' | 'pos.manage'
   /* beheer */
@@ -361,6 +384,12 @@ export const PERMISSIONS: PermissionMeta[] = [
 
   { key: 'staff.request',     group: 'Personeel',  label: 'Wijziging aanvragen',  hint: 'Een verandering in een dossier voorstellen; het management beslist.' },
   { key: 'staff.approve',     group: 'Personeel',  label: 'Wijziging goedkeuren', hint: 'Voorgestelde wijzigingen doorvoeren of afwijzen.', sensitive: true },
+
+  { key: 'employer.view',     group: 'Werkgevers', label: 'Werkgevers zien',      hint: 'De aangesloten werkgevers en hun wagens.' },
+  { key: 'employer.manage',   group: 'Werkgevers', label: 'Werkgevers beheren',   hint: 'Aanmaken, gegevens wijzigen en blokkeren.', sensitive: true },
+  { key: 'employer.approve',  group: 'Werkgevers', label: 'Aanvraag goedkeuren',  hint: 'Een aangemelde werkgever toelaten of afwijzen.', sensitive: true },
+  { key: 'employer.staff',    group: 'Werkgevers', label: 'Werknemers koppelen',  hint: 'Chauffeurs uitnodigen en weer loskoppelen.' },
+  { key: 'employer.rules',    group: 'Werkgevers', label: 'Afspraken vastleggen', hint: 'Wat er per wagen wel en niet afgenomen mag worden.', sensitive: true },
 
   { key: 'agenda.view',       group: 'Agenda',     label: 'Agenda zien',          hint: 'Afspraken, verjaardagen en wat er aankomt.' },
   { key: 'agenda.edit',       group: 'Agenda',     label: 'Agenda beheren',       hint: 'Afspraken toevoegen en wijzigen.' },
@@ -1267,6 +1296,144 @@ export interface AgendaItem {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Werkgevers
+ *
+ *  Een transportbedrijf waarvan de chauffeurs hier komen wassen. De
+ *  werkgever betaalt, ziet wat zijn mensen laten doen, en legt vast wat er
+ *  per wagen wél en niet afgenomen mag worden.
+ *
+ *  Waarom dat laatste bestaat: een chauffeur die op kosten van de zaak een
+ *  polijstbeurt van vierhonderd euro afneemt terwijl er een buitenwas was
+ *  afgesproken, is een gesprek achteraf. De afspraak vooraf voorkomt dat --
+ *  en het kassasysteem leest dezelfde regels, zodat het aan de balie niet
+ *  eens in beeld komt.
+ * ------------------------------------------------------------------ */
+
+export type WerkgeverStatus = 'aangevraagd' | 'actief' | 'geblokkeerd' | 'afgewezen'
+
+export const WERKGEVER_STATUS: Record<WerkgeverStatus, { label: string; tone: string }> = {
+  aangevraagd: { label: 'Wacht op akkoord', tone: 'warn' },
+  actief:      { label: 'Actief',           tone: 'ok' },
+  geblokkeerd: { label: 'Geblokkeerd',      tone: 'danger' },
+  afgewezen:   { label: 'Afgewezen',        tone: 'default' },
+}
+
+export interface Werkgever {
+  id: string
+  naam: string
+  kvk?: string
+  contactNaam: string
+  email: string
+  telefoon?: string
+  adres?: string
+  postcode?: string
+  plaats?: string
+
+  /** Het klantaccount waar de facturen heen gaan */
+  companyId?: string
+  status: WerkgeverStatus
+
+  /** Wie dit bedrijf beheert in de app; dossier-id's */
+  beheerders: string[]
+
+  aangevraagdDoor?: string
+  aangevraagdDoorNaam?: string
+  aangevraagdOp: number
+  beslistDoor?: string
+  beslistDoorNaam?: string
+  beslistOp?: number
+  afwijzingReden?: string
+
+  notitie?: string
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
+ *  Werknemers van een werkgever
+ *
+ *  Een koppeling, geen bezit. Een chauffeur kan bij twee bedrijven rijden,
+ *  en als hij ergens weggaat verdwijnt alleen die ene koppeling -- niet zijn
+ *  account, en niet wat hij bij de ander doet.
+ * ------------------------------------------------------------------ */
+
+export type KoppelingStatus =
+  | 'uitgenodigd' | 'wacht op akkoord' | 'actief' | 'beëindigd' | 'geweigerd'
+
+export const KOPPELING_STATUS: Record<KoppelingStatus, { label: string; tone: string }> = {
+  'uitgenodigd':      { label: 'Uitgenodigd',       tone: 'info' },
+  'wacht op akkoord': { label: 'Wacht op akkoord',  tone: 'warn' },
+  'actief':           { label: 'Actief',            tone: 'ok' },
+  'beëindigd':        { label: 'Beëindigd',         tone: 'default' },
+  'geweigerd':        { label: 'Geweigerd',         tone: 'danger' },
+}
+
+export interface WerkgeverKoppeling {
+  id: string
+  werkgeverId: string
+  werkgeverNaam: string
+
+  /** Het dossier van de chauffeur, zodra dat er is */
+  userId?: string
+  naam: string
+  email: string
+  /** Kentekens die deze chauffeur mag brengen; leeg is alles van de werkgever */
+  kentekens: string[]
+
+  status: KoppelingStatus
+  uitgenodigdOp: number
+  uitgenodigdDoor: string
+  uitgenodigdDoorNaam: string
+  /**
+   * Er bestond al een account op dit adres. Dan wordt er niets aangemaakt
+   * maar gevraagd of het gekoppeld mag worden.
+   */
+  bestaandAccount: boolean
+
+  gekoppeldOp?: number
+  beeindigdOp?: number
+  beeindigdDoor?: string
+  beeindigdDoorNaam?: string
+  beeindigdReden?: string
+
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
+ *  Afspraken over wat er afgenomen mag worden
+ * ------------------------------------------------------------------ */
+
+export type RegelSoort = 'niet toegestaan' | 'alleen met akkoord'
+
+export const REGEL_SOORTEN: Record<RegelSoort, { label: string; hint: string; tone: string }> = {
+  'niet toegestaan': {
+    label: 'Niet toegestaan',
+    hint: 'Komt niet in beeld, ook niet aan de kassa',
+    tone: 'danger',
+  },
+  'alleen met akkoord': {
+    label: 'Alleen met akkoord',
+    hint: 'Mag wel, maar iemand van het bedrijf moet het bevestigen',
+    tone: 'warn',
+  },
+}
+
+export interface WerkgeverRegel {
+  id: string
+  werkgeverId: string
+  /** Leeg betekent: geldt voor alle wagens van deze werkgever */
+  kenteken?: string
+  /** De behandeling waar het over gaat */
+  service?: ServiceKind
+  /** Of een losse productcode uit het kassasysteem */
+  productCode?: string
+  soort: RegelSoort
+  reden?: string
+  aangemaaktDoor: string
+  aangemaaktOp: number
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
  *  Sync
  * ------------------------------------------------------------------ */
 
@@ -1278,7 +1445,7 @@ export type EntityName =
   | 'tickets' | 'ticketMessages' | 'logEvents'
   | 'signups' | 'channels' | 'chatMessages' | 'channelReads' | 'emailLog'
   | 'personnelPrivate' | 'documents' | 'mailbox' | 'changeRequests'
-  | 'agendaItems'
+  | 'agendaItems' | 'employers' | 'employerLinks' | 'employerRules'
 
 export type SyncOp = 'put' | 'delete'
 

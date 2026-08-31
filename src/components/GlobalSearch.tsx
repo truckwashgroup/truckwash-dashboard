@@ -2,13 +2,17 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  AlertTriangle, Bug, Building2, CalendarDays, CalendarRange, ClipboardList,
-  FileText, FolderLock, GraduationCap, Hash, Inbox, LayoutDashboard, LayoutGrid,
-  Loader2, Mail, MapPin, MessageSquare, Mic, MicOff, Package, Radio, Receipt,
-  ScrollText, Search, Server, Settings, Timer, Truck, Users, Wrench, X,
+  AlertTriangle, Briefcase, Bug, Building2, CalendarDays, CalendarRange,
+  ClipboardList, FileText, FolderLock, GraduationCap, Hash, Inbox,
+  LayoutDashboard, LayoutGrid, Loader2, Mail, MapPin, MessageSquare, Mic,
+  MicOff, Package, Radio, Receipt, ScrollText, Search, Server, Settings, Timer,
+  Truck, Users, Wrench, X,
 } from 'lucide-react'
 import { db } from '../lib/db'
-import { ASSET_CATEGORIES, DOCUMENT_KINDS, SERVICES, type Permission } from '../lib/types'
+import {
+  AGENDA_SOORTEN, ASSET_CATEGORIES, DOCUMENT_KINDS, KOPPELING_STATUS, SERVICES,
+  WERKGEVER_STATUS, type Permission, type Role,
+} from '../lib/types'
 import { money, time } from '../lib/format'
 import { mayRead } from '../lib/chat'
 import { useAuth } from '../store/useAuth'
@@ -50,6 +54,8 @@ interface Scherm {
   hint: string
   icon: typeof Truck
   recht?: Permission
+  /** Sommige schermen bestaan alleen in één dashboard. */
+  rol?: Role
   ook?: string[]
 }
 
@@ -79,6 +85,12 @@ const SCHERMEN: Scherm[] = [
   { page: 'post',       label: 'Post',         hint: 'Wat er via Resend is verstuurd',  icon: Mail,            recht: 'dev.logs', ook: ['mail', 'email', 'resend'] },
   { page: 'systeem',    label: 'Systeem',      hint: 'Versies, verbinding en opslag',   icon: Server,          recht: 'dev.logs' },
   { page: 'beheer',     label: 'Beheer',       hint: 'Vestigingen, klanten, instellingen', icon: Settings,     recht: 'admin.settings', ook: ['locaties', 'instellingen'] },
+  { page: 'postbus',    label: 'Postbus',      hint: 'Wat er binnenkomt op het mailadres', icon: Inbox,        recht: 'mail.read', ook: ['post', 'mail', 'email', 'facturen', 'bijlagen'] },
+  { page: 'agenda',     label: 'Agenda',       hint: 'Afspraken, verjaardagen en jubilea', icon: CalendarDays, recht: 'agenda.view', ook: ['kalender', 'afspraak', 'verjaardag'] },
+  { page: 'werkgevers', label: 'Werkgevers',   hint: 'Bedrijven waarvan de chauffeurs hier wassen', icon: Briefcase, recht: 'employer.view', ook: ['bedrijven', 'transporteur', 'chauffeurs'] },
+  { page: 'beurten',    label: 'Wasbeurten',   hint: 'Wat er op naam van je bedrijf staat', icon: Truck,      rol: 'employer' },
+  { page: 'chauffeurs', label: 'Chauffeurs',   hint: 'Wie er namens je bedrijf komt wassen', icon: Users,     rol: 'employer', recht: 'employer.staff' },
+  { page: 'afspraken',  label: 'Afspraken',    hint: 'Wat er per wagen wel en niet mag',  icon: ClipboardList, rol: 'employer', recht: 'employer.rules' },
 ]
 
 type Hit = {
@@ -105,6 +117,7 @@ export default function GlobalSearch() {
 
   const perms = usePerms()
   const me = useAuth((s) => s.user)
+  const rol = useAuth((s) => s.role)
   const goto = useNav((s) => s.goto)
   const searchRequest = useNav((s) => s.searchRequest)
   const clearSearchRequest = useNav((s) => s.clearSearchRequest)
@@ -184,6 +197,7 @@ export default function GlobalSearch() {
        * ---------------------------------------------------------------- */
 
       for (const scherm of SCHERMEN) {
+        if (scherm.rol && scherm.rol !== rol) continue
         if (scherm.recht && !perms.can(scherm.recht)) continue
         if (!has(scherm.label, scherm.hint, scherm.ook?.join(' '))) continue
         voegToe('Schermen', () => ({
@@ -445,6 +459,70 @@ export default function GlobalSearch() {
         }))) break
       }
 
+      /* --------------------------- Werkgevers ------------------------- */
+
+      if (perms.can('employer.view')) {
+        for (const w of await db.employers.toArray()) {
+          if (!has(w.naam, w.contactNaam, w.email, w.plaats, w.kvk)) continue
+          if (!voegToe('Werkgevers', () => ({
+            id: 'wg:' + w.id,
+            group: 'Werkgevers',
+            icon: Briefcase,
+            title: w.naam,
+            subtitle: [w.contactNaam, w.plaats].filter(Boolean).join(' · '),
+            right: WERKGEVER_STATUS[w.status].label,
+            page: rol === 'employer' ? 'start' : 'werkgevers',
+          }))) break
+        }
+
+        for (const k of await db.employerLinks.toArray()) {
+          if (!has(k.naam, k.email, k.werkgeverNaam, ...k.kentekens)) continue
+          if (!voegToe('Chauffeurs', () => ({
+            id: 'wgk:' + k.id,
+            group: 'Chauffeurs',
+            icon: Users,
+            title: k.naam,
+            subtitle: `${k.werkgeverNaam}${k.kentekens.length ? ' · ' + k.kentekens.join(', ') : ''}`,
+            right: KOPPELING_STATUS[k.status].label,
+            page: rol === 'employer' ? 'chauffeurs' : 'werkgevers',
+          }))) break
+        }
+      }
+
+      /* ---------------------------- Postbus --------------------------- */
+
+      if (perms.can('mail.read')) {
+        for (const m of await db.mailbox.toArray()) {
+          if (!has(m.onderwerp, m.van, m.vanNaam, ...m.attachments.map((b) => b.naam))) continue
+          if (!voegToe('Postbus', () => ({
+            id: 'mb:' + m.id,
+            group: 'Postbus',
+            icon: Inbox,
+            title: m.onderwerp || '(geen onderwerp)',
+            subtitle: `${m.vanNaam ?? m.van}${m.attachments.length ? ` · ${m.attachments.length} bijlage${m.attachments.length === 1 ? '' : 'n'}` : ''}`,
+            right: m.status,
+            page: 'postbus',
+          }))) break
+        }
+      }
+
+      /* ----------------------------- Agenda --------------------------- */
+
+      if (perms.can('agenda.view')) {
+        for (const a of await db.agendaItems.toArray()) {
+          if (!has(a.title, a.description, a.createdByName)) continue
+          if (!voegToe('Agenda', () => ({
+            id: 'ag:' + a.id,
+            group: 'Agenda',
+            icon: CalendarDays,
+            title: a.title,
+            subtitle: `${AGENDA_SOORTEN[a.soort]?.label ?? a.soort} · ${a.createdByName}`,
+            right: time(a.startAt),
+            page: 'agenda',
+          }))) break
+        }
+      }
+
       /* ------------------------------ Post ---------------------------- */
 
       if (perms.canAny('dev.logs', 'admin.audit')) {
@@ -470,7 +548,7 @@ export default function GlobalSearch() {
     })()
 
     return () => { cancelled = true }
-  }, [debounced, perms, me])
+  }, [debounced, perms, me, rol])
 
   const grouped = useMemo(() => {
     const map = new Map<string, Hit[]>()

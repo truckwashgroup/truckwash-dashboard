@@ -6,6 +6,7 @@ import type {
   Asset, Fault, MaintenancePlan, WorkOrder, Ticket, TicketMessage, LogEvent,
   Signup, Channel, ChatMessage, ChannelRead, EmailLog,
   PersonnelPrivate, PersonnelDocument, MailBericht, DossierWijziging, AgendaItem,
+  Werkgever, WerkgeverKoppeling, WerkgeverRegel,
 } from '../types'
 import { SERVICES } from '../types'
 import { COURSES } from '../courses'
@@ -46,6 +47,9 @@ class MockServerDB extends Dexie {
   mailbox!: Table<MailBericht, string>
   changeRequests!: Table<DossierWijziging, string>
   agendaItems!: Table<AgendaItem, string>
+  employers!: Table<Werkgever, string>
+  employerLinks!: Table<WerkgeverKoppeling, string>
+  employerRules!: Table<WerkgeverRegel, string>
 
   constructor() {
     super('truckwash-mock-server')
@@ -79,6 +83,9 @@ class MockServerDB extends Dexie {
       mailbox: 'id, updatedAt',
       changeRequests: 'id, updatedAt',
       agendaItems: 'id, updatedAt',
+      employers: 'id, updatedAt',
+      employerLinks: 'id, updatedAt',
+      employerRules: 'id, updatedAt',
     })
   }
 }
@@ -115,6 +122,9 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   mailbox: () => server.mailbox,
   changeRequests: () => server.changeRequests,
   agendaItems: () => server.agendaItems,
+  employers: () => server.employers,
+  employerLinks: () => server.employerLinks,
+  employerRules: () => server.employerRules,
 }
 
 /* ------------------------------------------------------------------ *
@@ -248,6 +258,9 @@ async function seed() {
       personnelNumber: 'TW-900', function: 'Softwareontwikkelaar', updatedAt: t },
     { id: 'u_klant', authId: 'u_klant', email: 'planning@transportjansen.nl', password: 'klant', name: 'Mark Jansen', roles: ['customer'], companyId: 'co_jansen', active: true, updatedAt: t },
     { id: 'u_klant2', authId: 'u_klant2', email: 'wagenpark@devrieslogistiek.nl', password: 'klant', name: 'Sanne de Vries', roles: ['customer'], companyId: 'co_devries', active: true, updatedAt: t },
+    { id: 'u_werkgever', authId: 'u_werkgever', email: 'wagenpark@transportjansen.nl', password: 'werkgever', name: 'Ellen Jansen', roles: ['employer', 'customer'], companyId: 'co_jansen', active: true, updatedAt: t },
+    // Uitgenodigd door een werkgever, moet bij de eerste inlog zijn wachtwoord kiezen
+    { id: 'u_chauffeur', authId: 'u_chauffeur', email: 'rick@transportjansen.nl', password: 'chauffeur', name: 'Rick Molenaar', roles: ['employee'], active: true, locationId: 'loc_utr', mustChangePassword: true, updatedAt: t },
   ]
 
   /* Elke vestiging een eigen ploeg, anders staan er negentien lege roosters. */
@@ -1166,6 +1179,141 @@ async function seed() {
     })
   }
 
+  /* ---------------------------------------------------------------- *
+   *  Werkgevers
+   *
+   *  Twee bedrijven: een dat draait, en een dat nog op akkoord van
+   *  management wacht -- zodat het scherm bij management niet leeg is.
+   * ---------------------------------------------------------------- */
+
+  const employers: Werkgever[] = [
+    {
+      id: 'wg_jansen',
+      naam: 'Transport Jansen BV',
+      kvk: '30124588',
+      contactNaam: 'Ellen Jansen',
+      email: 'wagenpark@transportjansen.nl',
+      telefoon: '030-2451188',
+      adres: 'Handelsweg 14',
+      postcode: '3542 AB',
+      plaats: 'Utrecht',
+      companyId: 'co_jansen',
+      status: 'actief',
+      beheerders: ['u_werkgever'],
+      aangevraagdOp: t - 210 * DAY,
+      beslistDoor: 'u_manager',
+      beslistDoorNaam: 'Ilse Bakker',
+      beslistOp: t - 208 * DAY,
+      notitie: 'Rekening loopt via het klantaccount, maandelijks verzamelfactuur.',
+      updatedAt: t - 208 * DAY,
+    },
+    {
+      id: 'wg_bergman',
+      naam: 'Bergman Koeltransport',
+      kvk: '61887204',
+      contactNaam: 'Wouter Bergman',
+      email: 'w.bergman@bergmankoel.nl',
+      telefoon: '0165-334090',
+      plaats: 'Roosendaal',
+      status: 'aangevraagd',
+      beheerders: [],
+      aangevraagdDoor: 'u_wasser3',
+      aangevraagdDoorNaam: 'Nour El Amrani',
+      aangevraagdOp: t - 3 * DAY,
+      notitie: 'Vraagt om vier trekkers vast in te plannen op vrijdagmiddag.',
+      updatedAt: t - 3 * DAY,
+    },
+  ]
+
+  const employerLinks: WerkgeverKoppeling[] = [
+    {
+      id: 'wgl_rick',
+      werkgeverId: 'wg_jansen',
+      werkgeverNaam: 'Transport Jansen BV',
+      userId: 'u_chauffeur',
+      naam: 'Rick Molenaar',
+      email: 'rick@transportjansen.nl',
+      kentekens: ['12-BND-4', 'VJ-701-P'],
+      status: 'actief',
+      uitgenodigdOp: t - 96 * DAY,
+      uitgenodigdDoor: 'u_werkgever',
+      uitgenodigdDoorNaam: 'Ellen Jansen',
+      bestaandAccount: false,
+      gekoppeldOp: t - 95 * DAY,
+      updatedAt: t - 95 * DAY,
+    },
+    {
+      // Bestond al als medewerker; die moet zelf ja zeggen voor het telt.
+      id: 'wgl_daan',
+      werkgeverId: 'wg_jansen',
+      werkgeverNaam: 'Transport Jansen BV',
+      userId: 'u_wasser2',
+      naam: 'Daan Smit',
+      email: 'daan@truckwash1group.nl',
+      kentekens: [],
+      status: 'wacht op akkoord',
+      uitgenodigdOp: t - 2 * DAY,
+      uitgenodigdDoor: 'u_werkgever',
+      uitgenodigdDoorNaam: 'Ellen Jansen',
+      bestaandAccount: true,
+      updatedAt: t - 2 * DAY,
+    },
+    {
+      // Uit dienst: ziet de ritten van Jansen niet meer.
+      id: 'wgl_oud',
+      werkgeverId: 'wg_jansen',
+      werkgeverNaam: 'Transport Jansen BV',
+      naam: 'Ferry Blok',
+      email: 'ferry@transportjansen.nl',
+      kentekens: ['84-JHT-9'],
+      status: 'beëindigd',
+      uitgenodigdOp: t - 300 * DAY,
+      uitgenodigdDoor: 'u_werkgever',
+      uitgenodigdDoorNaam: 'Ellen Jansen',
+      bestaandAccount: false,
+      gekoppeldOp: t - 299 * DAY,
+      beeindigdOp: t - 21 * DAY,
+      beeindigdDoor: 'u_werkgever',
+      beeindigdDoorNaam: 'Ellen Jansen',
+      beeindigdReden: 'Uit dienst per 1 van de maand.',
+      updatedAt: t - 21 * DAY,
+    },
+  ]
+
+  const employerRules: WerkgeverRegel[] = [
+    {
+      id: 'wgr_1',
+      werkgeverId: 'wg_jansen',
+      service: 'polish',
+      soort: 'niet toegestaan',
+      reden: 'Polijsten gaat via de dealer, niet via de wasstraat.',
+      aangemaaktDoor: 'u_werkgever',
+      aangemaaktOp: t - 180 * DAY,
+      updatedAt: t - 180 * DAY,
+    },
+    {
+      id: 'wgr_2',
+      werkgeverId: 'wg_jansen',
+      kenteken: '12-BND-4',
+      service: 'tankreiniging',
+      soort: 'alleen met akkoord',
+      reden: 'Tankreiniging alleen na melding bij de planning.',
+      aangemaaktDoor: 'u_werkgever',
+      aangemaaktOp: t - 40 * DAY,
+      updatedAt: t - 40 * DAY,
+    },
+  ]
+
+  /* De ritten die op naam van Jansen staan. Wat Rick brengt telt mee. */
+  for (const j of washJobs) {
+    if (j.companyId === 'co_jansen') j.werkgeverId = 'wg_jansen'
+  }
+  let gegeven = 0
+  for (const j of washJobs) {
+    if (j.werkgeverId !== 'wg_jansen' || j.status !== 'gereed') continue
+    if (gegeven++ % 3 === 0) j.createdBy = 'u_chauffeur'
+  }
+
   await server.transaction('rw', server.tables, async () => {
     await server.locations.bulkPut(locations)
     await server.companies.bulkPut(companies)
@@ -1192,6 +1340,9 @@ async function seed() {
     await server.channelReads.bulkPut(channelReads)
     await server.emailLog.bulkPut(emailLog)
     await server.mailbox.bulkPut(mailbox)
+    await server.employers.bulkPut(employers)
+    await server.employerLinks.bulkPut(employerLinks)
+    await server.employerRules.bulkPut(employerRules)
   })
 }
 

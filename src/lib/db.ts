@@ -3,6 +3,7 @@ import type {
   AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   CourseProgress, EmailLog, Expense, Fault, InventoryItem, Location, LogEvent,
   AgendaItem, DossierWijziging, MailBericht, MaintenancePlan, OutboxRecord,
+  Werkgever, WerkgeverKoppeling, WerkgeverRegel,
   PersonnelDocument, PersonnelPrivate,
   Shift, Signup, StockMovement, Ticket,
   TicketMessage, TimeEntry, User, WashJob, WorkOrder,
@@ -42,6 +43,9 @@ class TruckwashDB extends Dexie {
   mailbox!: Table<MailBericht, string>
   changeRequests!: Table<DossierWijziging, string>
   agendaItems!: Table<AgendaItem, string>
+  employers!: Table<Werkgever, string>
+  employerLinks!: Table<WerkgeverKoppeling, string>
+  employerRules!: Table<WerkgeverRegel, string>
   outbox!: Table<OutboxRecord, number>
   meta!: Table<{ key: string; value: unknown }, string>
 
@@ -126,6 +130,13 @@ class TruckwashDB extends Dexie {
     // v11: de agenda
     this.version(11).stores({
       agendaItems: 'id, soort, startAt, locationId, updatedAt',
+    })
+
+    // v12: werkgevers, hun chauffeurs en hun afspraken
+    this.version(12).stores({
+      employers: 'id, status, naam, updatedAt',
+      employerLinks: 'id, werkgeverId, userId, status, updatedAt',
+      employerRules: 'id, werkgeverId, kenteken, updatedAt',
     })
   }
 }

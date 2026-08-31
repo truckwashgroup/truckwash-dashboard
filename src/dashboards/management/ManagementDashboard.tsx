@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   CalendarRange, GraduationCap, Inbox, LayoutDashboard, LayoutGrid,
-  CalendarDays, Mail, MessageSquare, Package, Receipt, Send, Settings, Users,
-  Wrench,
+  Briefcase, CalendarDays, Mail, MessageSquare, Package, Receipt, Send,
+  Settings, Users, Wrench,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db } from '../../lib/db'
@@ -16,6 +16,7 @@ import Planning from './Planning'
 import Beheer from './Beheer'
 import Techniek from './Techniek'
 import Aanmeldingen from './Aanmeldingen'
+import Werkgevers from './Werkgevers'
 import OpleidingOverzicht from '../../components/OpleidingOverzicht'
 import BerichtVersturen from '../../components/BerichtVersturen'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
@@ -25,7 +26,7 @@ import { Start, type Tegel, type TegelTint } from '../../components/Tegels'
 import { useNavTarget, usePerms } from '../../store/useNav'
 import { startOfDay } from '../../lib/analytics'
 import type {
-  Expense, Fault, InventoryItem, MailBericht, Signup, User, WashJob,
+  Expense, Fault, InventoryItem, MailBericht, Signup, User, WashJob, Werkgever,
 } from '../../lib/types'
 
 const DAY = 86_400_000
@@ -49,12 +50,13 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
   postbus: { title: 'Postbus', subtitle: 'Post die binnenkomt op het dashboard' },
   agenda: { title: 'Agenda', subtitle: 'Afspraken, verjaardagen en wat er aankomt' },
+  werkgevers: { title: 'Werkgevers', subtitle: 'Bedrijven waarvan de chauffeurs hier wassen' },
   beheer: { title: 'Beheer', subtitle: 'Instellingen, rechten en gegevens' },
 }
 
 const ZONDER_PERIODE = [
   'start', 'planning', 'beheer', 'opleiding', 'aanmeldingen', 'overleg', 'postbus',
-  'agenda',
+  'agenda', 'werkgevers',
 ]
 
 export default function ManagementDashboard() {
@@ -70,6 +72,7 @@ export default function ManagementDashboard() {
   const mensen = useLiveQuery(() => db.users.toArray(), [], [] as User[])
   const ongelezen = useOverlegTeller()
   const post = useLiveQuery(() => db.mailbox.toArray(), [], [] as MailBericht[])
+  const werkgevers = useLiveQuery(() => db.employers.toArray(), [], [] as Werkgever[])
 
   const jobsVandaag = useLiveQuery(
     async () => {
@@ -93,9 +96,11 @@ export default function ManagementDashboard() {
     const gereed = jobsVandaag.filter((j) => j.status === 'gereed').length
 
     const nieuwePost = post.filter((m) => m.richting === 'in' && m.status === 'nieuw').length
+    const nieuweWerkgevers = werkgevers.filter((w) => w.status === 'aangevraagd').length
 
     return {
       nieuwePost,
+      nieuweWerkgevers,
       openKosten: openKosten.length,
       openBedrag: openKosten.reduce((a, b) => a + b.amountExcl, 0),
       nieuweAanmeldingen,
@@ -106,7 +111,7 @@ export default function ManagementDashboard() {
       gereed,
       vandaag: jobsVandaag.length,
     }
-  }, [bonnen, aanmeldingen, storingen, voorraad, mensen, jobsVandaag, post])
+  }, [bonnen, aanmeldingen, storingen, voorraad, mensen, jobsVandaag, post, werkgevers])
 
   const items: NavItem[] = [
     { key: 'start', label: 'Start', icon: LayoutGrid },
@@ -122,6 +127,10 @@ export default function ManagementDashboard() {
     { key: 'opleiding', label: 'Opleiding', icon: GraduationCap },
     ...(perms.can('chat.use')
       ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
+      : []),
+    ...(perms.can('employer.view')
+      ? [{ key: 'werkgevers', label: 'Werkgevers', icon: Briefcase,
+           badge: cijfers.nieuweWerkgevers || undefined }]
       : []),
     ...(perms.can('agenda.view')
       ? [{ key: 'agenda', label: 'Agenda', icon: CalendarDays }]
@@ -232,6 +241,17 @@ export default function ManagementDashboard() {
       urgent: ongelezen > 0,
       onClick: () => setPage('overleg'),
     }] : []),
+    ...(perms.can('employer.view') ? [{
+      key: 'werkgevers',
+      label: 'Werkgevers',
+      hint: 'Bedrijven waarvan de chauffeurs hier wassen',
+      icon: Briefcase,
+      tint: (cijfers.nieuweWerkgevers ? 'oranje' : 'neutraal') as TegelTint,
+      stat: cijfers.nieuweWerkgevers,
+      statLabel: cijfers.nieuweWerkgevers === 1 ? 'wacht op akkoord' : 'wachten op akkoord',
+      urgent: cijfers.nieuweWerkgevers > 0,
+      onClick: () => setPage('werkgevers'),
+    }] : []),
     ...(perms.can('agenda.view') ? [{
       key: 'agenda',
       label: 'Agenda',
@@ -330,6 +350,7 @@ export default function ManagementDashboard() {
       {page === 'overleg' && <Overleg />}
       {page === 'postbus' && <Postbus />}
       {page === 'agenda' && <Agenda />}
+      {page === 'werkgevers' && <Werkgevers />}
       {page === 'beheer' && <Beheer />}
 
       <BerichtVersturen open={messaging} onClose={() => setMessaging(false)} />

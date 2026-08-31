@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  ArrowLeft, BadgeCheck, KeyRound, Mail, Phone, ShieldCheck, SlidersHorizontal,
+  ArrowLeft, BadgeCheck, KeyRound, Mail, MapPin, Phone, ShieldCheck, SlidersHorizontal,
   Timer, UserCog, UserPlus, Users,
 } from 'lucide-react'
 import { db } from '../../lib/db'
@@ -17,6 +17,8 @@ import { usePerms } from '../../store/useNav'
 import { toast } from '../../store/useToasts'
 import { staffPerformance } from '../../lib/analytics'
 import { dateInputValue, dayFromDateInput } from '../../lib/roster'
+import LocatiesKiezer, { locatieSamenvatting, type LocatieKeuze } from '../../components/LocatiesKiezer'
+import type { Location } from '../../lib/types'
 
 const ALL_ROLES: Role[] = ROLE_ORDER
 
@@ -176,6 +178,7 @@ function PersonDetail({
     [person.id],
     [] as Shift[],
   )
+  const locaties = useLiveQuery(() => db.locations.toArray(), [], [] as Location[])
 
   const stats = useMemo(
     () => staffPerformance([person], jobs, entries, days)[0],
@@ -243,7 +246,34 @@ function PersonDetail({
               ? new Date(person.startDate).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })
               : '—'}
           />
+          <Info
+            label="Vestiging"
+            value={locatieSamenvatting(
+              {
+                locationId: person.locationId,
+                manages: person.manages ?? [],
+                allLocations: !!person.allLocations,
+              },
+              locaties,
+            )}
+            icon={<MapPin size={13} />}
+          />
         </div>
+
+        {(person.manages?.length ?? 0) > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div className="person-field">
+              <div className="label">Geeft leiding op</div>
+              <div className="row" style={{ gap: 5, marginTop: 4 }}>
+                {(person.manages ?? []).map((id) => (
+                  <Badge key={id} tone="info">
+                    {locaties.find((l) => l.id === id)?.name ?? id}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {person.notes && (
           <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line-soft)' }}>
@@ -262,9 +292,10 @@ function PersonDetail({
               fontSize: '.83rem', color: '#ffd894',
             }}
           >
-            <strong>Nog geen toegang tot de app.</strong> Nodig {person.name.split(' ')[0]} uit
-            via Supabase (Authentication → Users → Invite) op {person.email}. Bij de eerste
-            keer inloggen wordt dit dossier automatisch gekoppeld.
+            <strong>Nog geen toegang tot de app.</strong> Laat {person.name.split(' ')[0]} zich
+            aanmelden op het inlogscherm met exact dit adres: {person.email}. Dit dossier
+            wordt dan vanzelf gekoppeld — mét de rollen die hier staan, dus zonder dat
+            de aanmelding nog beoordeeld hoeft te worden.
           </div>
         )}
       </Card>
@@ -329,6 +360,7 @@ function AddPersonDialog({
   onCreated: (id: string) => void
 }) {
   const [form, setForm] = useState({ ...EMPTY })
+  const [loc, setLoc] = useState<LocatieKeuze>({ manages: [], allLocations: false })
   const existing = useLiveQuery(() => db.users.toArray(), [], [] as User[])
 
   const set = (patch: Partial<typeof EMPTY>) => setForm({ ...form, ...patch })
@@ -365,8 +397,18 @@ function AddPersonDialog({
       notes: form.notes,
     })
 
+    // De vestigingen zitten niet in users.create; die zetten we erachteraan.
+    if (created && (loc.locationId || loc.manages.length || loc.allLocations)) {
+      await userRepo.update(created.id, {
+        locationId: loc.locationId,
+        manages: loc.manages.length ? loc.manages : undefined,
+        allLocations: loc.allLocations || undefined,
+      })
+    }
+
     toast.ok(`${form.name.trim()} toegevoegd`)
     setForm({ ...EMPTY })
+    setLoc({ manages: [], allLocations: false })
     onClose()
     if (created) onCreated(created.id)
   }
@@ -375,7 +417,7 @@ function AddPersonDialog({
     <Modal
       open={open}
       title="Medewerker toevoegen"
-      subtitle="Het dossier is direct beschikbaar. Toegang tot de app regel je apart."
+      subtitle="Het dossier staat er meteen. Diegene meldt zich daarna zelf aan met dit e-mailadres."
       onClose={onClose}
       width={620}
     >
@@ -422,6 +464,12 @@ function AddPersonDialog({
         <input className="input" type="date" value={form.startDate} onChange={(e) => set({ startDate: e.target.value })} />
       </Field>
 
+      <LocatiesKiezer
+        waarde={loc}
+        onChange={setLoc}
+        toonLeiding={form.roles.includes('supervisor') || form.roles.includes('management')}
+      />
+
       <Field label="Toegang tot welke dashboards">
         <div className="row" style={{ gap: 6 }}>
           {ALL_ROLES.map((role) => {
@@ -466,7 +514,7 @@ function EditPersonDialog({
   person: User
   onClose: () => void
 }) {
-  const [form, setForm] = useState({
+  const leeg = () => ({
     name: person.name,
     phone: person.phone ?? '',
     function: person.function ?? '',
@@ -476,20 +524,20 @@ function EditPersonDialog({
     notes: person.notes ?? '',
     roles: [...person.roles],
   })
+  const legeLocatie = (): LocatieKeuze => ({
+    locationId: person.locationId,
+    manages: person.manages ?? [],
+    allLocations: !!person.allLocations,
+  })
+
+  const [form, setForm] = useState(leeg)
+  const [loc, setLoc] = useState<LocatieKeuze>(legeLocatie)
   const [key, setKey] = useState(person.id)
 
   if (open && key !== person.id) {
     setKey(person.id)
-    setForm({
-      name: person.name,
-      phone: person.phone ?? '',
-      function: person.function ?? '',
-      personnelNumber: person.personnelNumber ?? '',
-      hourlyRate: String(person.hourlyRate ?? ''),
-      contractHours: String(person.contractHours ?? ''),
-      notes: person.notes ?? '',
-      roles: [...person.roles],
-    })
+    setForm(leeg())
+    setLoc(legeLocatie())
   }
 
   const set = (patch: Partial<typeof form>) => setForm({ ...form, ...patch })
@@ -507,13 +555,17 @@ function EditPersonDialog({
       contractHours: form.contractHours ? Number(form.contractHours.replace(',', '.')) : undefined,
       notes: form.notes.trim() || undefined,
       roles: form.roles,
+      locationId: loc.locationId,
+      // Leeg opslaan als niets: een lege lijst leest als "nergens leiding".
+      manages: loc.manages.length ? loc.manages : undefined,
+      allLocations: loc.allLocations || undefined,
     })
     toast.ok('Gegevens bijgewerkt')
     onClose()
   }
 
   return (
-    <Modal open={open} title="Gegevens en rechten" subtitle={person.email} onClose={onClose} width={560}>
+    <Modal open={open} title="Gegevens en vestigingen" subtitle={person.email} onClose={onClose} width={600}>
       <div className="grid cols-2">
         <Field label="Naam">
           <input className="input" value={form.name} onChange={(e) => set({ name: e.target.value })} />
@@ -539,6 +591,33 @@ function EditPersonDialog({
         <Field label="Uurtarief (€)">
           <input className="input" inputMode="decimal" value={form.hourlyRate} onChange={(e) => set({ hourlyRate: e.target.value })} />
         </Field>
+      </div>
+
+      <Field label="Toegang tot welke dashboards">
+        <div className="row" style={{ gap: 6 }}>
+          {ALL_ROLES.map((role) => {
+            const on = form.roles.includes(role)
+            return (
+              <button
+                key={role}
+                type="button"
+                className={`btn sm ${on ? 'primary' : ''}`}
+                onClick={() => set({ roles: on ? form.roles.filter((r) => r !== role) : [...form.roles, role] })}
+              >
+                {role === 'management' && <ShieldCheck size={13} />}
+                {ROLE_LABELS[role]}
+              </button>
+            )
+          })}
+        </div>
+      </Field>
+
+      <div style={{ borderTop: '1px solid var(--line-soft)', paddingTop: 14, marginTop: 4 }}>
+        <LocatiesKiezer
+          waarde={loc}
+          onChange={setLoc}
+          toonLeiding={form.roles.includes('supervisor') || form.roles.includes('management')}
+        />
       </div>
 
       <Field label="Notitie">

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  CalendarDays, CheckCircle2, ClipboardList, Clock, GraduationCap,
+  CalendarDays, CheckCircle2, ClipboardList, Clock, GraduationCap, LayoutGrid,
   MessageSquare, Send, Sparkles, Timer, TriangleAlert, Truck, Users,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
@@ -14,6 +14,8 @@ import SmartRosterPanel from '../../components/SmartRosterPanel'
 import BerichtVersturen from '../../components/BerichtVersturen'
 import OpleidingOverzicht from '../../components/OpleidingOverzicht'
 import Opleiding from '../../components/Opleiding'
+import Overleg, { useOverlegTeller } from '../../components/Overleg'
+import { Start, type Tegel, type TegelTint } from '../../components/Tegels'
 import { useAuth } from '../../store/useAuth'
 import { usePerms, useNavTarget } from '../../store/useNav'
 import { shiftsOnDay, shiftHours, shiftRange, weekStart } from '../../lib/roster'
@@ -22,18 +24,20 @@ import { startOfDay } from '../../lib/analytics'
 const DAY = 86_400_000
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
+  start: { title: 'Start', subtitle: 'Waar wil je heen?' },
   team: { title: 'Mijn team', subtitle: 'Wie staat er vandaag en hoe loopt het' },
   rooster: { title: 'Rooster', subtitle: 'Plannen en publiceren' },
   smart: { title: 'Smartroster', subtitle: 'Voorstel op basis van contract en gewoontes' },
   uren: { title: 'Uren', subtitle: 'Registraties van het team' },
   opleiding: { title: 'Opleiding', subtitle: 'Voortgang van je team' },
   mijn: { title: 'Mijn opleiding', subtitle: 'Cursussen die jij moet doen' },
+  overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
 }
 
 export default function SupervisorDashboard() {
   const me = useAuth((s) => s.user)!
   const perms = usePerms()
-  const [page, setPage] = useState('team')
+  const [page, setPage] = useState('start')
   const [messaging, setMessaging] = useState(false)
 
   const allUsers = useLiveQuery(() => db.users.toArray(), [], [] as User[])
@@ -46,18 +50,106 @@ export default function SupervisorDashboard() {
     return direct.length > 0 ? direct : fallback
   }, [allUsers, me.id])
 
+  const ongelezen = useOverlegTeller()
+  const alleShifts = useLiveQuery(() => db.shifts.toArray(), [], [] as Shift[])
+  const alleUren = useLiveQuery(() => db.timeEntries.toArray(), [], [] as TimeEntry[])
+
+  /** Twee cijfers voor op de tegels: hoe vol staat de week, en wie werkt er nu. */
+  const { dezeWeek, nuIngeklokt } = useMemo(() => {
+    const ids = new Set(team.map((u) => u.id))
+    const start = weekStart(Date.now())
+    return {
+      dezeWeek: alleShifts.filter(
+        (s) => ids.has(s.userId) && s.kind === 'dienst' &&
+               s.startAt >= start && s.startAt < start + 7 * DAY).length,
+      nuIngeklokt: alleUren.filter((e) => ids.has(e.userId) && !e.end).length,
+    }
+  }, [team, alleShifts, alleUren])
+
   const items: NavItem[] = [
+    { key: 'start', label: 'Start', icon: LayoutGrid },
     { key: 'team', label: 'Mijn team', icon: Users },
     ...(perms.can('roster.viewTeam') ? [{ key: 'rooster', label: 'Rooster', icon: CalendarDays }] : []),
     ...(perms.can('roster.edit') ? [{ key: 'smart', label: 'Smartroster', icon: Sparkles }] : []),
     ...(perms.can('hours.viewTeam') ? [{ key: 'uren', label: 'Uren', icon: Timer }] : []),
     ...(perms.can('learning.assign') ? [{ key: 'opleiding', label: 'Opleiding', icon: GraduationCap }] : []),
     { key: 'mijn', label: 'Mijn cursussen', icon: ClipboardList },
+    ...(perms.can('chat.use')
+      ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
+      : []),
   ]
 
   useNavTarget(items.map((i) => i.key), (p) => setPage(p))
 
-  const meta = TITLES[page] ?? TITLES.team
+  const meta = TITLES[page] ?? TITLES.start
+
+  const tegels: Tegel[] = [
+    {
+      key: 'team',
+      label: 'Mijn team',
+      hint: 'Wie er staat, wie is ingeklokt en hoe het loopt',
+      icon: Users,
+      tint: 'brand',
+      stat: team.length,
+      statLabel: 'teamleden',
+      onClick: () => setPage('team'),
+    },
+    ...(perms.can('roster.viewTeam') ? [{
+      key: 'rooster',
+      label: 'Rooster',
+      hint: 'Diensten plannen en publiceren',
+      icon: CalendarDays,
+      tint: 'info' as TegelTint,
+      stat: dezeWeek,
+      statLabel: 'diensten deze week',
+      onClick: () => setPage('rooster'),
+    }] : []),
+    ...(perms.can('roster.edit') ? [{
+      key: 'smart',
+      label: 'Smartroster',
+      hint: 'Voorstel op basis van contract en gewoontes',
+      icon: Sparkles,
+      tint: 'oranje' as TegelTint,
+      onClick: () => setPage('smart'),
+    }] : []),
+    ...(perms.can('hours.viewTeam') ? [{
+      key: 'uren',
+      label: 'Uren',
+      hint: 'Registraties van je team',
+      icon: Timer,
+      tint: 'neutraal' as TegelTint,
+      stat: nuIngeklokt,
+      statLabel: 'nu ingeklokt',
+      onClick: () => setPage('uren'),
+    }] : []),
+    ...(perms.can('chat.use') ? [{
+      key: 'overleg',
+      label: 'Overleg',
+      hint: 'Je team bereiken zonder groepsapp',
+      icon: MessageSquare,
+      tint: 'paars' as TegelTint,
+      stat: ongelezen,
+      statLabel: ongelezen === 1 ? 'nieuw bericht' : 'nieuwe berichten',
+      urgent: ongelezen > 0,
+      onClick: () => setPage('overleg'),
+    }] : []),
+    ...(perms.can('learning.assign') ? [{
+      key: 'opleiding',
+      label: 'Opleiding',
+      hint: 'Wie welke cursus nog moet doen',
+      icon: GraduationCap,
+      tint: 'neutraal' as TegelTint,
+      onClick: () => setPage('opleiding'),
+    }] : []),
+    {
+      key: 'mijn',
+      label: 'Mijn cursussen',
+      hint: 'Wat jij zelf nog openstaan hebt',
+      icon: ClipboardList,
+      tint: 'neutraal',
+      onClick: () => setPage('mijn'),
+    },
+  ]
 
   return (
     <Shell
@@ -66,7 +158,7 @@ export default function SupervisorDashboard() {
       active={page}
       onNavigate={setPage}
       title={meta.title}
-      subtitle={page === 'team' ? dateFull(Date.now()) : meta.subtitle}
+      subtitle={page === 'team' || page === 'start' ? dateFull(Date.now()) : meta.subtitle}
       actions={
         perms.can('notify.send') ? (
           <button className="btn primary sm" onClick={() => setMessaging(true)}>
@@ -75,12 +167,14 @@ export default function SupervisorDashboard() {
         ) : undefined
       }
     >
+      {page === 'start' && <Start tegels={tegels} />}
       {page === 'team' && <TeamVandaag team={team} onMessage={() => setMessaging(true)} />}
       {page === 'rooster' && <TeamRooster team={team} />}
       {page === 'smart' && <SmartRosterPanel team={team} />}
       {page === 'uren' && <TeamUren team={team} />}
       {page === 'opleiding' && <OpleidingOverzicht team={team} />}
       {page === 'mijn' && <Opleiding />}
+      {page === 'overleg' && <Overleg />}
 
       <BerichtVersturen open={messaging} onClose={() => setMessaging(false)} team={team} />
     </Shell>

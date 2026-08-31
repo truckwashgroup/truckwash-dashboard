@@ -107,6 +107,11 @@ const TABLES: Record<EntityName, string> = {
   tickets: 'tickets',
   ticketMessages: 'ticket_messages',
   logEvents: 'log_events',
+  signups: 'signups',
+  channels: 'channels',
+  chatMessages: 'chat_messages',
+  channelReads: 'channel_reads',
+  emailLog: 'email_log',
 }
 
 /** Kolommen waarvan de naam niet simpelweg de snake_case-variant is. */

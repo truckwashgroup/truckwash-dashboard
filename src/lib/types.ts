@@ -247,6 +247,10 @@ export type Permission =
   | 'locations.view' | 'locations.manage' | 'locations.all'
   /* meldingen aan de ontwikkelaar */
   | 'dev.report' | 'dev.tickets' | 'dev.respond' | 'dev.logs'
+  /* overleg */
+  | 'chat.use' | 'chat.manage' | 'chat.moderate'
+  /* aanmeldingen */
+  | 'signups.view' | 'signups.decide'
   /* beheer */
   | 'admin.settings' | 'admin.audit'
 
@@ -326,6 +330,13 @@ export const PERMISSIONS: PermissionMeta[] = [
   { key: 'dev.tickets',       group: 'Ontwikkeling', label: 'Alle meldingen zien', hint: 'Het volledige ticketoverzicht van iedereen.', sensitive: true },
   { key: 'dev.respond',       group: 'Ontwikkeling', label: 'Reageren en afhandelen', hint: 'Antwoorden op meldingen en de status bijwerken.', sensitive: true },
   { key: 'dev.logs',          group: 'Ontwikkeling', label: 'Logboek zien',       hint: 'Foutmeldingen en gebeurtenissen uit de app.', sensitive: true },
+
+  { key: 'chat.use',          group: 'Overleg',    label: 'Meedoen aan het overleg', hint: 'Kanalen lezen en berichten plaatsen.' },
+  { key: 'chat.manage',       group: 'Overleg',    label: 'Kanalen beheren',      hint: 'Kanalen aanmaken, hernoemen en archiveren.' },
+  { key: 'chat.moderate',     group: 'Overleg',    label: 'Berichten verwijderen', hint: 'Ook berichten van anderen weghalen.', sensitive: true },
+
+  { key: 'signups.view',      group: 'Aanmeldingen', label: 'Aanmeldingen zien',  hint: 'Zien wie zich via de app heeft aangemeld.' },
+  { key: 'signups.decide',    group: 'Aanmeldingen', label: 'Aanmelding afhandelen', hint: 'Iemand toelaten als medewerker of klant, of afwijzen.', sensitive: true },
 
   { key: 'admin.settings',    group: 'Beheer',     label: 'Instellingen',         hint: 'Tarieven, openingstijden en app-instellingen.', sensitive: true },
   { key: 'admin.audit',       group: 'Beheer',     label: 'Logboek',              hint: 'Zien wie wat heeft gewijzigd.', sensitive: true },
@@ -731,6 +742,146 @@ export interface LogEvent {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Aanmeldingen
+ *
+ *  Iemand die zich via de app aanmeldt maakt zelf een inlogaccount aan --
+ *  dat is het enige wat een bezoeker mag. Toegang krijgt hij daarmee niet:
+ *  zijn dossier staat op inactief en zonder rollen tot iemand van het
+ *  management de aanmelding heeft beoordeeld.
+ *
+ *  Zo hoeft er nooit iemand handmatig in Supabase: toelaten, rollen geven
+ *  en vestigingen toewijzen gebeurt allemaal in de app.
+ * ------------------------------------------------------------------ */
+
+export type SignupKind = 'werknemer' | 'klant'
+export type SignupStatus = 'nieuw' | 'goedgekeurd' | 'afgewezen'
+
+export const SIGNUP_KINDS: Record<SignupKind, { label: string; hint: string }> = {
+  werknemer: {
+    label: 'Ik werk bij Truckwash1',
+    hint: 'Medewerker, leidinggevende of technische dienst',
+  },
+  klant: {
+    label: 'Ik ben klant',
+    hint: 'Wasbeurten inplannen en facturen inzien',
+  },
+}
+
+export interface Signup {
+  id: string
+  name: string
+  email: string
+  phone?: string
+  kind: SignupKind
+  /** Bij een klant: de naam van het bedrijf */
+  companyName?: string
+  /** Bij een medewerker: op welke vestiging diegene zegt te werken */
+  locationId?: string
+  /** Wat de aanmelder er zelf bij schreef */
+  message?: string
+  status: SignupStatus
+  createdAt: number
+
+  /** Het inlogaccount dat bij de aanmelding is aangemaakt */
+  authId?: string
+  /** Het dossier dat de app alvast heeft klaargezet (inactief) */
+  profileId?: string
+
+  handledBy?: string
+  handledByName?: string
+  handledAt?: number
+  rejectReason?: string
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
+ *  Verstuurde e-mail
+ *
+ *  De app verstuurt zelf geen mail; dat doet een klein serverfunctietje met
+ *  de sleutel van Resend. Wat het wel doet is bijhouden wat eruit is gegaan,
+ *  zodat je bij "ik heb niets ontvangen" kunt kijken in plaats van gokken.
+ * ------------------------------------------------------------------ */
+
+export type EmailStatus = 'verstuurd' | 'mislukt'
+
+export interface EmailLog {
+  id: string
+  template: string
+  toEmail: string
+  toUserId?: string
+  subject: string
+  status: EmailStatus
+  /** Het id dat Resend teruggeeft; daarmee zoek je het daar terug */
+  providerId?: string
+  error?: string
+  at: number
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
+ *  Overleg
+ *
+ *  Kanalen per onderwerp of per vestiging, plus rechtstreekse gesprekken.
+ *  Alles gaat door dezelfde offline-laag als de rest: je typt een bericht
+ *  in de machinekamer zonder bereik, en het vertrekt zodra je weer buiten
+ *  staat.
+ * ------------------------------------------------------------------ */
+
+export type ChannelKind = 'kanaal' | 'vestiging' | 'gesprek'
+
+export interface Channel {
+  id: string
+  /** Zonder hekje, bijv. algemeen of utrecht */
+  slug: string
+  name: string
+  kind: ChannelKind
+  /** Waar het kanaal over gaat; staat boven het gesprek */
+  topic?: string
+  /** Een vestigingskanaal hangt aan één vestiging */
+  locationId?: string
+  /**
+   * Besloten: alleen wie in `memberIds` staat komt erin. Een rechtstreeks
+   * gesprek is altijd besloten en heeft precies twee leden.
+   */
+  private: boolean
+  memberIds: string[]
+  createdBy: string
+  createdAt: number
+  archived: boolean
+  updatedAt: number
+}
+
+export interface ChatMessage {
+  id: string
+  channelId: string
+  authorId: string
+  authorName: string
+  body: string
+  at: number
+  editedAt?: number
+  /** Antwoord op een eerder bericht */
+  replyToId?: string
+  replyToName?: string
+  replyToBody?: string
+  /** De dossier-id's die met @ zijn genoemd */
+  mentions: string[]
+  /** Verwijderd door de auteur of een beheerder; de regel blijft staan */
+  deletedAt?: number
+  deletedBy?: string
+  updatedAt: number
+}
+
+/** Tot waar iemand een kanaal heeft gelezen. Bepaalt de ongelezen-teller. */
+export interface ChannelRead {
+  /** `${userId}__${channelId}` */
+  id: string
+  userId: string
+  channelId: string
+  lastReadAt: number
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
  *  Sync
  * ------------------------------------------------------------------ */
 
@@ -740,6 +891,7 @@ export type EntityName =
   | 'notifications' | 'courses' | 'courseProgress'
   | 'assets' | 'faults' | 'workOrders' | 'maintenancePlans'
   | 'tickets' | 'ticketMessages' | 'logEvents'
+  | 'signups' | 'channels' | 'chatMessages' | 'channelReads' | 'emailLog'
 
 export type SyncOp = 'put' | 'delete'
 

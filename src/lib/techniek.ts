@@ -177,6 +177,9 @@ export const faults = {
           `${input.assetName ?? 'Onbekend apparaat'} — ${input.severity}` +
           (input.stopsProduction ? ' — installatie ligt stil' : ''),
         link: 'storingen',
+        // Een wasstraat die stilligt kan niet wachten tot iemand toevallig
+        // de app openheeft. De rest van de meldingen wél.
+        mail: input.severity === 'kritiek' || input.stopsProduction,
       })
     }
 

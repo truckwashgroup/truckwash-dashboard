@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
-import { AlertCircle, Eye, EyeOff, Loader2, LogIn, WifiOff } from 'lucide-react'
+import { AlertCircle, Eye, EyeOff, Loader2, LogIn, UserPlus, WifiOff } from 'lucide-react'
 import { useAuth } from '../store/useAuth'
 import { useSync } from '../lib/sync'
 import { useUpdates } from '../lib/updates'
 import { backendError } from '../lib/api'
 import Logo from './Logo'
+import Aanmelden from './Aanmelden'
 
 export default function Login() {
   const { login, busy, error } = useAuth()
@@ -15,12 +16,15 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [show, setShow] = useState(false)
+  const [aanmelden, setAanmelden] = useState(false)
 
   async function submit(e: FormEvent) {
     e.preventDefault()
     if (!email || !password) return
     await login(email, password)
   }
+
+  if (aanmelden) return <Aanmelden onBack={() => setAanmelden(false)} />
 
   return (
     <div className="auth-screen">
@@ -109,6 +113,13 @@ export default function Login() {
           {busy ? <Loader2 size={17} className="spin" /> : <LogIn size={17} />}
           {busy ? 'Bezig met inloggen…' : 'Inloggen'}
         </button>
+
+        <div className="auth-alt">
+          <span>Nog geen account?</span>
+          <button type="button" className="btn sm" onClick={() => setAanmelden(true)} disabled={busy}>
+            <UserPlus size={14} /> Aanmelden
+          </button>
+        </div>
 
         <div className="auth-meta">
           <span>Versie {version}</span>

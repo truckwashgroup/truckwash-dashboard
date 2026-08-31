@@ -8,6 +8,7 @@ import {
   type User, type WashJob, type WashStatus,
 } from './types'
 import { showDeviceNotification } from './notify'
+import { mailBericht } from './mail'
 
 /* ------------------------------------------------------------------ *
  *  Alle schrijfacties lopen hierlangs.
@@ -236,7 +237,14 @@ export const shifts = {
 /* --------------------------- Berichten ---------------------------- */
 
 export const notifications = {
-  /** Bericht aan één persoon. */
+  /**
+   * Bericht aan één persoon.
+   *
+   * Met `mail: true` gaat het bericht ook naar het postvak. Dat doen we
+   * alleen als iemand er iets mee moet en de app misschien dicht staat --
+   * een storing die de wasstraat stillegt, een antwoord op zijn melding.
+   * Niet voor alles, anders leest niemand het meer.
+   */
   async send(input: {
     to: Pick<User, 'id' | 'name'>
     from: Pick<User, 'id' | 'name'>
@@ -244,6 +252,7 @@ export const notifications = {
     title: string
     body: string
     link?: string
+    mail?: boolean
   }) {
     const note: AppNotification = {
       id: uid('nt'),
@@ -257,7 +266,18 @@ export const notifications = {
       link: input.link,
       updatedAt: Date.now(),
     }
-    return put('notifications', db.notifications, note)
+    const saved = await put('notifications', db.notifications, note)
+
+    if (input.mail) {
+      // Niet op wachten: de bel in de app is al gegaan.
+      void mailBericht(input.to.id, {
+        titel: note.title,
+        tekst: note.body,
+        van: input.from.name,
+      })
+    }
+
+    return saved
   },
 
   /** Bericht aan iedereen met een bepaalde rol. */

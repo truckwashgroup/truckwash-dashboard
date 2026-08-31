@@ -976,5 +976,288 @@ check('het logboek staat op de server', (await db.logEvents.get(eerste.id))?.cou
 
 /* ==================================================================== */
 
+console.log('\n19. Overleg')
+
+const {
+  chat, channels: kanaalRepo, channelStates, findMentions, mentionsEveryone,
+  mayRead, slugify, dmId, visibleChannels, ensureDefaultChannels,
+} = await import('../src/lib/chat')
+
+check('kanalen gesynchroniseerd', (await db.channels.count()) > 4,
+  String(await db.channels.count()))
+check('gesprekken gesynchroniseerd', (await db.chatMessages.count()) === 9,
+  String(await db.chatMessages.count()))
+
+/* --- namen omzetten naar kanaalnamen --- */
+
+check('kanaalnaam met hoofdletters wordt klein', slugify('Chemie En Dosering') === 'chemie-en-dosering')
+check('accenten verdwijnen uit de kanaalnaam', slugify('Nieuwegeïn') === 'nieuwegein')
+check('een gesprek heeft hetzelfde id vanaf beide kanten',
+  dmId('u_a', 'u_b') === dmId('u_b', 'u_a'))
+
+/* --- wie wordt er genoemd --- */
+
+const alleMensen = await db.users.toArray()
+const tom = alleMensen.find((u) => u.id === 'u_wasser')!
+const nour = alleMensen.find((u) => u.id === 'u_wasser3')!
+const ilse = alleMensen.find((u) => u.id === 'u_manager')!
+
+check('een volledige naam wordt herkend',
+  findMentions('Kijk jij ernaar @Tom Verhoeven?', [tom]).includes(tom.id))
+check('een voornaam ook',
+  findMentions('@Tom kun jij dat oppakken?', [tom]).includes(tom.id))
+check('een naam die er niet staat wordt niet verzonnen',
+  findMentions('Ik pak het zelf wel op.', [tom, nour]).length === 0)
+check('een langere naam wint van de korte',
+  findMentions('@Nour El Amrani graag', [nour]).length === 1)
+check('iedereen aanspreken wordt herkend', mentionsEveryone('Let op @iedereen'))
+
+/* --- een bericht plaatsen --- */
+
+const algemeen = (await db.channels.get('ch_algemeen'))!
+const voorHet = await db.chatMessages.where('channelId').equals('ch_algemeen').count()
+
+const geplaatst = await chat.send({
+  channelId: 'ch_algemeen',
+  body: 'Zelftest: @Tom Verhoeven kun jij morgen de osmose bijvullen?',
+  by: ilse,
+  members: [tom, nour, ilse],
+})
+
+check('het bericht staat er meteen',
+  (await db.chatMessages.where('channelId').equals('ch_algemeen').count()) === voorHet + 1)
+check('de genoemde persoon is eruit gehaald',
+  geplaatst!.mentions.length === 1 && geplaatst!.mentions[0] === tom.id,
+  JSON.stringify(geplaatst!.mentions))
+
+const belletjes = (await db.notifications.toArray()).filter(
+  (n) => n.toUserId === tom.id && n.link === 'overleg')
+check('wie genoemd wordt krijgt bericht', belletjes.length === 1, String(belletjes.length))
+
+/* --- ongelezen ---
+ *
+ * Meten vóór Tom zelf iets terugzegt: wie een bericht plaatst heeft het
+ * kanaal daarmee gelezen, en dan valt er niets meer te tellen.
+ */
+
+const statesTom = channelStates(
+  tom,
+  await db.channels.toArray(),
+  await db.chatMessages.toArray(),
+  await db.channelReads.toArray(),
+)
+const algemeenTom = statesTom.find((c) => c.channel.id === 'ch_algemeen')!
+
+check('ongelezen berichten worden geteld', algemeenTom.ongelezen > 0,
+  String(algemeenTom.ongelezen))
+check('genoemd worden valt apart op', algemeenTom.genoemd === true)
+
+const statesIlse = channelStates(
+  ilse,
+  await db.channels.toArray(),
+  await db.chatMessages.toArray(),
+  await db.channelReads.toArray(),
+)
+check('je eigen bericht telt niet als ongelezen',
+  statesIlse.find((c) => c.channel.id === 'ch_algemeen')!.ongelezen === 0)
+
+await chat.markRead('ch_algemeen', tom.id)
+const naLezen = channelStates(
+  tom,
+  await db.channels.toArray(),
+  await db.chatMessages.toArray(),
+  await db.channelReads.toArray(),
+)
+check('na lezen staat de teller op nul',
+  naLezen.find((c) => c.channel.id === 'ch_algemeen')!.ongelezen === 0)
+
+/* --- antwoorden --- */
+
+const antwoord = await chat.send({
+  channelId: 'ch_algemeen',
+  body: 'Doe ik, staat genoteerd.',
+  by: tom,
+  replyTo: geplaatst!,
+  members: [tom, nour, ilse],
+})
+check('een antwoord houdt vast waarop het slaat',
+  antwoord!.replyToId === geplaatst!.id && antwoord!.replyToName === ilse.name)
+
+const kanalenNu = await db.channels.toArray()
+
+/* --- verwijderen laat de regel staan --- */
+
+await chat.remove(antwoord!.id, tom)
+const weg = await db.chatMessages.get(antwoord!.id)
+check('een verwijderd bericht blijft als regel staan', !!weg)
+check('maar de inhoud is eruit', weg!.body === '' && !!weg!.deletedAt)
+
+/* --- wie mag waar meelezen --- */
+
+const utrecht = kanalenNu.find((c) => c.kind === 'vestiging' && c.locationId === 'loc_utr')!
+const rotterdam = kanalenNu.find((c) => c.kind === 'vestiging' && c.locationId === 'loc_rtm')!
+
+check('je leest het kanaal van je eigen vestiging', mayRead(tom, utrecht))
+check('en niet dat van een andere vestiging', !mayRead(tom, rotterdam))
+check('het hoofdkantoor leest overal mee', mayRead(ilse, rotterdam))
+check('een klant komt het overleg niet in',
+  !mayRead(alleMensen.find((u) => u.id === 'u_klant')!, algemeen))
+
+const besloten = await kanaalRepo.create({
+  name: 'Zelftest besloten',
+  private: true,
+  memberIds: [ilse.id],
+  by: ilse,
+})
+check('een besloten kanaal is alleen voor de leden',
+  mayRead(ilse, besloten!) && !mayRead(tom, besloten!))
+check('en staat niet in de lijst van wie er niet in zit',
+  !visibleChannels(tom, await db.channels.toArray()).some((c) => c.id === besloten!.id))
+
+/* --- rechtstreeks gesprek --- */
+
+const gesprek = await kanaalRepo.openDirect(ilse, tom)
+check('een gesprek heeft twee leden', gesprek!.memberIds.length === 2)
+const nogmaals = await kanaalRepo.openDirect(tom, ilse)
+check('hetzelfde gesprek twee keer openen levert er niet twee op',
+  nogmaals!.id === gesprek!.id)
+
+await chat.send({
+  channelId: gesprek!.id,
+  body: 'Zelftest: kun je even bellen?',
+  by: ilse,
+  members: [tom, ilse],
+})
+const dmBel = (await db.notifications.toArray()).filter(
+  (n) => n.toUserId === tom.id && n.title.includes('Bericht van'))
+check('in een rechtstreeks gesprek krijgt de ander altijd bericht',
+  dmBel.length === 1, String(dmBel.length))
+
+/* --- standaardkanalen worden niet dubbel aangemaakt --- */
+
+const voorStandaard = await db.channels.count()
+await ensureDefaultChannels(ilse, await db.locations.toArray())
+check('bestaande kanalen worden niet nog eens aangemaakt',
+  (await db.channels.count()) === voorStandaard,
+  `${voorStandaard} -> ${await db.channels.count()}`)
+
+/* --- zonder verbinding blijft het staan --- */
+
+setForcedOffline(true)
+setOnline(false)
+const offlineBericht = await chat.send({
+  channelId: 'ch_algemeen',
+  body: 'Zelftest: getypt in de machinekamer, zonder bereik.',
+  by: tom,
+  members: [tom, ilse],
+})
+check('een bericht zonder bereik staat er meteen',
+  !!(await db.chatMessages.get(offlineBericht!.id)))
+check('en wacht in de wachtrij', useSync.getState().pending > 0)
+
+setForcedOffline(false)
+setOnline(true)
+await sync()
+check('zodra er weer bereik is vertrekt het', useSync.getState().pending === 0)
+
+await db.chatMessages.clear()
+await db.channels.clear()
+await setMeta(LAST_SYNC, 0)
+await sync()
+check('het gesprek staat op de server',
+  !!(await db.chatMessages.get(offlineBericht!.id)))
+check('de kanalen ook', (await db.channels.count()) > 4)
+
+/* ==================================================================== */
+
+console.log('\n20. Aanmelden')
+
+const { signups: signupRepo, passwordProblem, emailLooksValid } =
+  await import('../src/lib/signups')
+
+check('een kort wachtwoord wordt geweigerd', passwordProblem('kort12') !== null)
+check('letters zonder cijfers ook', passwordProblem('allemaalletters') !== null)
+check('cijfers zonder letters ook', passwordProblem('1234567890') !== null)
+check('een fatsoenlijk wachtwoord mag', passwordProblem('wasstraat2026') === null)
+
+check('een geldig adres wordt herkend', emailLooksValid('jan@truckwash1group.nl'))
+check('een adres zonder apenstaartje niet', !emailLooksValid('jan.truckwash1group.nl'))
+check('een adres zonder domein ook niet', !emailLooksValid('jan@truckwash'))
+
+check('aanmeldingen gesynchroniseerd', (await db.signups.count()) === 5,
+  String(await db.signups.count()))
+
+const openstaand = (await db.signups.toArray()).filter((s) => s.status === 'nieuw')
+check('er staan drie aanmeldingen open', openstaand.length === 3, String(openstaand.length))
+
+/* --- toelaten --- */
+
+const teBeoordelen = openstaand.find((s) => s.kind === 'werknemer')!
+const aantalVoor = await db.users.count()
+
+const toegelaten = await signupRepo.approve({
+  signup: teBeoordelen,
+  roles: ['employee', 'supervisor'],
+  locationId: 'loc_utr',
+  manages: ['loc_utr', 'loc_ams'],
+  personnelNumber: 'TW-901',
+  function: 'Voorman wasstraat',
+  contractHours: 38,
+  by: ilse,
+})
+
+check('er is een dossier bij gekomen', (await db.users.count()) === aantalVoor + 1)
+check('het dossier staat op actief', toegelaten!.active === true)
+check('met de gekozen rollen',
+  toegelaten!.roles.join() === 'employee,supervisor', toegelaten!.roles.join())
+check('en de gekozen vestiging', toegelaten!.locationId === 'loc_utr')
+check('inclusief de vestigingen waar hij leiding over krijgt',
+  (toegelaten!.manages ?? []).length === 2, JSON.stringify(toegelaten!.manages))
+check('het personeelsnummer is overgenomen', toegelaten!.personnelNumber === 'TW-901')
+
+const bijgewerkt = await db.signups.get(teBeoordelen.id)
+check('de aanmelding staat op goedgekeurd', bijgewerkt!.status === 'goedgekeurd')
+check('met wie hem heeft afgehandeld', bijgewerkt!.handledByName === ilse.name)
+
+const welkom = (await db.notifications.toArray()).filter(
+  (n) => n.toUserId === toegelaten!.id && n.title.includes('goedgekeurd'))
+check('de nieuwe medewerker krijgt bericht', welkom.length === 1)
+
+check('en zit meteen in het kanaal van zijn vestiging',
+  (await db.channels.toArray())
+    .find((c) => c.kind === 'vestiging' && c.locationId === 'loc_utr')!
+    .memberIds.includes(toegelaten!.id))
+
+/* --- afwijzen --- */
+
+const afTeWijzen = (await db.signups.toArray()).find(
+  (s) => s.status === 'nieuw' && s.kind === 'klant')!
+
+const afgewezen = await signupRepo.reject(
+  afTeWijzen, 'Dit adres kennen we niet als klant.', ilse)
+
+check('de aanmelding staat op afgewezen', afgewezen!.status === 'afgewezen')
+check('met de reden erbij',
+  afgewezen!.rejectReason === 'Dit adres kennen we niet als klant.')
+check('afwijzen maakt geen dossier aan',
+  !(await db.users.toArray()).some((u) => u.email === afTeWijzen.email))
+
+/* --- terugdraaien --- */
+
+const heropend = await signupRepo.reopen(afgewezen!)
+check('terugdraaien zet hem weer op nieuw', heropend!.status === 'nieuw')
+check('en wist de reden', heropend!.rejectReason === undefined)
+
+/* --- alles overleeft de rondgang --- */
+
+await sync()
+await db.signups.clear()
+await setMeta(LAST_SYNC, 0)
+await sync()
+check('de aanmeldingen staan op de server',
+  (await db.signups.get(teBeoordelen.id))?.status === 'goedgekeurd')
+
+/* ==================================================================== */
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

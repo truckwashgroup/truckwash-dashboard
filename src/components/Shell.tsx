@@ -16,6 +16,7 @@ import GlobalSearch from './GlobalSearch'
 import LocationSwitcher from './LocationSwitcher'
 import { StoringMeldenKnop } from './StoringMelden'
 import { DevMeldingKnop } from './DevMelding'
+import { OverlegKnop } from './Overleg'
 import { trail } from '../lib/trail'
 import { usePerms } from '../store/useNav'
 import NotificationCenter from './NotificationCenter'
@@ -46,6 +47,7 @@ export default function Shell({
   const { lastSyncAt, sync, syncing } = useSync()
   const version = useUpdates((s) => s.version)
   const openSearch = useNav((s) => s.openSearch)
+  const goto = useNav((s) => s.goto)
   const perms = usePerms()
 
   // Elk schermwissel in het spoor, zodat een melding laat zien waar iemand
@@ -152,6 +154,7 @@ export default function Shell({
 
           {perms.can('faults.report') && <StoringMeldenKnop />}
           <DevMeldingKnop role={roleLabel} page={active} />
+          <OverlegKnop onOpen={() => goto('overleg')} />
 
           {actions}
 

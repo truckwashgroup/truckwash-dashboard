@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  ArrowLeft, Bug, Check, Code2, Copy, Inbox, Lock, ScrollText, Search,
-  Send, Server, Trash2, TriangleAlert,
+  ArrowLeft, Bug, Check, Code2, Copy, Inbox, Lock, Mail, MessageSquare,
+  ScrollText, Search, Send, Server, Trash2, TriangleAlert,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db } from '../../lib/db'
@@ -22,11 +22,15 @@ import { useSync } from '../../lib/sync'
 import { useUpdates } from '../../lib/updates'
 import { activeBackend } from '../../lib/api'
 import { toast } from '../../store/useToasts'
+import Overleg, { useOverlegTeller } from '../../components/Overleg'
+import Post from './Post'
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
   tickets: { title: 'Meldingen', subtitle: 'Wat gebruikers tegenkomen' },
   logboek: { title: 'Logboek', subtitle: 'Fouten en waarschuwingen uit de app' },
   systeem: { title: 'Systeem', subtitle: 'Versies, verbinding en opslag' },
+  post: { title: 'Post', subtitle: 'Wat de app via Resend heeft verstuurd' },
+  overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
 }
 
 export default function DeveloperDashboard() {
@@ -38,6 +42,7 @@ export default function DeveloperDashboard() {
 
   const logs = useLiveQuery(() => db.logEvents.toArray(), [], [] as LogEvent[])
   const fouten = logs.filter((l) => l.level === 'fout')
+  const ongelezen = useOverlegTeller()
 
   const items: NavItem[] = [
     { key: 'tickets', label: 'Meldingen', icon: Inbox, badge: open.length || undefined },
@@ -45,9 +50,13 @@ export default function DeveloperDashboard() {
       ? [{ key: 'logboek', label: 'Logboek', icon: ScrollText, badge: fouten.length || undefined }]
       : []),
     { key: 'systeem', label: 'Systeem', icon: Server },
+    { key: 'post', label: 'Post', icon: Mail },
+    ...(perms.can('chat.use')
+      ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
+      : []),
   ]
 
-  useNavTarget(['tickets', 'logboek', 'systeem'], (p) => setPage(p))
+  useNavTarget(['tickets', 'logboek', 'systeem', 'post', 'overleg'], (p) => setPage(p))
 
   const meta = TITLES[page] ?? TITLES.tickets
 
@@ -63,6 +72,8 @@ export default function DeveloperDashboard() {
       {page === 'tickets' && <Tickets tickets={alleTickets} />}
       {page === 'logboek' && <Logboek logs={logs} />}
       {page === 'systeem' && <Systeem tickets={alleTickets} logs={logs} />}
+      {page === 'post' && <Post />}
+      {page === 'overleg' && <Overleg />}
     </Shell>
   )
 }

@@ -4,6 +4,7 @@ import type {
   AppNotification, Company, Course, CourseProgress, EntityName, Expense,
   InventoryItem, Location, Shift, StockMovement, TimeEntry, User, WashJob,
   Asset, Fault, MaintenancePlan, WorkOrder, Ticket, TicketMessage, LogEvent,
+  Signup, Channel, ChatMessage, ChannelRead, EmailLog,
 } from '../types'
 import { SERVICES } from '../types'
 import { COURSES } from '../courses'
@@ -34,6 +35,11 @@ class MockServerDB extends Dexie {
   tickets!: Table<Ticket, string>
   ticketMessages!: Table<TicketMessage, string>
   logEvents!: Table<LogEvent, string>
+  signups!: Table<Signup, string>
+  channels!: Table<Channel, string>
+  chatMessages!: Table<ChatMessage, string>
+  channelReads!: Table<ChannelRead, string>
+  emailLog!: Table<EmailLog, string>
 
   constructor() {
     super('truckwash-mock-server')
@@ -57,6 +63,11 @@ class MockServerDB extends Dexie {
       tickets: 'id, updatedAt',
       ticketMessages: 'id, updatedAt',
       logEvents: 'id, updatedAt',
+      signups: 'id, updatedAt',
+      channels: 'id, updatedAt',
+      chatMessages: 'id, channelId, updatedAt',
+      channelReads: 'id, updatedAt',
+      emailLog: 'id, updatedAt',
     })
   }
 }
@@ -83,6 +94,11 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   tickets: () => server.tickets,
   ticketMessages: () => server.ticketMessages,
   logEvents: () => server.logEvents,
+  signups: () => server.signups,
+  channels: () => server.channels,
+  chatMessages: () => server.chatMessages,
+  channelReads: () => server.channelReads,
+  emailLog: () => server.emailLog,
 }
 
 /* ------------------------------------------------------------------ *
@@ -210,6 +226,8 @@ async function seed() {
     // Wel op de loonlijst, nog geen inlogaccount -- laat zien hoe dat eruitziet
     { id: 'u_nieuw', email: 'joris@truckwash1group.nl', password: '', name: 'Joris Peters', roles: ['employee'], active: true, hourlyRate: 20, locationId: 'loc_ams',
       personnelNumber: 'TW-024', phone: '06-67890123', function: 'Wasmedewerker', supervisorId: 'u_wasser3', contractHours: 24, startDate: t - 12 * DAY, notes: 'Zaterdaghulp, nog inwerken op tankreiniging.', updatedAt: t },
+    { id: 'u_tech', authId: 'u_tech', email: 'techniek@truckwash1group.nl', password: 'techniek', name: 'Ramon Peters', roles: ['technician', 'employee'], active: true, hourlyRate: 28, allLocations: true, locationId: 'loc_hk',
+      personnelNumber: 'TW-007', phone: '06-23456789', function: 'Technisch monteur', contractHours: 40, startDate: t - 5 * YEAR, updatedAt: t },
     { id: 'u_dev', authId: 'u_dev', email: 'dev@truckwash1group.nl', password: 'dev', name: 'Sem de Ontwikkelaar', roles: ['developer'], active: true, allLocations: true, locationId: 'loc_hk',
       personnelNumber: 'TW-900', function: 'Softwareontwikkelaar', updatedAt: t },
     { id: 'u_klant', authId: 'u_klant', email: 'planning@transportjansen.nl', password: 'klant', name: 'Mark Jansen', roles: ['customer'], companyId: 'co_jansen', active: true, updatedAt: t },
@@ -934,6 +952,144 @@ async function seed() {
     updatedAt: t,
   }))
 
+  /* --- aanmeldingen --- */
+
+  const AANMELDINGEN: [string, string, Signup['kind'], Signup['status'], string, string][] = [
+    ['Youssef el Amrani', 'youssef.elamrani@gmail.com', 'werknemer', 'nieuw',
+     'Ik begin volgende maand bij de vestiging in Utrecht, Ilse zei dat ik me hier kon aanmelden.', 'loc_utr'],
+    ['Wendy Hoekstra', 'wendy@hoekstratransport.nl', 'klant', 'nieuw',
+     'We rijden met twaalf trekkers en willen een vast weekmoment inplannen.', ''],
+    ['Bilal Yildiz', 'bilal.yildiz@outlook.com', 'werknemer', 'nieuw', '', 'loc_rtm'],
+    ['Marloes de Groot', 'marloes.degroot@truckwash1group.nl', 'werknemer', 'goedgekeurd',
+     'Overgestapt vanuit de vestiging Zwolle.', 'loc_zwo'],
+    ['R. Petersen', 'info@petersen-koeltransport.nl', 'klant', 'afgewezen',
+     'Graag een account.', ''],
+  ]
+
+  const signups: Signup[] = AANMELDINGEN.map(([naam, mail, soort, status, bericht, loc], i) => ({
+    id: 'sg_' + i,
+    name: naam,
+    email: mail,
+    phone: '06-' + String(10_000_000 + i * 1_234_567).slice(0, 8),
+    kind: soort,
+    companyName: soort === 'klant' ? naam.split(' ').slice(-1)[0] + ' Transport BV' : undefined,
+    locationId: loc || undefined,
+    message: bericht || undefined,
+    status,
+    createdAt: t - (i + 1) * 9 * 3_600_000,
+    handledBy: status === 'nieuw' ? undefined : 'u_manager',
+    handledByName: status === 'nieuw' ? undefined : 'Ilse Bakker',
+    handledAt: status === 'nieuw' ? undefined : t - i * 3_600_000,
+    rejectReason: status === 'afgewezen'
+      ? 'Dit bedrijf staat al bij ons bekend onder een ander adres.'
+      : undefined,
+    updatedAt: t,
+  }))
+
+  /* --- overleg: kanalen, berichten en leestekens --- */
+
+  const VASTE_KANALEN: [string, string, string][] = [
+    ['Algemeen', 'algemeen', 'Alles wat iedereen aangaat'],
+    ['Techniek', 'techniek', 'Storingen, onderhoud en werkbonnen'],
+    ['Planning', 'planning', 'Drukte, bezetting en wie waar staat'],
+    ['Kwaliteit', 'kwaliteit', 'Klachten, herstelwerk en hoe het beter kan'],
+  ]
+
+  const channels: Channel[] = VASTE_KANALEN.map(([naam, slug, onderwerp], i) => ({
+    id: 'ch_' + slug,
+    slug,
+    name: naam,
+    kind: 'kanaal',
+    topic: onderwerp,
+    private: false,
+    memberIds: ['u_manager'],
+    createdBy: 'u_manager',
+    createdAt: t - 120 * DAY,
+    archived: false,
+    updatedAt: t,
+  }))
+
+  // Ook het hoofdkantoor krijgt een eigen kanaal: daar zit personeel dat
+  // net zo goed iets te overleggen heeft.
+  for (const loc of locations) {
+    channels.push({
+      id: 'ch_loc_' + loc.id,
+      slug: loc.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      name: loc.name,
+      kind: 'vestiging',
+      topic: 'Het overleg van ' + loc.name,
+      locationId: loc.id,
+      private: false,
+      memberIds: [],
+      createdBy: 'u_manager',
+      createdAt: t - 120 * DAY,
+      archived: false,
+      updatedAt: t,
+    })
+  }
+
+  const PRAAT: [string, string, string, number][] = [
+    ['ch_algemeen', 'u_manager', 'Ilse Bakker',   0],
+    ['ch_algemeen', 'u_wasser', 'Tom Verhoeven',  0],
+    ['ch_algemeen', 'u_manager', 'Ilse Bakker',   0],
+    ['ch_techniek', 'u_tech', 'Ramon Peters',     0],
+    ['ch_techniek', 'u_wasser3', 'Nour El Amrani',    0],
+    ['ch_techniek', 'u_tech', 'Ramon Peters',     0],
+    ['ch_planning', 'u_wasser3', 'Nour El Amrani',    0],
+    ['ch_planning', 'u_manager', 'Ilse Bakker',   0],
+    ['ch_kwaliteit', 'u_manager', 'Ilse Bakker',  0],
+  ]
+
+  const TEKSTEN = [
+    'Morgen komt er een nieuwe lading borstelshampoo binnen. Zet het meteen achter in het rek, het oude vooraan opmaken.',
+    'Duidelijk. De pomp op baan 2 klinkt trouwens raar sinds vanmorgen, ik heb er een storing van gemaakt.',
+    'Gezien, Ramon kijkt er vandaag naar. @Tom Verhoeven bedankt voor het melden.',
+    'Baan 2 staat stil: lager van de aandrijving is stuk. Onderdeel ligt er woensdag, tot die tijd één baan minder.',
+    'Dan schuif ik de vaste klanten van woensdag naar donderdagochtend. Scheelt wachtrij.',
+    'Prima. Ik zet er een werkbon op zodra het onderdeel binnen is.',
+    'Donderdag wordt druk: 34 wagens ingepland op twee banen. Wie kan een uur eerder beginnen?',
+    'Ik regel er twee bij vanuit Nieuwegein. @iedereen let donderdag op de doorlooptijd, we willen onder de 25 minuten blijven.',
+    'Klacht binnen over strepen op een cabine van vorige week. Even scherp op het naspoelen, vooral bij vorst.',
+  ]
+
+  const chatMessages: ChatMessage[] = PRAAT.map(([kanaal, wie, naam], i) => {
+    const tekst = TEKSTEN[i]
+    const genoemd: string[] = []
+    if (tekst.includes('@Tom Verhoeven')) genoemd.push('u_wasser')
+    return {
+      id: 'cm_' + i,
+      channelId: kanaal,
+      authorId: wie,
+      authorName: naam,
+      body: tekst,
+      at: t - (PRAAT.length - i) * 40 * 60_000,
+      mentions: genoemd,
+      updatedAt: t,
+    }
+  })
+
+  const channelReads: ChannelRead[] = [
+    {
+      id: 'u_manager__ch_algemeen',
+      userId: 'u_manager',
+      channelId: 'ch_algemeen',
+      lastReadAt: t - 30 * 60_000,
+      updatedAt: t,
+    },
+  ]
+
+  const emailLog: EmailLog[] = signups.slice(0, 3).map((sg, i) => ({
+    id: 'em_' + i,
+    template: 'aanmelding',
+    toEmail: sg.email,
+    subject: 'We hebben je aanmelding ontvangen',
+    status: i === 2 ? 'mislukt' : 'verstuurd',
+    providerId: i === 2 ? undefined : 're_' + String(1000 + i),
+    error: i === 2 ? 'Domain preview.truckwash.cloud is not verified' : undefined,
+    at: sg.createdAt + 4000,
+    updatedAt: t,
+  }))
+
   await server.transaction('rw', server.tables, async () => {
     await server.locations.bulkPut(locations)
     await server.companies.bulkPut(companies)
@@ -954,6 +1110,11 @@ async function seed() {
     await server.tickets.bulkPut(tickets)
     await server.ticketMessages.bulkPut(ticketMessages)
     await server.logEvents.bulkPut(logEvents)
+    await server.signups.bulkPut(signups)
+    await server.channels.bulkPut(channels)
+    await server.chatMessages.bulkPut(chatMessages)
+    await server.channelReads.bulkPut(channelReads)
+    await server.emailLog.bulkPut(emailLog)
   })
 }
 

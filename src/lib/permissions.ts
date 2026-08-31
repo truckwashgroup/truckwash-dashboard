@@ -25,10 +25,14 @@ const EMPLOYEE: Permission[] = [
   // Iedereen mag melden dat de app iets raars doet -- dat is precies wie het
   // als eerste merkt.
   'dev.report',
+  // Overleggen doet iedereen op de vloer; dat is de vervanger van de
+  // groepsapp waar niemand grip op had.
+  'chat.use',
 ]
 
 const TECHNICIAN: Permission[] = [
   'dev.report',
+  'chat.use',
   'roster.viewOwn',
   'hours.own',
   'expenses.submit',
@@ -43,6 +47,7 @@ const TECHNICIAN: Permission[] = [
 
 const DEVELOPER: Permission[] = [
   'locations.view', 'locations.all',
+  'chat.use',
   'dev.report', 'dev.tickets', 'dev.respond', 'dev.logs',
   'admin.audit',
 ]
@@ -62,6 +67,7 @@ const SUPERVISOR: Permission[] = [
   'customers.view',
   'notify.send', 'notify.broadcast',
   'learning.assign',
+  'chat.manage',
 ]
 
 const CUSTOMER: Permission[] = [

@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  AlertTriangle, CalendarClock, ClipboardList, Gauge, QrCode, Wrench,
+  AlertTriangle, CalendarClock, ClipboardList, Gauge, GraduationCap, LayoutGrid,
+  MessageSquare, QrCode, Wrench,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db } from '../../lib/db'
@@ -21,21 +22,25 @@ import Werkbonnen from './Werkbonnen'
 import Installaties from './Installaties'
 import Onderhoud from './Onderhoud'
 import Opleiding from '../../components/Opleiding'
+import Overleg, { useOverlegTeller } from '../../components/Overleg'
+import { Start, type Tegel, type TegelTint } from '../../components/Tegels'
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
+  start: { title: 'Technische dienst', subtitle: 'Waar wil je heen?' },
   overzicht: { title: 'Technische dienst', subtitle: 'Wat er nu speelt' },
   storingen: { title: 'Storingen', subtitle: 'Meldingen beoordelen en afhandelen' },
   werkbonnen: { title: 'Werkbonnen', subtitle: 'Het werk zelf' },
   installaties: { title: 'Installaties', subtitle: 'Machinepark en QR-labels' },
   onderhoud: { title: 'Onderhoud', subtitle: 'Schemas en wat er openstaat' },
   opleiding: { title: 'Mijn cursussen', subtitle: 'Veiligheid en techniek' },
+  overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
 }
 
 export default function TechnicianDashboard() {
   const me = useAuth((s) => s.user)!
   const perms = usePerms()
   const currentLocation = useLocationFilter((s) => s.current)
-  const [page, setPage] = useState('overzicht')
+  const [page, setPage] = useState('start')
   const [scanning, setScanning] = useState(false)
   const [melden, setMelden] = useState(false)
   const [gescandAsset, setGescandAsset] = useState<string | undefined>()
@@ -44,6 +49,7 @@ export default function TechnicianDashboard() {
   const alleOrders = useLiveQuery(() => db.workOrders.toArray(), [], [] as WorkOrder[])
   const allePlans = useLiveQuery(() => db.maintenancePlans.toArray(), [], [] as MaintenancePlan[])
   const alleAssets = useLiveQuery(() => db.assets.toArray(), [], [] as Asset[])
+  const ongelezen = useOverlegTeller()
 
   const faults = useMemo(() => filterByLocation(me, alleFaults, currentLocation), [me, alleFaults, currentLocation])
   const orders = useMemo(() => filterByLocation(me, alleOrders, currentLocation), [me, alleOrders, currentLocation])
@@ -56,6 +62,7 @@ export default function TechnicianDashboard() {
   const achterstallig = plans.filter((p) => p.active && p.nextDueAt < Date.now())
 
   const items: NavItem[] = [
+    { key: 'start', label: 'Start', icon: LayoutGrid },
     { key: 'overzicht', label: 'Overzicht', icon: Gauge },
     ...(perms.can('faults.view')
       ? [{ key: 'storingen', label: 'Storingen', icon: AlertTriangle, badge: openStoringen.length || undefined }]
@@ -67,7 +74,88 @@ export default function TechnicianDashboard() {
     ...(perms.can('maintenance.view')
       ? [{ key: 'onderhoud', label: 'Onderhoud', icon: CalendarClock, badge: achterstallig.length || undefined }]
       : []),
-    { key: 'opleiding', label: 'Cursussen', icon: ClipboardList },
+    { key: 'opleiding', label: 'Cursussen', icon: GraduationCap },
+    ...(perms.can('chat.use')
+      ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
+      : []),
+  ]
+
+  const kritiek = openStoringen.filter((f) => f.severity === 'kritiek' || f.stopsProduction).length
+  const stil = assets.filter((a) => a.status === 'storing').length
+
+  const tegels: Tegel[] = [
+    {
+      key: 'overzicht',
+      label: 'Overzicht',
+      hint: 'Wat er nu speelt op je vestigingen',
+      icon: Gauge,
+      tint: 'brand',
+      stat: openStoringen.length,
+      statLabel: 'storingen open',
+      onClick: () => setPage('overzicht'),
+    },
+    ...(perms.can('faults.view') ? [{
+      key: 'storingen',
+      label: 'Storingen',
+      hint: 'Beoordelen, toewijzen en afhandelen',
+      icon: AlertTriangle,
+      tint: (kritiek ? 'danger' : 'warn') as TegelTint,
+      stat: kritiek || openStoringen.length,
+      statLabel: kritiek ? 'kritiek of stilstand' : 'open meldingen',
+      urgent: kritiek > 0,
+      onClick: () => setPage('storingen'),
+    }] : []),
+    ...(perms.can('workorders.view') ? [{
+      key: 'werkbonnen',
+      label: 'Werkbonnen',
+      hint: 'Het werk dat aan jou is toegewezen',
+      icon: ClipboardList,
+      tint: 'info' as const,
+      stat: mijnBonnen.length,
+      statLabel: 'op jouw naam',
+      urgent: mijnBonnen.length > 4,
+      onClick: () => setPage('werkbonnen'),
+    }] : []),
+    ...(perms.can('maintenance.view') ? [{
+      key: 'onderhoud',
+      label: 'Onderhoud',
+      hint: "Schema's en beurten die klaarstaan",
+      icon: CalendarClock,
+      tint: (achterstallig.length ? 'oranje' : 'ok') as TegelTint,
+      stat: achterstallig.length,
+      statLabel: achterstallig.length ? 'over de datum' : 'alles op schema',
+      urgent: achterstallig.length > 0,
+      onClick: () => setPage('onderhoud'),
+    }] : []),
+    ...(perms.can('assets.view') ? [{
+      key: 'installaties',
+      label: 'Installaties',
+      hint: 'Machinepark, historie en QR-labels',
+      icon: Wrench,
+      tint: (stil ? 'danger' : 'neutraal') as TegelTint,
+      stat: stil || assets.length,
+      statLabel: stil ? 'buiten bedrijf' : 'apparaten',
+      onClick: () => setPage('installaties'),
+    }] : []),
+    ...(perms.can('chat.use') ? [{
+      key: 'overleg',
+      label: 'Overleg',
+      hint: 'Overleggen met de vestiging',
+      icon: MessageSquare,
+      tint: 'paars' as const,
+      stat: ongelezen,
+      statLabel: ongelezen === 1 ? 'nieuw bericht' : 'nieuwe berichten',
+      urgent: ongelezen > 0,
+      onClick: () => setPage('overleg'),
+    }] : []),
+    {
+      key: 'opleiding',
+      label: 'Mijn cursussen',
+      hint: 'Veiligheid, chemie en techniek',
+      icon: GraduationCap,
+      tint: 'neutraal',
+      onClick: () => setPage('opleiding'),
+    },
   ]
 
   useNavTarget(items.map((i) => i.key), (p) => setPage(p))
@@ -90,7 +178,7 @@ export default function TechnicianDashboard() {
       active={page}
       onNavigate={(p) => { setPage(p); setGescandAsset(undefined) }}
       title={meta.title}
-      subtitle={page === 'overzicht' ? dateFull(Date.now()) : meta.subtitle}
+      subtitle={page === 'overzicht' || page === 'start' ? dateFull(Date.now()) : meta.subtitle}
       actions={
         <>
           <button className="btn sm hide-mobile" onClick={() => setScanning(true)} title="Scan een QR-label">
@@ -102,6 +190,21 @@ export default function TechnicianDashboard() {
         </>
       }
     >
+      {page === 'start' && (
+        <Start
+          tegels={tegels}
+          snel={
+            <>
+              <button className="btn sm" onClick={() => setScanning(true)}>
+                <QrCode size={14} /> QR-label scannen
+              </button>
+              <button className="btn sm" onClick={() => setMelden(true)}>
+                <AlertTriangle size={14} /> Storing melden
+              </button>
+            </>
+          }
+        />
+      )}
       {page === 'overzicht' && (
         <TechOverzicht
           faults={faults} orders={orders} plans={plans} assets={assets}
@@ -113,6 +216,7 @@ export default function TechnicianDashboard() {
       {page === 'installaties' && <Installaties assets={assets} focusId={gescandAsset} />}
       {page === 'onderhoud' && <Onderhoud plans={plans} assets={assets} />}
       {page === 'opleiding' && <Opleiding />}
+      {page === 'overleg' && <Overleg />}
 
       <QrScanner
         open={scanning}

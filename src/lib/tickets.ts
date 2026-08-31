@@ -129,6 +129,9 @@ export const tickets = {
             ? 'De ontwikkelaar heeft een vraag voor je.'
             : ticket.title,
         link: 'meldingen',
+        // De melder is niet de hele dag in de app; een antwoord waar hij
+        // niets van hoort is geen antwoord.
+        mail: true,
       })
     }
     return bijgewerkt
@@ -200,6 +203,7 @@ export const ticketMessages = {
         title: `Reactie op ${ticket.number}`,
         body: bericht.body.slice(0, 140),
         link: naarMelder ? 'meldingen' : 'tickets',
+        mail: naarMelder,
       })
     }
 

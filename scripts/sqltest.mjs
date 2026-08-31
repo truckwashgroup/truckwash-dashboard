@@ -82,6 +82,7 @@ await run(db, '0003_rechten_berichten_opleiding.sql draait', sqlFile('supabase/m
 await run(db, '0004_locaties.sql draait', sqlFile('supabase/migrations/0004_locaties.sql'))
 await run(db, '0005_technische_dienst.sql draait', sqlFile('supabase/migrations/0005_technische_dienst.sql'))
 await run(db, '0006_meldingen_en_logboek.sql draait', sqlFile('supabase/migrations/0006_meldingen_en_logboek.sql'))
+await run(db, '0007_aanmelden_en_overleg.sql draait', sqlFile('supabase/migrations/0007_aanmelden_en_overleg.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -91,6 +92,7 @@ await run(db, '0003 nogmaals', sqlFile('supabase/migrations/0003_rechten_bericht
 await run(db, '0004 nogmaals', sqlFile('supabase/migrations/0004_locaties.sql'))
 await run(db, '0005 nogmaals', sqlFile('supabase/migrations/0005_technische_dienst.sql'))
 await run(db, '0006 nogmaals', sqlFile('supabase/migrations/0006_meldingen_en_logboek.sql'))
+await run(db, '0007 nogmaals', sqlFile('supabase/migrations/0007_aanmelden_en_overleg.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
 const bedrijven = await db.query('select count(*)::int as n from public.companies')
@@ -155,15 +157,40 @@ const { rows: [aantal] } = await db.query(
   `select count(*)::int as n from public.profiles where email ilike 'joris@%'`)
 check('geen tweede dossier aangemaakt', aantal.n === 1, String(aantal.n))
 
-// Iemand zonder bestaand dossier krijgt er wel een, met alleen de klantrol.
+/*
+ * Iemand zonder bestaand dossier meldt zich aan. Hij krijgt wel een dossier,
+ * maar zonder rollen en op inactief -- een account is nog geen toegang.
+ *
+ * En het belangrijkste: hij stuurt zelf mee dat hij management wil zijn. Die
+ * gegevens komen van de client en horen genegeerd te worden. Zou dat niet zo
+ * zijn, dan kon iedereen met de publieke sleutel zichzelf tot baas bombarderen.
+ */
 await db.exec(`
-  insert into auth.users (id, email)
-  values ('22222222-2222-2222-2222-222222222222', 'onbekend@example.com');`)
+  insert into auth.users (id, email, raw_user_meta_data)
+  values ('22222222-2222-2222-2222-222222222222', 'onbekend@example.com',
+          '{"name":"Onbekend Persoon","signup":true,"signup_kind":"klant","roles":["management"]}'::jsonb);`)
+
 const { rows: [nieuw] } = await db.query(
-  `select roles from public.profiles where email = 'onbekend@example.com'`)
-check('onbekend account krijgt alleen de klantrol',
-  Array.isArray(nieuw.roles) ? nieuw.roles.join() === 'customer' : String(nieuw.roles) === '{customer}',
-  JSON.stringify(nieuw.roles))
+  `select roles, active, name from public.profiles where email = 'onbekend@example.com'`)
+const rollen = Array.isArray(nieuw.roles) ? nieuw.roles : []
+
+check('aanmelding krijgt geen enkele rol', rollen.length === 0, JSON.stringify(nieuw.roles))
+check('aanmelding staat op inactief', nieuw.active === false, String(nieuw.active))
+check('meegestuurde rol management wordt genegeerd',
+  !rollen.includes('management'), JSON.stringify(nieuw.roles))
+check('de naam uit de aanmelding wordt wel overgenomen',
+  nieuw.name === 'Onbekend Persoon', String(nieuw.name))
+
+const { rows: [aanmelding] } = await db.query(
+  `select id, kind, status from public.signups where email = 'onbekend@example.com'`)
+check('er staat een aanmelding klaar', !!aanmelding && aanmelding.status === 'nieuw',
+  JSON.stringify(aanmelding))
+check('het soort aanmelding is overgenomen', aanmelding?.kind === 'klant', String(aanmelding?.kind))
+
+const { rows: [seintje] } = await db.query(
+  `select count(*)::int as n from public.notifications
+    where to_role = 'management' and title like 'Nieuwe aanmelding%'`)
+check('het management krijgt er bericht van', seintje.n === 1, String(seintje.n))
 
 console.log('\n6. updated_at wordt door de server gezet')
 
@@ -182,12 +209,13 @@ await db.exec(`
     ('33333333-3333-3333-3333-333333333333', 'klant@transportjansen.nl'),
     ('44444444-4444-4444-4444-444444444444', 'wasser@truckwash1group.nl');
 
+  -- Dit is wat "toelaten" in de app doet: rollen geven en actief zetten.
   update public.profiles
-     set roles = array['customer']::text[], company_id = 'co_jansen'
+     set roles = array['customer']::text[], company_id = 'co_jansen', active = true
    where email = 'klant@transportjansen.nl';
 
   update public.profiles
-     set roles = array['employee']::text[]
+     set roles = array['employee']::text[], active = true
    where email = 'wasser@truckwash1group.nl';
 
   insert into public.wash_jobs (id, company_id, plate, service, scheduled_at) values
@@ -242,7 +270,7 @@ await db.exec(`
   values ('55555555-5555-5555-5555-555555555555', 'voorman@truckwash1group.nl');
 
   update public.profiles
-     set roles = array['employee','supervisor']::text[]
+     set roles = array['employee','supervisor']::text[], active = true
    where email = 'voorman@truckwash1group.nl';
 
   insert into public.courses (id, code, title, category, required_for, pass_score)
@@ -329,6 +357,168 @@ async function tryInsertShift(uid, id) {
 }
 check('leidinggevende mag het rooster wijzigen', await tryInsertShift(voorman, 'sh_lead'))
 check('werknemer mag het rooster niet wijzigen', !(await tryInsertShift(wasser, 'sh_worker')))
+
+
+/* ================================================================== */
+
+console.log('\n9. Aanmeldingen: alleen het management beslist')
+
+const { rows: [klantRow] } = await db.query(
+  `select id from public.profiles where email = 'klant@transportjansen.nl'`)
+
+// Het management erbij, want tot nu toe was er niemand met die rol.
+const baas = '66666666-6666-6666-6666-666666666666'
+await db.exec(`
+  insert into auth.users (id, email) values ('${baas}', 'baas@truckwash1group.nl');
+  update public.profiles
+     set roles = array['management']::text[], active = true, all_locations = true
+   where email = 'baas@truckwash1group.nl';
+
+  alter table public.signups       force row level security;
+  alter table public.channels      force row level security;
+  alter table public.chat_messages force row level security;
+  alter table public.channel_reads force row level security;
+  alter table public.email_log     force row level security;
+  grant select, insert, update, delete on all tables in schema public to authenticated;
+`)
+
+check('het management ziet de aanmeldingen',
+  (await countAs(baas, 'select count(*)::int as n from public.signups')) > 0)
+check('een klant ziet de aanmeldingen van anderen niet',
+  (await countAs(klant, "select count(*)::int as n from public.signups where email = 'onbekend@example.com'")) === 0)
+check('je ziet je eigen aanmelding wel',
+  (await countAs(klant, 'select count(*)::int as n from public.signups')) === 1)
+
+async function magSchrijven(uid, sql) {
+  await asUser(db, uid)
+  await db.exec('set role authenticated;')
+  try {
+    await db.exec(sql)
+    return true
+  } catch {
+    return false
+  } finally {
+    await db.exec('reset role;')
+  }
+}
+
+/*
+ * Let op: een UPDATE die door de beveiligingsregels wordt tegengehouden geeft
+ * geen foutmelding, hij raakt gewoon nul rijen. Kijken of het gelukt is doe je
+ * dus door achteraf te kijken wat er staat, niet of er iets omviel.
+ */
+async function statusVanAanmelding() {
+  const r = await db.query(
+    "select status from public.signups where email = 'onbekend@example.com'")
+  return r.rows[0]?.status
+}
+
+await magSchrijven(wasser,
+  "update public.signups set status = 'goedgekeurd' where email = 'onbekend@example.com';")
+check('een werknemer krijgt een aanmelding niet goedgekeurd',
+  (await statusVanAanmelding()) === 'nieuw', String(await statusVanAanmelding()))
+
+await magSchrijven(baas,
+  "update public.signups set status = 'goedgekeurd' where email = 'onbekend@example.com';")
+check('het management wel',
+  (await statusVanAanmelding()) === 'goedgekeurd', String(await statusVanAanmelding()))
+
+/* ================================================================== */
+
+console.log('\n10. Overleg: kanalen, vestigingen en beslotenheid')
+
+await db.exec(`
+  insert into public.locations (id, code, name, kind, city) values
+    ('loc_utr', 'TW-UTR', 'Utrecht', 'vestiging', 'Utrecht'),
+    ('loc_rtd', 'TW-RTD', 'Rotterdam', 'vestiging', 'Rotterdam')
+  on conflict (id) do nothing;
+
+  update public.profiles set location_id = 'loc_utr'
+   where email = 'wasser@truckwash1group.nl';
+
+  insert into public.channels (id, slug, name, kind, private, member_ids, created_by, created_at) values
+    ('ch_algemeen', 'algemeen', 'Algemeen', 'kanaal', false, '{}', '${voormanRow.id}', 0),
+    ('ch_directie', 'directie', 'Directie', 'kanaal', true, array['${voormanRow.id}']::text[], '${voormanRow.id}', 0);
+
+  insert into public.channels (id, slug, name, kind, location_id, private, member_ids, created_by, created_at) values
+    ('ch_utr', 'utrecht', 'Utrecht', 'vestiging', 'loc_utr', false, '{}', '${voormanRow.id}', 0),
+    ('ch_rtd', 'rotterdam', 'Rotterdam', 'vestiging', 'loc_rtd', false, '{}', '${voormanRow.id}', 0);
+
+  insert into public.chat_messages (id, channel_id, author_id, author_name, body, at) values
+    ('cm_open', 'ch_algemeen', '${voormanRow.id}', 'Voorman', 'Morgen komt de levering.', 1),
+    ('cm_dicht', 'ch_directie', '${voormanRow.id}', 'Voorman', 'Interne cijfers.', 1),
+    ('cm_utr', 'ch_utr', '${voormanRow.id}', 'Voorman', 'Baan 2 ligt stil.', 1);
+`)
+
+check('een werknemer ziet het open kanaal',
+  (await countAs(wasser, "select count(*)::int as n from public.channels where id = 'ch_algemeen'")) === 1)
+check('een besloten kanaal blijft dicht',
+  (await countAs(wasser, "select count(*)::int as n from public.channels where id = 'ch_directie'")) === 0)
+check('een lid ziet zijn besloten kanaal wel',
+  (await countAs(voorman, "select count(*)::int as n from public.channels where id = 'ch_directie'")) === 1)
+
+check('je ziet het kanaal van je eigen vestiging',
+  (await countAs(wasser, "select count(*)::int as n from public.channels where id = 'ch_utr'")) === 1)
+check('en niet dat van een vestiging waar je niets te zoeken hebt',
+  (await countAs(wasser, "select count(*)::int as n from public.channels where id = 'ch_rtd'")) === 0)
+check('het hoofdkantoor ziet alle vestigingskanalen',
+  (await countAs(baas, "select count(*)::int as n from public.channels where kind = 'vestiging'")) === 2)
+
+check('een klant komt het overleg helemaal niet in',
+  (await countAs(klant, 'select count(*)::int as n from public.channels')) === 0)
+
+check('berichten uit een besloten kanaal blijven onzichtbaar',
+  (await countAs(wasser, "select count(*)::int as n from public.chat_messages where id = 'cm_dicht'")) === 0)
+check('berichten uit je eigen kanalen zie je wel',
+  (await countAs(wasser, 'select count(*)::int as n from public.chat_messages')) === 2)
+
+check('je mag geen bericht op andermans naam plaatsen',
+  !(await magSchrijven(wasser, `insert into public.chat_messages (id, channel_id, author_id, author_name, body, at)
+     values ('cm_vals', 'ch_algemeen', '${voormanRow.id}', 'Voorman', 'Namens de baas.', 2);`)))
+
+check('je mag niet posten in een kanaal dat je niet mag zien',
+  !(await magSchrijven(wasser, `insert into public.chat_messages (id, channel_id, author_id, author_name, body, at)
+     values ('cm_inbraak', 'ch_directie', '${wasserRow.id}', 'Wasser', 'Hallo?', 2);`)))
+
+check('in je eigen kanaal mag je gewoon praten',
+  await magSchrijven(wasser, `insert into public.chat_messages (id, channel_id, author_id, author_name, body, at)
+     values ('cm_eigen', 'ch_utr', '${wasserRow.id}', 'Wasser', 'Ik kijk ernaar.', 2);`))
+
+check('een werknemer mag zelf geen kanaal beginnen',
+  !(await magSchrijven(wasser, `insert into public.channels (id, slug, name, kind, private, member_ids, created_by, created_at)
+     values ('ch_eigen', 'eigen', 'Eigen', 'kanaal', false, '{}', '${wasserRow.id}', 0);`)))
+
+check('een rechtstreeks gesprek beginnen mag wel',
+  await magSchrijven(wasser, `insert into public.channels (id, slug, name, kind, private, member_ids, created_by, created_at)
+     values ('ch_dm', 'gesprek', 'Gesprek', 'gesprek', true,
+             array['${wasserRow.id}','${voormanRow.id}']::text[], '${wasserRow.id}', 0);`))
+
+check('een leidinggevende mag wel een kanaal beginnen',
+  await magSchrijven(voorman, `insert into public.channels (id, slug, name, kind, private, member_ids, created_by, created_at)
+     values ('ch_chemie', 'chemie', 'Chemie', 'kanaal', false, '{}', '${voormanRow.id}', 0);`))
+
+/* --- leestekens en post --- */
+
+check('je leesteken zetten mag',
+  await magSchrijven(wasser, `insert into public.channel_reads (id, user_id, channel_id, last_read_at)
+     values ('r_1', '${wasserRow.id}', 'ch_utr', 5);`))
+
+check('dat van een ander niet',
+  !(await magSchrijven(wasser, `insert into public.channel_reads (id, user_id, channel_id, last_read_at)
+     values ('r_2', '${voormanRow.id}', 'ch_utr', 5);`)))
+
+await db.exec(`
+  insert into public.email_log (id, template, to_email, subject, status, at)
+  values ('em_1', 'aanmelding', 'iemand@example.com', 'Ontvangen', 'verstuurd', 1);`)
+
+check('het management ziet wat er aan post uit is gegaan',
+  (await countAs(baas, 'select count(*)::int as n from public.email_log')) === 1)
+check('een werknemer niet',
+  (await countAs(wasser, 'select count(*)::int as n from public.email_log')) === 0)
+check('en niemand kan er zelf een regel in schrijven',
+  !(await magSchrijven(baas, `insert into public.email_log (id, template, to_email, subject, at)
+     values ('em_vals', 'bericht', 'iemand@example.com', 'Namens de baas', 2);`)))
+
 
 await db.close()
 

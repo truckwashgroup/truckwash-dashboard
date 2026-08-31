@@ -1,8 +1,9 @@
 import Dexie, { type Table } from 'dexie'
 import type {
-  AppNotification, Asset, Company, Course, CourseProgress, Expense, Fault,
-  InventoryItem, Location, LogEvent, MaintenancePlan, OutboxRecord, Shift,
-  StockMovement, Ticket, TicketMessage, TimeEntry, User, WashJob, WorkOrder,
+  AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
+  CourseProgress, EmailLog, Expense, Fault, InventoryItem, Location, LogEvent,
+  MaintenancePlan, OutboxRecord, Shift, Signup, StockMovement, Ticket,
+  TicketMessage, TimeEntry, User, WashJob, WorkOrder,
 } from './types'
 
 /**
@@ -29,6 +30,11 @@ class TruckwashDB extends Dexie {
   tickets!: Table<Ticket, string>
   ticketMessages!: Table<TicketMessage, string>
   logEvents!: Table<LogEvent, string>
+  signups!: Table<Signup, string>
+  channels!: Table<Channel, string>
+  chatMessages!: Table<ChatMessage, string>
+  channelReads!: Table<ChannelRead, string>
+  emailLog!: Table<EmailLog, string>
   outbox!: Table<OutboxRecord, number>
   meta!: Table<{ key: string; value: unknown }, string>
 
@@ -83,6 +89,15 @@ class TruckwashDB extends Dexie {
       tickets: 'id, status, priority, reportedBy, assignedTo, reportedAt, updatedAt',
       ticketMessages: 'id, ticketId, createdAt, updatedAt',
       logEvents: 'id, level, at, updatedAt',
+    })
+
+    // v7: aanmeldingen en het overleg
+    this.version(7).stores({
+      signups: 'id, status, email, createdAt, updatedAt',
+      channels: 'id, slug, kind, locationId, archived, updatedAt',
+      chatMessages: 'id, channelId, authorId, at, updatedAt',
+      channelReads: 'id, userId, channelId, updatedAt',
+      emailLog: 'id, template, status, at, updatedAt',
     })
   }
 }

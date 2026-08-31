@@ -100,6 +100,8 @@ export async function ensureBackendMatches(): Promise<boolean> {
     db.assets.clear(), db.faults.clear(), db.workOrders.clear(),
     db.maintenancePlans.clear(), db.tickets.clear(),
     db.ticketMessages.clear(), db.logEvents.clear(),
+    db.signups.clear(), db.channels.clear(),
+    db.chatMessages.clear(), db.channelReads.clear(), db.emailLog.clear(),
     // Wijzigingen die voor een andere server bedoeld waren zijn onbruikbaar.
     db.outbox.clear(),
   ])
@@ -189,6 +191,11 @@ const TABLE_OF: Record<EntityName, () => any> = {
   tickets: () => db.tickets,
   ticketMessages: () => db.ticketMessages,
   logEvents: () => db.logEvents,
+  signups: () => db.signups,
+  channels: () => db.channels,
+  chatMessages: () => db.chatMessages,
+  channelReads: () => db.channelReads,
+  emailLog: () => db.emailLog,
 }
 
 async function pullChanges(): Promise<number> {
@@ -223,6 +230,41 @@ export function scheduleFlush(delay = 1200) {
   }, delay)
 }
 
+/* ------------------------------------------------------------------ *
+ *  Sneller kijken tijdens een gesprek
+ *
+ *  Drie kwartier wachten op het antwoord van een collega is geen overleg.
+ *  Zolang het overlegscherm openstaat kijken we daarom elke paar seconden,
+ *  en daarna weer rustig. Het blijft dezelfde synchronisatie -- er komt
+ *  geen tweede verbinding bij.
+ * ------------------------------------------------------------------ */
+
+const IDLE_POLL = 45_000
+const CHAT_POLL = 5_000
+
+let pollMs = IDLE_POLL
+let pollTimer: ReturnType<typeof setInterval> | null = null
+let fastCount = 0
+
+function restartPoll() {
+  if (pollTimer) clearInterval(pollTimer)
+  pollTimer = setInterval(() => {
+    if (useSync.getState().online) void useSync.getState().sync({ silent: true })
+  }, pollMs)
+}
+
+/**
+ * Zet het snelle ritme aan of uit. Meerdere schermen kunnen erom vragen;
+ * pas als de laatste hem loslaat gaat het terug naar het rustige ritme.
+ */
+export function setFastSync(on: boolean) {
+  fastCount = Math.max(0, fastCount + (on ? 1 : -1))
+  const wanted = fastCount > 0 ? CHAT_POLL : IDLE_POLL
+  if (wanted === pollMs) return
+  pollMs = wanted
+  if (pollTimer) restartPoll()
+}
+
 let started = false
 
 export function startSyncEngine() {
@@ -239,9 +281,7 @@ export function startSyncEngine() {
   window.addEventListener('offline', goOffline)
 
   // Periodiek: haalt ook wijzigingen van andere gebruikers binnen.
-  setInterval(() => {
-    if (useSync.getState().online) void useSync.getState().sync({ silent: true })
-  }, 45_000)
+  restartPoll()
 
   // Terug in beeld -> direct bijwerken
   document.addEventListener('visibilitychange', () => {

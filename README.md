@@ -21,13 +21,42 @@ npm run electron:dev   # Windows-app met live herladen
 ### Inloggen
 
 Er zijn geen testaccounts meer. De app praat uitsluitend met Supabase; zonder
-een echt account kom je er niet in. Gebruikers maak je aan in Supabase onder
-*Authentication → Users*, en rollen ken je toe in de app.
+een echt account kom je er niet in.
 
 Zijn `VITE_SUPABASE_URL` en `VITE_SUPABASE_ANON_KEY` niet ingevuld, dan meldt
 het inlogscherm dat en is de knop uitgeschakeld. De ingebouwde testgegevens
 zitten er nog wel, maar alleen voor de geautomatiseerde tests, en die zijn
 niet vanuit de app te bereiken.
+
+### Zelf aanmelden
+
+Onder het inlogscherm staat **Aanmelden**. Daar maakt iemand zelf een account
+aan — meer kan een bezoeker niet, en er is niets geheims voor nodig.
+
+Een account is alleen nog geen toegang. Wat er gebeurt:
+
+1. De databasetrigger zet een dossier klaar **zonder rollen en op inactief**.
+2. Er komt een aanmelding te staan bij *Management → Aanmeldingen*, en het
+   management krijgt er bericht van.
+3. Probeert diegene in te loggen, dan zegt de app dat zijn aanmelding wordt
+   beoordeeld. Hij komt nergens binnen.
+4. Bij *Aanmeldingen* druk je op **Toelaten**. Daar kies je in één keer de
+   rollen, de vestiging, de vestigingen waar hij leiding over krijgt, het
+   personeelsnummer, de functie en de contracturen.
+5. Pas daarna kan hij inloggen, en krijgt hij daar bericht van.
+
+Daarmee hoef je nooit meer met de hand in Supabase. Ook afwijzen kan, met een
+reden die letterlijk in de mail terechtkomt.
+
+> Wat de app **niet** overneemt zijn de gegevens die de client meestuurt bij
+> het aanmaken van een account. Die zijn niet te vertrouwen: wie de publieke
+> sleutel heeft kan er zetten wat hij wil. Vroeger las de trigger daar de
+> rollen uit, en kon iemand zichzelf dus tot management maken. Dat gat is met
+> migratie 0007 dicht, en de schematest bewijst het.
+
+Staat er al een dossier klaar op hetzelfde e-mailadres — omdat het management
+die persoon zelf heeft toegevoegd — dan wordt dat gekoppeld, mét de rollen die
+er staan. Die hoeft dus niet nog eens beoordeeld te worden.
 
 ---
 
@@ -38,6 +67,12 @@ niet vanuit de app te bereiken.
 De animatie draait één keer per inlog: een vrachtwagen rijdt de wasstraat
 binnen, krijgt voorwas, schuim, borstels, spoeling en droging, en komt
 glanzend aan de andere kant naar buiten. Overslaan kan rechtsboven.
+
+Elk dashboard begint op **Start**: een raster tegels dat je in één oogopslag
+laat zien waar iets te doen is. Op elke tegel staat een cijfer dat leeft —
+"4 bonnen wachten op akkoord" is een reden om te klikken, "Financieel" niet.
+Vraagt er iets echt aandacht, dan springt de tegel eruit en staat hij ook
+bovenaan in een balkje. De zijbalk blijft gewoon staan voor wie de weg kent.
 
 ### Werknemers
 - Dagplanning en wachtrij, wagens oppakken en gereed melden met live meeloper
@@ -63,7 +98,9 @@ glanzend aan de andere kant naar buiten. Overslaan kan rechtsboven.
 - Omzet-, kosten- en volumegrafieken, mix van behandelingen, grootste klanten
 - **Financieel**: kostenposten valideren (los of in bulk), afkeuren met reden,
   resultaat en btw-saldo
-- Personeel: dossiers, rooster, en **per persoon precies instellen wat mag**
+- Personeel: dossiers, rooster, **per persoon precies instellen wat mag**, en
+  per persoon de vestiging plus de vestigingen waar hij leiding over krijgt
+- **Aanmeldingen**: wie zich via de app heeft aangemeld, toelaten of afwijzen
 - Voorraad, volledige planning, opleidingsoverzicht
 - **Beheer**: backendstatus, synchronisatie, rechtenoverzicht, lokale gegevens
 
@@ -75,6 +112,8 @@ glanzend aan de andere kant naar buiten. Overslaan kan rechtsboven.
 - **Meldingen** in de app en op het apparaat zelf (Windows, Android, iOS)
 - **E-learning**: veiligheid, chemie, installatie, kwaliteit en klantcontact,
   met toets, slaagnorm en certificaten die verlopen
+- **Overleg**: kanalen per onderwerp, één per vestiging, en rechtstreekse
+  gesprekken. Werkt zonder bereik, net als de rest
 
 ---
 
@@ -139,6 +178,46 @@ ziet is meestal de wasser en niet de monteur. Vier niveaus van urgentie, plus
 een schakelaar voor "de installatie ligt stil". Een kritieke melding zet het
 apparaat meteen op *storing* en stuurt een bericht naar de technische dienst
 van die vestiging.
+
+---
+
+## Overleg
+
+De vervanger van de groepsapp op ieders telefoon, waar de planning van
+dinsdag tussen de verjaardagen verdwijnt en waar niemand die weggaat nog uit
+te halen is.
+
+Links de kanalen, rechts het gesprek. Drie soorten:
+
+| Soort | Wie zit erin |
+| --- | --- |
+| **Kanaal** | Een onderwerp: #algemeen, #techniek, #planning, #kwaliteit. Open voor iedereen die mee mag doen, of besloten met een ledenlijst. |
+| **Vestiging** | Eén per vestiging plus het hoofdkantoor. Wie daar werkt zit erin; het hoofdkantoor leest overal mee. |
+| **Rechtstreeks** | Twee mensen. Het id is aan beide kanten hetzelfde, dus het gesprek splitst nooit. |
+
+Wat er anders is dan in een gewone chat:
+
+- **Het werkt zonder bereik.** Een bericht dat je in de machinekamer typt
+  staat er meteen, met een klokje ernaast, en vertrekt zodra je weer buiten
+  staat. Onderin de kanalenlijst zie je hoeveel er nog wacht.
+- **Zolang het scherm openstaat wordt er elke vijf seconden gekeken** in
+  plaats van elke drie kwartier. Zodra je het scherm verlaat gaat dat weer
+  omlaag. Het blijft dezelfde synchronisatie; er komt geen tweede verbinding
+  bij.
+- **Bellen doet het alleen als het over jou gaat.** Je krijgt bericht als
+  iemand je met `@naam` noemt, bij `@iedereen`, en bij elk rechtstreeks
+  gesprek. Niet bij elke regel in een kanaal — dan zet men het na een dag uit.
+- **Verwijderen laat de regel staan** met "bericht verwijderd" erin. Een
+  gesprek met gaten leest niemand meer met vertrouwen, en het antwoord
+  eronder slaat dan nergens meer op.
+
+Wie waar bij mag staat niet alleen in de app maar ook in de database. Een
+vestigingskanaal is voor wie op die vestiging werkt; een besloten kanaal voor
+wie in de ledenlijst staat. Ook wie de app omzeilt en rechtstreeks de database
+bevraagt komt er niet in.
+
+Kanalen beginnen mag een leidinggevende en het management. Een rechtstreeks
+gesprek mag iedereen.
 
 ---
 
@@ -475,10 +554,14 @@ alleen de vier methodes `login`, `push`, `pull` en `ping` verschillen.
 volstaat ruim). Kies een regio in Europa — dat scheelt vertraging en houdt de
 gegevens binnen de EU.
 
-**2. Zet het schema klaar.** Open in Supabase de **SQL Editor**, plak de inhoud
-van [supabase/migrations/0001_init.sql](supabase/migrations/0001_init.sql) en
-druk op Run. Daarna hetzelfde met [supabase/seed.sql](supabase/seed.sql) voor
-de klanten en voorraadartikelen.
+**2. Zet het schema klaar.** Open in Supabase de **SQL Editor**, plak de hele
+inhoud van [supabase/setup.sql](supabase/setup.sql) en druk op Run. Dat bestand
+is alle migraties achter elkaar; opnieuw draaien mag altijd en gooit niets weg.
+Daarna hetzelfde met [supabase/seed.sql](supabase/seed.sql) voor de klanten en
+voorraadartikelen.
+
+Komt er later een migratie bij, dan draai je `setup.sql` gewoon nog een keer.
+Het bestand wordt gemaakt met `node scripts/build-setup-sql.cjs`.
 
 **3. Vul je sleutels in.** Kopieer `.env.example` naar `.env` en neem uit
 Supabase (*Project Settings → API*) de **Project URL** en de **anon public**
@@ -493,17 +576,19 @@ VITE_SUPABASE_ANON_KEY=eyJhbGciOi...
 > beveiligingsregels toelaten. De **service_role** key hoort er nooit in — die
 > omzeilt alle beveiliging.
 
-**4. Maak gebruikers aan** onder *Authentication → Users → Add user*. Zet
-"Auto Confirm User" aan, anders moet er eerst een e-mail bevestigd worden. Er
-wordt automatisch een profiel aangemaakt.
+**4. Maak jezelf aan** onder *Authentication → Users → Add user*. Zet
+"Auto Confirm User" aan, anders moet er eerst een e-mail bevestigd worden.
 
-**4b. Zet openbaar registreren uit.** Standaard mag iedereen die de app heeft
-zelf een account aanmaken. Voor een bedrijfsapp wil je dat niet: ga naar
-*Authentication -> Sign In / Providers* en schakel "Allow new users to sign up"
-uit. Nieuwe collega's voeg je daarna zelf toe onder *Users*.
+Dit is de enige keer dat je dit hoeft te doen. Iedereen daarna meldt zich aan
+via de knop **Aanmelden** op het inlogscherm en wordt in de app toegelaten.
 
-**5. Ken rollen toe.** Nieuwe gebruikers krijgen standaard alleen de klantrol.
-Geef jezelf alle drie via de SQL Editor:
+**4b. Laat registreren aanstaan.** In *Authentication → Sign In / Providers*
+moet "Allow new users to sign up" **aan** staan, anders werkt aanmelden niet.
+Dat is veilig: een nieuw account krijgt geen enkele rol en staat op inactief
+tot iemand van het management het toelaat.
+
+**5. Geef jezelf de rollen.** Jouw eigen account is er nog een van vóór die
+regel, dus die zet je één keer met de hand goed:
 
 ```sql
 update public.profiles
@@ -513,7 +598,8 @@ update public.profiles
 ```
 
 Daarna herstart je de app (`npm run dev`). Verdere rollen deel je gewoon in de
-app uit, via *Management → Personeel → Rechten*.
+app uit, via *Management → Personeel → Rechten*, en nieuwe mensen laat je toe
+via *Management → Aanmeldingen*.
 
 ### Wie mag wat zien
 
@@ -562,6 +648,75 @@ demonstreren zonder je echte gegevens te raken.
 
 ---
 
+## E-mail via Resend
+
+De app verstuurt zelf geen post. Dat doet een kleine serverfunctie bij
+Supabase, en daar is een goede reden voor: alles wat je meelevert aan
+telefoons en laptops is uit te lezen. De sleutel van Resend hoort dus niet in
+de app.
+
+### Twee regels waar alles op rust
+
+1. **De app geeft nooit een e-mailadres mee**, maar een id — van een dossier
+   of van een aanmelding. De functie zoekt het adres er zelf bij. Daarmee is
+   dit geen doorgeefluik waarmee iemand namens `truckwash.cloud` post de
+   wereld in kan sturen.
+2. **De app geeft nooit opmaak mee**, alleen een sjabloonnaam en wat losse
+   woorden. De vormgeving staat op de server, en alles wat erin wordt gezet
+   gaat eerst door een filter dat tekens onschadelijk maakt.
+
+### Uitrollen
+
+```bash
+npm install -g supabase          # eenmalig
+supabase login
+supabase link --project-ref <jouw-project-ref>
+
+supabase secrets set RESEND_API_KEY=re_xxxxxxxx
+supabase secrets set MAIL_FROM="Truckwash1 Group <dashboard@preview.truckwash.cloud>"
+
+supabase functions deploy stuur-mail --no-verify-jwt
+```
+
+Dat `--no-verify-jwt` is nodig omdat één verzoek van iemand zonder account
+moet kunnen komen: de bevestiging van zijn eigen aanmelding. De controle
+gebeurt in de functie zelf, en strenger dan een JWT-check alleen — die mail
+gaat alleen uit als er bij dat adres werkelijk in het laatste kwartier een
+aanmelding binnenkwam, en één keer.
+
+Alle andere sjablonen eisen wél een geldige inlog, en waar het hoort ook de
+rol management.
+
+### Wanneer er post uitgaat
+
+| Wanneer | Naar wie |
+| --- | --- |
+| Iemand meldt zich aan | De aanmelder (bevestiging) én het management (seintje) |
+| Een aanmelding wordt toegelaten | De aanmelder, met wat hij nu mag |
+| Een aanmelding wordt afgewezen | De aanmelder, met de reden die je hebt ingevuld |
+| Een kritieke storing, of eentje die de installatie stillegt | De technische dienst |
+| Antwoord of statuswijziging op een melding aan de ontwikkelaar | De melder |
+
+Bewust **niet** bij elk bericht in het overleg en niet bij elke gewone
+melding. Post die te vaak komt wordt niet meer gelezen, en dan mist de mail
+die er wél toe doet zijn doel.
+
+### Als er iets misgaat
+
+De app blijft gewoon werken. De melding in de app is de echte melding; de
+mail is de tik op de schouder voor wie de app niet openheeft. Mislukt het
+versturen, dan komt dat in het logboek en gaat de rest door.
+
+Wat eruit is gegaan zie je onder *Ontwikkeling → Post*: aan wie, wanneer, en
+bij een mislukking wat de server terugkreeg. Dat is er precies voor de vraag
+"ik heb niets ontvangen" — anders is die niet te beantwoorden.
+
+> Staat de functie nog niet bij Supabase, dan merkt de app dat aan de eerste
+> poging en houdt op met vragen tot de app herstart. Er komt dus geen stroom
+> foutmeldingen van.
+
+---
+
 ## Merk en iconen
 
 Het logo staat in [src/assets/logo.webp](src/assets/logo.webp) en wordt
@@ -591,7 +746,11 @@ zet alle formaten in de Android- en iOS-projecten.
 ```
 electron/            main-proces + preload (auto-update, IPC)
 android/ ios/        native projecten (Capacitor) -- horen in git
-supabase/            databaseschema en startgegevens
+supabase/
+  migrations/        het schema, per stap
+  setup.sql          alles achter elkaar -- dit plak je in Supabase
+  functions/
+    stuur-mail/      de enige plek met de sleutel van Resend
 assets/              bron voor app-iconen en opstartschermen
 scripts/             starters voor desktop/APK, zelftest
 src/
@@ -603,15 +762,25 @@ src/
     offlineAuth.ts   inloggen zonder verbinding
     updates.ts       updates per platform
     charts.ts        gedeelde grafiekstijl
+    chat.ts          kanalen, berichten, ongelezen
+    signups.ts       zelf aanmelden en toelaten
+    mail.ts          vraagt de serverfunctie om post
+    tickets.ts       meldingen aan de ontwikkelaar
+    techniek.ts      installaties, storingen, werkbonnen
     api/
       types.ts       de interface waar alles op leunt
       index.ts       kiest mock of Supabase
       mockApi.ts     ingebouwde backend
       supabaseApi.ts echte backend
   store/             sessie, rolkeuze, meldingen
-  components/        inlog, wasstraat-animatie, rolkeuze, shell, logo, ui
+  components/        inlog, aanmelden, animatie, rolkeuze, shell, tegels,
+                     overleg, zoeken, meldingen, ui
   dashboards/
-    employee/        vandaag, uren, materiaal, kosten
-    customer/        overzicht, plannen, historie, facturen
-    management/      overzicht, financieel, planning, personeel, voorraad
+    employee/        start, vandaag, uren, materiaal, kosten
+    customer/        start, overzicht, plannen, historie, facturen
+    supervisor/      team, rooster, smartroster, uren
+    technician/      storingen, werkbonnen, installaties, onderhoud
+    developer/       meldingen, logboek, systeem, post
+    management/      overzicht, financieel, planning, personeel,
+                     aanmeldingen, voorraad, techniek, beheer
 ```

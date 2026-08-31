@@ -162,7 +162,25 @@ export const useAuth = create<AuthStore>((set, get) => ({
         return false
       }
       if (!user.active) {
-        set({ error: 'Dit account is geblokkeerd.', busy: false })
+        /*
+         * Twee heel verschillende gevallen, en ze horen niet hetzelfde te
+         * klinken. Een dossier zonder rollen is iemand die zich net heeft
+         * aangemeld en nog op beoordeling wacht -- die is niet geblokkeerd,
+         * die is nog niet toegelaten.
+         */
+        const wachtOpBeoordeling = user.roles.length === 0
+
+        await storageRemove(SESSION_KEY)
+        await supabaseSignOut()
+        setSyncEnabled(false)
+
+        set({
+          error: wachtOpBeoordeling
+            ? 'Je aanmelding is ontvangen en wordt beoordeeld. Zodra je bent ' +
+              'toegelaten krijg je bericht op ' + user.email + '.'
+            : 'Dit account is geblokkeerd. Neem contact op met het kantoor.',
+          busy: false,
+        })
         return false
       }
 

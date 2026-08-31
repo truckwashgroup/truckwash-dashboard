@@ -32,4 +32,18 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      Het recht om een installatie te starten.
+
+      Hiermee kan de app zichzelf bijwerken: hij haalt de APK van GitHub
+      Releases en geeft die aan Android, waarna de gebruiker één keer op
+      Installeren tikt. Zonder dit recht mislukt dat laatste stil.
+
+      Google beperkt dit recht in de Play Store, en terecht - een app
+      die software kan installeren is een app die je moet vertrouwen.
+      Voor een app die je zelf op je eigen tablets zet is dit de bedoelde
+      weg. Zie ApkUpdater.java.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 </manifest>

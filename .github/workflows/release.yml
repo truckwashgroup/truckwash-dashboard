@@ -126,6 +126,15 @@ jobs:
       # Het uitvoerrecht op gradlew overleeft een checkout vanaf Windows niet
       # altijd. Zonder dit recht stopt de bouw met code 126: bestand gevonden,
       # maar mag niet draaien.
+      # De XML nakijken voordat Gradle eraan begint.
+      #
+      # Een verboden `--` in een XML-commentaar laat mergeResources omvallen
+      # met een SAXParseException en een stapel Java eronder, na minuten
+      # bouwen. Deze controle doet hetzelfde in een halve seconde en zegt in
+      # welk bestand het zit.
+      - name: XML van het Android-project nakijken
+        run: python3 scripts/xml-nakijken.py
+
       - name: Gradle-wrapper uitvoerbaar maken
         run: chmod +x android/gradlew
 

@@ -16,6 +16,7 @@
     "preview": "vite preview",
     "selftest": "tsx scripts/selftest.ts",
     "sqltest": "node scripts/sqltest.mjs",
+    "xmltest": "python scripts/xml-nakijken.py",
     "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env NODE_ENV=development node scripts/start-electron.cjs\"",
     "electron:start": "npm run build && node scripts/start-electron.cjs",
     "electron:build": "npm run build && electron-builder --win --config.win.signAndEditExecutable=false",

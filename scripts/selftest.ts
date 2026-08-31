@@ -490,8 +490,20 @@ check('meerdere managers: uitzetten mag',
 check('laatste rechtenbeheerder wordt beschermd',
   wouldLockOut([manager], manager, zonderRechten))
 
-check('elke rol heeft een standaardset', Object.keys(ROLE_DEFAULTS).length === 6,
-  Object.keys(ROLE_DEFAULTS).join(', '))
+/*
+ * Elke rol hoort een standaardset rechten te hebben.
+ *
+ * Stond hier als `=== 7`. Dat klopte tot er een achtste rol bij kwam, en dan
+ * valt de test om terwijl er niets mis is -- de rol was juist netjes
+ * toegevoegd. Nu vergelijken we met de lijst rollen zelf, dus mist er echt
+ * iets als dit rood wordt: een rol die bestaat maar geen rechten heeft.
+ */
+const { ROLE_ORDER } = await import('../src/lib/types')
+const zonderStandaard = ROLE_ORDER.filter((r) => !(r in ROLE_DEFAULTS))
+check('elke rol heeft een standaardset', zonderStandaard.length === 0,
+  zonderStandaard.length
+    ? 'geen standaardset voor: ' + zonderStandaard.join(', ')
+    : Object.keys(ROLE_DEFAULTS).join(', '))
 
 /* ==================================================================== */
 
@@ -2083,6 +2095,209 @@ await db.agendaItems.clear()
 await setMeta(LAST_SYNC, 0)
 await sync()
 check('de agenda staat op de server', !!(await db.agendaItems.get(blijvend.id)))
+
+/* ==================================================================== *
+ *  Werkgevers
+ *
+ *  De vraag die dit hele blok moest beantwoorden: als een werkgever iemand
+ *  uit zijn chauffeurs gooit, ziet die chauffeur de ritten van dat bedrijf
+ *  dan echt niet meer? Ook de ritten die hij zelf heeft gebracht?
+ * ==================================================================== */
+
+{
+  console.log('\n— werkgevers —')
+
+  const {
+    werkgevers: wgRepo, koppelingen: kopRepo, regels: regelRepo,
+    magAfnemen, mijnWerkgevers, chauffeursVan, openKoppelverzoeken, beurtenVan,
+  } = await import('../src/lib/werkgevers')
+
+  const ellen = { id: 'zt_ellen', name: 'Ellen Jansen' }
+  const rick = { id: 'zt_rick', name: 'Rick Molenaar' }
+
+  await db.users.bulkPut([
+    { id: 'zt_ellen', email: 'ellen@zt.nl', password: '', name: 'Ellen Jansen',
+      roles: ['employer'], active: true, updatedAt: 0 },
+    { id: 'zt_rick', email: 'rick@zt.nl', password: '', name: 'Rick Molenaar',
+      roles: ['employee'], active: true, updatedAt: 0 },
+  ] as never)
+
+  /* --- aanmaken en aanvragen --- */
+
+  const wgActief = await wgRepo.aanmaken({
+    naam: 'Zelftest Transport', contactNaam: 'Ellen Jansen',
+    email: 'ellen@zt.nl', beheerders: ['zt_ellen'], door: ellen,
+  })
+  check('management maakt een werkgever meteen actief aan', wgActief.status === 'actief')
+
+  const wgAanvraag = await wgRepo.aanvragen({
+    naam: 'Zelftest Koeltransport', contactNaam: 'Wouter Bergman',
+    email: 'wouter@zt.nl', door: ellen,
+  })
+  check('een aanvraag wacht op akkoord', wgAanvraag.status === 'aangevraagd')
+  check('de aanvrager staat er als beheerder bij',
+    wgAanvraag.beheerders.includes('zt_ellen'))
+
+  const naGoedkeuren = await wgRepo.goedkeuren(wgAanvraag, { id: 'zt_baas', name: 'Ilse' })
+  check('goedkeuren zet hem op actief', naGoedkeuren?.status === 'actief')
+  check('en noteert wie het deed', naGoedkeuren?.beslistDoorNaam === 'Ilse')
+
+  const naAfwijzen = await wgRepo.afwijzen(
+    (await db.employers.get(wgActief.id))!, 'Geen contract', { id: 'zt_baas', name: 'Ilse' })
+  check('afwijzen bewaart de reden', naAfwijzen?.afwijzingReden === 'Geen contract')
+  await wgRepo.update(wgActief.id, { status: 'actief', afwijzingReden: undefined })
+
+  /* --- een chauffeur koppelen --- */
+
+  const koppeling = {
+    id: 'zt_kop', werkgeverId: wgActief.id, werkgeverNaam: wgActief.naam,
+    userId: 'zt_rick', naam: 'Rick Molenaar', email: 'rick@zt.nl',
+    kentekens: [] as string[], status: 'wacht op akkoord' as const,
+    uitgenodigdOp: Date.now(), uitgenodigdDoor: 'zt_ellen',
+    uitgenodigdDoorNaam: 'Ellen Jansen', bestaandAccount: true,
+    updatedAt: Date.now(),
+  }
+  await db.employerLinks.put(koppeling)
+
+  check('een openstaand verzoek komt bij de chauffeur terecht',
+    openKoppelverzoeken([koppeling], { id: 'zt_rick', email: 'rick@zt.nl' } as never).length === 1)
+  check('en niet bij iemand anders',
+    openKoppelverzoeken([koppeling], { id: 'zt_ander', email: 'x@zt.nl' } as never).length === 0)
+  check('een verzoek op mijn adres telt ook zonder gekoppeld dossier',
+    openKoppelverzoeken(
+      [{ ...koppeling, userId: undefined }],
+      { id: 'zt_rick', email: 'RICK@ZT.NL' } as never).length === 1)
+
+  const actief = await kopRepo.aannemen(koppeling, rick)
+  check('akkoord maakt de koppeling actief', actief.status === 'actief')
+  check('en zet de datum erbij', typeof actief.gekoppeldOp === 'number')
+
+  /* --- wat de chauffeur ziet --- */
+
+  const zijnJobs = [
+    { id: 'ztj_1', werkgeverId: wgActief.id, createdBy: 'zt_rick', scheduledAt: 3 },
+    { id: 'ztj_2', werkgeverId: wgActief.id, createdBy: 'zt_ellen', scheduledAt: 2 },
+    { id: 'ztj_3', werkgeverId: 'wg_anders', createdBy: 'zt_rick', scheduledAt: 1 },
+  ] as never[]
+
+  check('de werkgever ziet alleen zijn eigen ritten',
+    beurtenVan(zijnJobs, wgActief.id).length === 2)
+  check('nieuwste bovenaan', beurtenVan(zijnJobs, wgActief.id)[0].id === 'ztj_1')
+
+  const alleWg = await db.employers.toArray()
+  check('de chauffeur ziet zijn werkgever',
+    mijnWerkgevers(alleWg, [actief], { id: 'zt_rick', email: 'rick@zt.nl' } as never)
+      .some((w) => w.id === wgActief.id))
+
+  /* --- en dit is de kern: losgekoppeld is losgekoppeld --- */
+
+  const beeindigd = await kopRepo.beeindigen(actief, 'Uit dienst', ellen)
+  check('beëindigen bewaart de reden', beeindigd.beeindigdReden === 'Uit dienst')
+  check('de koppeling blijft bestaan als historie',
+    !!(await db.employerLinks.get('zt_kop')))
+  check('maar de chauffeur ziet de werkgever niet meer',
+    mijnWerkgevers(alleWg, [beeindigd], { id: 'zt_rick', email: 'rick@zt.nl' } as never)
+      .length === 0)
+  check('ook niet de ritten die hij zelf bracht',
+    mijnWerkgevers(alleWg, [beeindigd], { id: 'zt_rick', email: 'rick@zt.nl' } as never)
+      .flatMap((w) => beurtenVan(zijnJobs, w.id)).length === 0)
+
+  const losBericht = (await db.notifications.toArray())
+    .find((n) => n.toUserId === 'zt_rick' && n.title.includes('losgekoppeld'))
+  check('en hij krijgt er bericht van', !!losBericht)
+  check('met de mededeling dat zijn account van hem blijft',
+    (losBericht?.body ?? '').includes('blijven gewoon van jou'))
+
+  check('een geweigerd verzoek levert ook niets op',
+    mijnWerkgevers(alleWg,
+      [{ ...actief, status: 'geweigerd' as const }],
+      { id: 'zt_rick', email: 'rick@zt.nl' } as never).length === 0)
+
+  check('de beheerder blijft zijn eigen bedrijf wel zien',
+    mijnWerkgevers(alleWg, [beeindigd], { id: 'zt_ellen', email: 'ellen@zt.nl' } as never)
+      .some((w) => w.id === wgActief.id))
+
+  /* --- de volgorde in de lijst --- */
+
+  const gesorteerd = chauffeursVan([
+    { ...beeindigd, id: 'a', naam: 'Zeger' },
+    { ...actief, id: 'b', naam: 'Bart' },
+    { ...koppeling, id: 'c', naam: 'Anna' },
+  ], wgActief.id)
+  check('actieve chauffeurs staan bovenaan', gesorteerd[0].naam === 'Bart')
+  check('en wie weg is onderaan', gesorteerd[2].naam === 'Zeger')
+
+  /* --- afspraken over wat er afgenomen mag worden --- */
+
+  await regelRepo.toevoegen({
+    werkgeverId: wgActief.id, service: 'polish',
+    soort: 'niet toegestaan', reden: 'Gaat via de dealer', door: ellen,
+  })
+  await regelRepo.toevoegen({
+    werkgeverId: wgActief.id, kenteken: 'aa-01-bb', service: 'tankreiniging',
+    soort: 'alleen met akkoord', door: ellen,
+  })
+  const mijnRegels = (await db.employerRules.toArray())
+    .filter((r) => r.werkgeverId === wgActief.id)
+
+  check('een kenteken wordt in hoofdletters bewaard',
+    mijnRegels.some((r) => r.kenteken === 'AA-01-BB'))
+
+  const polish = magAfnemen(mijnRegels, {
+    werkgeverId: wgActief.id, kenteken: 'AA-99-ZZ', service: 'polish' })
+  check('een verbod zonder kenteken geldt voor alle wagens', !polish.toegestaan)
+  check('en noemt de reden', polish.reden === 'Gaat via de dealer')
+
+  const tankDezeWagen = magAfnemen(mijnRegels, {
+    werkgeverId: wgActief.id, kenteken: 'AA-01-BB', service: 'tankreiniging' })
+  check('een voorwaarde mag wel, maar met akkoord',
+    tankDezeWagen.toegestaan && tankDezeWagen.akkoordNodig)
+
+  const tankAndereWagen = magAfnemen(mijnRegels, {
+    werkgeverId: wgActief.id, kenteken: 'AA-77-XX', service: 'tankreiniging' })
+  check('bij een andere wagen geldt die voorwaarde niet',
+    tankAndereWagen.toegestaan && !tankAndereWagen.akkoordNodig)
+
+  check('een kleine letter in het kenteken maakt niet uit',
+    magAfnemen(mijnRegels, {
+      werkgeverId: wgActief.id, kenteken: 'aa-01-bb', service: 'tankreiniging' }).akkoordNodig)
+
+  check('wat niet geregeld is mag gewoon',
+    magAfnemen(mijnRegels, {
+      werkgeverId: wgActief.id, kenteken: 'AA-01-BB', service: 'buitenwas' }).toegestaan)
+
+  check('de regels van een ander bedrijf tellen niet mee',
+    magAfnemen(mijnRegels, {
+      werkgeverId: 'wg_ergens_anders', service: 'polish' }).toegestaan)
+
+  const strengste = magAfnemen([
+    ...mijnRegels,
+    { id: 'zt_r3', werkgeverId: wgActief.id, service: 'polish',
+      soort: 'alleen met akkoord', aangemaaktDoor: 'zt_ellen',
+      aangemaaktOp: 0, updatedAt: 0 } as never,
+  ], { werkgeverId: wgActief.id, service: 'polish' })
+  check('staat er allebei iets, dan geldt het verbod', !strengste.toegestaan)
+
+  const legeRegel = magAfnemen([
+    { id: 'zt_r4', werkgeverId: wgActief.id, soort: 'niet toegestaan',
+      aangemaaktDoor: 'zt_ellen', aangemaaktOp: 0, updatedAt: 0 } as never,
+  ], { werkgeverId: wgActief.id, service: 'polish' })
+  check('een regel zonder behandeling én zonder product zegt niets', legeRegel.toegestaan)
+
+  /* --- alles overleeft de rondgang --- */
+
+  await sync()
+  await db.employers.clear()
+  await db.employerLinks.clear()
+  await db.employerRules.clear()
+  await setMeta(LAST_SYNC, 0)
+  await sync()
+  check('de werkgever staat op de server', !!(await db.employers.get(wgActief.id)))
+  check('de koppeling ook', (await db.employerLinks.get('zt_kop'))?.status === 'beëindigd')
+  check('en de afspraken', (await db.employerRules.toArray())
+    .filter((r) => r.werkgeverId === wgActief.id).length === 2)
+
+}
 
 /* ==================================================================== */
 

@@ -7,7 +7,7 @@ import { useUpdates } from '../lib/updates'
  * Windows: installeren en herstarten. Mobiel: nieuwe bundel activeren.
  */
 export default function UpdateBanner() {
-  const { state, newVersion, percent, install } = useUpdates()
+  const { state, newVersion, percent, install, channel, magInstalleren } = useUpdates()
   const visible = state === 'downloading' || state === 'ready' || state === 'available'
 
   return (
@@ -54,7 +54,14 @@ export default function UpdateBanner() {
 
           {state === 'ready' && (
             <button className="btn primary sm" onClick={() => void install()}>
-              <RefreshCw size={14} /> Nu installeren
+              <RefreshCw size={14} />
+              {/*
+                Op Android moet de app eenmalig toestemming hebben om een
+                installatie te starten. Staat die uit, dan opent deze knop
+                eerst de systeeminstelling -- en dat hoort er dan ook op te
+                staan, anders lijkt het alsof er niets gebeurt.
+              */}
+              {channel === 'mobile' && !magInstalleren ? 'Toestaan en installeren' : 'Nu installeren'}
             </button>
           )}
         </motion.div>

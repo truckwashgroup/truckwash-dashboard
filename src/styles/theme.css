@@ -2323,3 +2323,211 @@ table.data.matrix th { vertical-align: bottom; }
   .live-regel .tekst { flex-basis: 100%; white-space: normal; }
   .live-regel .detail { padding-left: 14px; }
 }
+
+/* ==================================================================
+   Personeelsdossier
+   ================================================================== */
+
+.dossier-signalen { display: grid; gap: 7px; }
+
+.signaal {
+  display: flex; align-items: center; gap: 9px;
+  padding: 10px 13px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-soft);
+  background: var(--bg-2);
+  font-size: .85rem;
+}
+.signaal svg { flex: none; color: var(--text-3); }
+.signaal.tekenen  { border-color: var(--line-warn);   background: var(--tint-warn-weak);   color: var(--text-warn); }
+.signaal.tekenen svg { color: var(--warn); }
+.signaal.verlopen { border-color: var(--line-danger); background: var(--tint-danger-weak); color: var(--text-danger); }
+.signaal.verlopen svg { color: var(--danger); }
+.signaal.verloopt { border-color: var(--line-warn);   background: var(--tint-warn-weak);   color: var(--text-warn); }
+.signaal.verloopt svg { color: var(--warn); }
+
+.afgeschermd {
+  display: flex; align-items: flex-start; gap: 9px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  font-size: .79rem; line-height: 1.5; color: var(--text-3);
+}
+.afgeschermd svg { flex: none; margin-top: 1px; }
+
+/* --------------------------- Documenten -------------------------- */
+
+.doc-lijst { display: grid; }
+
+.doc-regel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 13px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.doc-regel:last-child { border-bottom: 0; }
+.doc-regel.wacht { background: var(--tint-warn-weak); }
+
+.doc-regel .ico {
+  width: 38px; height: 38px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 11px;
+  background: var(--surface-3);
+  color: var(--text-3);
+}
+.doc-regel.wacht .ico { background: var(--tint-warn); color: var(--warn); }
+
+.doc-regel .titel {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  margin-bottom: 3px;
+}
+.doc-regel .titel strong { font-size: .92rem; }
+.doc-regel .meta { font-size: .74rem; color: var(--text-3); }
+.doc-regel .omschrijving {
+  font-size: .82rem; color: var(--text-2); margin-top: 5px; line-height: 1.5;
+}
+
+.doc-regel .reden {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-top: 6px;
+  font-size: .75rem; color: var(--text-warn);
+}
+.doc-regel .reden.danger { color: var(--text-danger); }
+
+.doc-regel .handtekening {
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 9px; padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--tint-ok);
+  border: 1px solid var(--line-ok);
+}
+.doc-regel .handtekening img {
+  height: 40px; width: auto; max-width: 140px;
+  background: #fff; border-radius: 5px; padding: 2px;
+}
+.doc-regel .handtekening div { display: grid; gap: 1px; min-width: 0; }
+.doc-regel .handtekening strong { font-size: .82rem; color: var(--text-ok); }
+.doc-regel .handtekening span { font-size: .71rem; color: var(--text-3); }
+
+.doc-regel .acties {
+  display: flex; align-items: flex-start; gap: 4px; flex: none;
+}
+
+@media (max-width: 680px) {
+  .doc-regel { grid-template-columns: auto minmax(0, 1fr); }
+  .doc-regel .acties { grid-column: 1 / -1; justify-content: flex-end; }
+}
+
+/* --------------------------- MRZ-lezer --------------------------- */
+
+.mrz-uitkomst {
+  margin: 4px 0 14px;
+  padding: 13px 15px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-soft);
+  background: var(--bg-2);
+}
+.mrz-uitkomst.goed    { border-color: var(--line-ok);   background: var(--tint-ok); }
+.mrz-uitkomst.twijfel { border-color: var(--line-warn); background: var(--tint-warn-weak); }
+.mrz-uitkomst .kop {
+  display: flex; align-items: center; gap: 8px;
+  font-size: .85rem; font-weight: 650;
+  margin-bottom: 12px;
+}
+.mrz-uitkomst.goed .kop    { color: var(--text-ok); }
+.mrz-uitkomst.twijfel .kop { color: var(--text-warn); }
+
+.input.fout, .textarea.fout {
+  border-color: var(--line-danger);
+  background: var(--tint-danger-weak);
+}
+
+/* -------------------------- Handtekening ------------------------- */
+
+.krabbel {
+  position: relative;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  overflow: hidden;
+}
+.krabbel canvas {
+  display: block;
+  width: 100%;
+  height: 140px;
+  touch-action: none;
+  cursor: crosshair;
+}
+.krabbel .hint {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  color: #9aa5b5; font-size: .84rem;
+  pointer-events: none;
+}
+.krabbel .wis { position: absolute; top: 6px; right: 6px; }
+
+/* ==================================================================
+   Zijbalk inklappen
+   ==================================================================
+   Alleen icoontjes, met de naam als tooltip. Wie de weg kent wil zijn
+   scherm gebruiken voor de inhoud, niet voor een menu dat hij uit zijn
+   hoofd kent.
+   ================================================================== */
+
+.app-shell { transition: grid-template-columns .22s var(--ease); }
+.app-shell.smal { grid-template-columns: 64px 1fr; }
+
+.app-shell.smal .sidebar-brand {
+  align-items: center;
+  padding: 14px 8px 12px;
+}
+.app-shell.smal .sidebar-brand .sub { display: none; }
+
+.app-shell.smal .nav { padding: 6px 8px; }
+
+.app-shell.smal .nav-item {
+  justify-content: center;
+  padding: 11px 0;
+  gap: 0;
+}
+.app-shell.smal .nav-item > span:not(.badge) { display: none; }
+.app-shell.smal .nav-item .badge {
+  position: absolute;
+  top: 4px; right: 6px;
+  margin: 0;
+  min-width: 15px; height: 15px;
+  padding: 0 3px;
+  font-size: .58rem;
+}
+.app-shell.smal .nav-item { position: relative; }
+
+.app-shell.smal .sidebar-foot { padding: 8px; }
+.app-shell.smal .sidebar-persoon { justify-content: center; padding: 11px 0 4px; }
+.app-shell.smal .sidebar-persoon > div:last-child { display: none; }
+
+/* Het logo blijft staan, maar dan alleen het beeldmerk. */
+.app-shell.smal .logo-vlak { overflow: hidden; }
+
+@media (max-width: 860px) {
+  .app-shell.smal { grid-template-columns: 1fr; }
+}
+
+/* ------------------------------------------------------------------
+   Het logo op een licht vlak
+
+   Het bestand is getekend voor donker: de witte delen verdwijnen op wit.
+   Verkleuren zou het merk aantasten, dus komt er een donker vlakje onder.
+   ------------------------------------------------------------------ */
+
+.logo-vlak { display: block; border-radius: 8px; }
+.logo-vlak.op-licht {
+  background: var(--bg-2);
+  padding: 6px 8px;
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+}
+:root[data-thema="licht"] .logo-vlak.op-licht {
+  background: #0b1220;
+  box-shadow: none;
+}

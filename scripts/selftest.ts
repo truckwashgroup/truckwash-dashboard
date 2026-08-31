@@ -1343,5 +1343,201 @@ onCapturedError(() => {})
 
 /* ==================================================================== */
 
+console.log('\n22. Controles op identiteits- en betaalgegevens')
+
+const {
+  bsnGeldig, bsnProbleem, bsnFormatteer, bsnGemaskeerd,
+  ibanGeldig, ibanProbleem, ibanFormatteer,
+  leesMrz, kortHash,
+} = await import('../src/lib/identiteit')
+
+/* --- de elfproef --- */
+
+check('een geldig BSN komt erdoor', bsnGeldig('123456782'))
+check('nog eentje', bsnGeldig('111222333'))
+check('een omgedraaid cijfer valt op', !bsnGeldig('123456728'))
+check('acht cijfers is geen BSN', !bsnGeldig('12345678'))
+check('negen nullen ook niet', !bsnGeldig('000000000'))
+check('letters worden genegeerd, cijfers geteld', bsnGeldig('123 456 782'))
+
+check('een half ingetypt BSN klaagt niet meteen',
+  (bsnProbleem('1234') ?? '').includes('Nog'))
+check('een fout BSN wordt benoemd',
+  (bsnProbleem('123456728') ?? '').includes('elfproef'))
+check('een goed BSN geeft geen klacht', bsnProbleem('123456782') === null)
+
+check('BSN wordt gegroepeerd', bsnFormatteer('123456782') === '123 456 782')
+check('BSN staat standaard afgeschermd', bsnGemaskeerd('123456782') === '••• ••• 782')
+check('zonder BSN valt er niets af te schermen', bsnGemaskeerd(undefined) === '—')
+
+/* --- de mod-97-toets --- */
+
+check('een geldig IBAN komt erdoor', ibanGeldig('NL91ABNA0417164300'))
+check('met spaties ook', ibanGeldig('NL91 ABNA 0417 1643 00'))
+check('een verkeerd controlegetal valt op', !ibanGeldig('NL92ABNA0417164300'))
+check('een te kort Nederlands IBAN valt op', !ibanGeldig('NL91ABNA041716430'))
+check('een Duits IBAN mag ook', ibanGeldig('DE89370400440532013000'))
+check('een verzonnen land zonder lengte wordt alsnog gerekend',
+  !ibanGeldig('XX00ABNA0417164300'))
+
+check('de lengte wordt benoemd',
+  (ibanProbleem('NL91ABNA041716430') ?? '').includes('18'))
+check('een goed IBAN geeft geen klacht', ibanProbleem('NL91ABNA0417164300') === null)
+check('IBAN wordt in blokjes gezet',
+  ibanFormatteer('NL91ABNA0417164300') === 'NL91 ABNA 0417 1643 00')
+
+/* --- de machineleesbare strook --- */
+
+const PASPOORT = [
+  'P<NLDDE<BRUIJN<<WILLEM<JAN<<<<<<<<<<<<<<<<<<',
+  'SPECI20142NLD6503101M2403096999999990<<<<<84',
+].join('\n')
+
+const mrz = leesMrz(PASPOORT)
+check('een paspoortstrook wordt gelezen', !!mrz)
+check('het documentnummer komt eruit', mrz?.documentNumber === 'SPECI2014')
+check('de achternaam komt eruit', mrz?.achternaam === 'De Bruijn', String(mrz?.achternaam))
+check('de voornamen ook', mrz?.voornamen === 'Willem Jan', String(mrz?.voornamen))
+check('de nationaliteit komt eruit', mrz?.nationaliteit === 'NLD')
+check('het geslacht komt eruit', mrz?.geslacht === 'M')
+
+const geboren = mrz?.geboortedatum ? new Date(mrz.geboortedatum) : null
+check('de geboortedatum klopt',
+  geboren?.getFullYear() === 1965 && geboren?.getMonth() === 2 && geboren?.getDate() === 10,
+  String(geboren))
+
+const verloopt = mrz?.vervaldatum ? new Date(mrz.vervaldatum) : null
+check('de vervaldatum ligt in de toekomst, niet honderd jaar terug',
+  (verloopt?.getFullYear() ?? 0) >= 2024, String(verloopt))
+
+check('alle controlecijfers kloppen', mrz?.betrouwbaar === true,
+  JSON.stringify(mrz?.twijfel))
+
+/* Eén teken veranderen in het documentnummer moet opvallen. */
+const VERMINKT = PASPOORT.replace('SPECI20142', 'SPECI20143')
+const stuk = leesMrz(VERMINKT)
+check('een verkeerd overgetypt teken springt eruit', stuk?.betrouwbaar === false)
+check('en er wordt bij gezegd wát er niet klopt',
+  (stuk?.twijfel ?? []).includes('documentnummer'), JSON.stringify(stuk?.twijfel))
+
+check('onzin levert niets op', leesMrz('dit is geen strook') === null)
+check('een lege invoer ook niet', leesMrz('') === null)
+
+check('een korte vingerafdruk blijft leesbaar',
+  kortHash('abcdef0123456789abcdef0123456789') === 'abcdef01…23456789',
+  kortHash('abcdef0123456789abcdef0123456789'))
+check('zonder vingerafdruk een streepje', kortHash(undefined) === '—')
+
+/* ==================================================================== */
+
+console.log('\n23. Het dossier')
+
+const { dossier: dossierRepo, documentenVan, eigenDocumenten, signalen } =
+  await import('../src/lib/dossier')
+
+const dossierPersoon = 'u_wasser'
+
+await dossierRepo.save(dossierPersoon, {
+  bsn: '123456782',
+  iban: 'NL91ABNA0417164300',
+  hourlyRate: 24.5,
+  internalNotes: 'Zelftest: interne notitie',
+})
+
+const opgeslagen = await dossierRepo.get(dossierPersoon)
+check('het dossier is opgeslagen', opgeslagen?.bsn === '123456782')
+check('het uurtarief staat in het afgeschermde deel', opgeslagen?.hourlyRate === 24.5)
+check('en het id is het dossier-id', opgeslagen?.id === dossierPersoon)
+
+await dossierRepo.save(dossierPersoon, { birthPlace: 'Utrecht' })
+const bijgewerktDossier = await dossierRepo.get(dossierPersoon)
+check('bijwerken laat de rest staan',
+  bijgewerktDossier?.bsn === '123456782' && bijgewerktDossier?.birthPlace === 'Utrecht')
+
+/* --- documenten sorteren en filteren --- */
+
+const nu = Date.now()
+const DOCS = [
+  { id: 'zt_1', title: 'Loonstrook mei', kind: 'loonstrook' as const, zichtbaar: true,  tekenen: false, at: nu - 3000 },
+  { id: 'zt_2', title: 'Contract 2026',  kind: 'contract' as const,   zichtbaar: true,  tekenen: true,  at: nu - 9000 },
+  { id: 'zt_3', title: 'Gespreksverslag', kind: 'beoordeling' as const, zichtbaar: false, tekenen: false, at: nu - 1000 },
+]
+
+for (const d of DOCS) {
+  await db.documents.put({
+    id: d.id,
+    userId: dossierPersoon,
+    userName: 'Tom Verhoeven',
+    kind: d.kind,
+    title: d.title,
+    storagePath: `${dossierPersoon}/${d.id}.pdf`,
+    mime: 'application/pdf',
+    sizeBytes: 1024,
+    visibleToEmployee: d.zichtbaar,
+    uploadedBy: 'u_manager',
+    uploadedByName: 'Ilse Bakker',
+    uploadedAt: d.at,
+    requiresSignature: d.tekenen,
+    updatedAt: nu,
+  })
+}
+
+const alleDocs = await db.documents.toArray()
+const vanTom = documentenVan(alleDocs, dossierPersoon)
+
+check('alle drie de stukken horen bij hem', vanTom.length === 3, String(vanTom.length))
+check('wat getekend moet worden staat bovenaan',
+  vanTom[0].id === 'zt_2', vanTom[0].id)
+check('daarna op datum, nieuwste eerst',
+  vanTom[1].id === 'zt_3' && vanTom[2].id === 'zt_1',
+  vanTom.map((d) => d.id).join(','))
+
+const zietTom = eigenDocumenten(alleDocs, dossierPersoon)
+check('hij ziet zijn afgeschermde verslag niet',
+  zietTom.length === 2 && !zietTom.some((d) => d.id === 'zt_3'),
+  zietTom.map((d) => d.id).join(','))
+
+/* --- waar het dossier aandacht vraagt --- */
+
+const seinen = signalen(alleDocs, dossierPersoon)
+check('een openstaande handtekening wordt gemeld',
+  seinen.some((s) => s.soort === 'tekenen'))
+check('een ontbrekend identiteitsbewijs wordt gemeld',
+  seinen.some((s) => s.soort === 'ontbreekt' && s.tekst.includes('identiteitsbewijs')))
+check('een aanwezig contract wordt niet gemist',
+  !seinen.some((s) => s.soort === 'ontbreekt' && s.tekst.includes('contract')))
+
+await db.documents.put({
+  ...(await db.documents.get('zt_1'))!,
+  id: 'zt_4',
+  kind: 'identiteitsbewijs',
+  title: 'ID-kaart',
+  expiresAt: nu - 86_400_000,
+})
+check('een verlopen document wordt gemeld',
+  signalen(await db.documents.toArray(), dossierPersoon)
+    .some((s) => s.soort === 'verlopen'))
+
+await db.documents.put({
+  ...(await db.documents.get('zt_4'))!,
+  id: 'zt_5',
+  title: 'ID-kaart nieuw',
+  expiresAt: nu + 20 * 86_400_000,
+})
+check('een document dat bijna verloopt ook',
+  signalen(await db.documents.toArray(), dossierPersoon)
+    .some((s) => s.soort === 'verloopt' && s.tekst.includes('20')))
+
+/* --- alles overleeft de rondgang --- */
+
+await sync()
+await db.personnelPrivate.clear()
+await setMeta(LAST_SYNC, 0)
+await sync()
+check('het dossier staat op de server',
+  (await dossierRepo.get(dossierPersoon))?.bsn === '123456782')
+
+/* ==================================================================== */
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

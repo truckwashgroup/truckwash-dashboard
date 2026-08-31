@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   AlertTriangle, Bug, LayoutGrid, LogOut, MessageSquarePlus, Mic, MoreHorizontal,
-  RefreshCw, Search, Settings, SlidersHorizontal,
+  PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings, SlidersHorizontal,
 } from 'lucide-react'
 import { useAuth } from '../store/useAuth'
 import { useSync } from '../lib/sync'
@@ -21,6 +21,7 @@ import Instellingen from './Instellingen'
 import Overleg, { OverlegKnop } from './Overleg'
 import { Dropdown, type MenuGroup } from './ui'
 import { trail } from '../lib/trail'
+import { useTheme } from '../lib/theme'
 import { usePerms } from '../store/useNav'
 import NotificationCenter from './NotificationCenter'
 import type { LucideIcon } from 'lucide-react'
@@ -55,6 +56,8 @@ export default function Shell({
   const openSearch = useNav((s) => s.openSearch)
   const goto = useNav((s) => s.goto)
   const perms = usePerms()
+  const klein = useTheme((s) => s.zijbalkKlein)
+  const setZijbalk = useTheme((s) => s.setZijbalk)
 
   const [storing, setStoring] = useState(false)
   const [devmelding, setDevmelding] = useState(false)
@@ -148,11 +151,11 @@ export default function Shell({
   ]
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${klein ? 'smal' : ''}`}>
       {/* ------------------------- Zijbalk -------------------------- */}
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <Logo width={150} />
+          {klein ? <Logo width={34} /> : <Logo width={150} />}
           <div className="sub">{roleLabel}</div>
         </div>
 
@@ -164,6 +167,7 @@ export default function Shell({
                 key={it.key}
                 className={`nav-item ${active === it.key ? 'active' : ''}`}
                 onClick={() => onNavigate(it.key)}
+                title={klein ? it.label : undefined}
               >
                 <Icon size={17} />
                 <span>{it.label}</span>
@@ -174,16 +178,28 @@ export default function Shell({
         </nav>
 
         <div className="sidebar-foot">
-          <button className="nav-item" onClick={clearRole}>
+          <button className="nav-item" onClick={clearRole} title={klein ? 'Ander dashboard' : undefined}>
             <LayoutGrid size={17} />
             <span>Ander dashboard</span>
           </button>
-          <button className="nav-item" onClick={() => setInstellingen(true)}>
+          <button
+            className="nav-item"
+            onClick={() => setInstellingen(true)}
+            title={klein ? 'Instellingen' : undefined}
+          >
             <Settings size={17} />
             <span>Instellingen</span>
           </button>
+          <button
+            className="nav-item"
+            onClick={() => setZijbalk(!klein)}
+            title={klein ? 'Menu uitklappen' : 'Menu inklappen'}
+          >
+            {klein ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+            <span>Inklappen</span>
+          </button>
 
-          <div className="sidebar-persoon">
+          <div className="sidebar-persoon" title={klein ? user?.name : undefined}>
             <div className="av">{initials(user?.name ?? '?')}</div>
             <div style={{ minWidth: 0 }}>
               <div className="n">{user?.name}</div>

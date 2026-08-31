@@ -61,6 +61,29 @@ language sql stable as $fn$
 $fn$;
 
 grant usage on schema public to anon, authenticated, service_role;
+
+-- Supabase levert ook een storage-schema met buckets en objecten. De
+-- beveiligingsregels op de dossiermap hangen daaraan, dus die bootsen we
+-- na -- anders test je de helft van het slot niet.
+create schema if not exists storage;
+
+create table storage.buckets (
+  id                 text primary key,
+  name               text not null,
+  public             boolean not null default false,
+  file_size_limit    bigint,
+  allowed_mime_types text[]
+);
+
+create table storage.objects (
+  id       uuid primary key default gen_random_uuid(),
+  bucket_id text references storage.buckets(id),
+  name     text not null,
+  owner    uuid
+);
+
+grant usage on schema storage to anon, authenticated, service_role;
+grant select, insert, update, delete on all tables in schema storage to authenticated;
 `
 
 async function fresh() {
@@ -84,6 +107,8 @@ await run(db, '0005_technische_dienst.sql draait', sqlFile('supabase/migrations/
 await run(db, '0006_meldingen_en_logboek.sql draait', sqlFile('supabase/migrations/0006_meldingen_en_logboek.sql'))
 await run(db, '0007_aanmelden_en_overleg.sql draait', sqlFile('supabase/migrations/0007_aanmelden_en_overleg.sql'))
 await run(db, '0008_rechten_in_het_overleg.sql draait', sqlFile('supabase/migrations/0008_rechten_in_het_overleg.sql'))
+await run(db, '0009_personeelsdossier.sql draait', sqlFile('supabase/migrations/0009_personeelsdossier.sql'))
+await run(db, '0010_leestekens_en_rooster.sql draait', sqlFile('supabase/migrations/0010_leestekens_en_rooster.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -95,6 +120,8 @@ await run(db, '0005 nogmaals', sqlFile('supabase/migrations/0005_technische_dien
 await run(db, '0006 nogmaals', sqlFile('supabase/migrations/0006_meldingen_en_logboek.sql'))
 await run(db, '0007 nogmaals', sqlFile('supabase/migrations/0007_aanmelden_en_overleg.sql'))
 await run(db, '0008 nogmaals', sqlFile('supabase/migrations/0008_rechten_in_het_overleg.sql'))
+await run(db, '0009 nogmaals', sqlFile('supabase/migrations/0009_personeelsdossier.sql'))
+await run(db, '0010 nogmaals', sqlFile('supabase/migrations/0010_leestekens_en_rooster.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
 const bedrijven = await db.query('select count(*)::int as n from public.companies')
@@ -384,6 +411,10 @@ await db.exec(`
   grant select, insert, update, delete on all tables in schema public to authenticated;
 `)
 
+const { rows: [baasRow] } = await db.query(
+  `select id from public.profiles where email = 'baas@truckwash1group.nl'`)
+const baasId = baasRow.id
+
 check('het management ziet de aanmeldingen',
   (await countAs(baas, 'select count(*)::int as n from public.signups')) > 0)
 check('een klant ziet de aanmeldingen van anderen niet',
@@ -588,6 +619,144 @@ await db.exec(`
 
 check('intrekken wint van toekennen',
   (await countAs(kijker, "select count(*)::int as n from public.channels where id = 'ch_rtd'")) === 0)
+
+
+/* ================================================================== */
+
+console.log('\n13. Het dossier: wat een collega niet mag zien')
+
+const wasserId = wasserRow.id
+const voormanId = voormanRow.id
+
+await db.exec(`
+  insert into public.personnel_private (id, user_id, bsn, iban, hourly_rate, internal_notes)
+  values ('${wasserId}', '${wasserId}', '123456782', 'NL91ABNA0417164300', 22,
+          'Komt regelmatig te laat, besproken in mei.'),
+         ('${voormanId}', '${voormanId}', '111222333', 'NL02ABNA0123456789', 26, null);
+
+  alter table public.personnel_private force row level security;
+  alter table public.documents         force row level security;
+  grant select, insert, update, delete on all tables in schema public to authenticated;
+`)
+
+check('je ziet je eigen regel',
+  (await countAs(wasser, 'select count(*)::int as n from public.personnel_private')) === 1)
+check('en die van je collega niet',
+  (await countAs(wasser,
+    `select count(*)::int as n from public.personnel_private where user_id = '${voormanId}'`)) === 0)
+check('een leidinggevende ziet die van zijn team ook niet',
+  (await countAs(voorman,
+    `select count(*)::int as n from public.personnel_private where user_id = '${wasserId}'`)) === 0)
+check('het management ziet alles',
+  (await countAs(baas, 'select count(*)::int as n from public.personnel_private')) === 2)
+
+check('je eigen uurloon aanpassen kan niet',
+  !(await magSchrijven(wasser,
+    `update public.personnel_private set hourly_rate = 99 where user_id = '${wasserId}';`))
+  || (await db.query(`select hourly_rate from public.personnel_private where user_id = '${wasserId}'`))
+       .rows[0].hourly_rate == 22)
+
+console.log('\n14. Documenten: het slot op ongezien')
+
+await db.exec(`
+  insert into public.documents
+    (id, user_id, user_name, kind, title, storage_path, visible_to_employee,
+     uploaded_by, uploaded_at, requires_signature)
+  values
+    ('d_contract', '${wasserId}', 'Tom', 'contract', 'Arbeidsovereenkomst',
+     '${wasserId}/d_contract.pdf', true, '${baasId}', 1, true),
+    ('d_gesprek',  '${wasserId}', 'Tom', 'beoordeling', 'Gespreksverslag',
+     '${wasserId}/d_gesprek.pdf', false, '${baasId}', 1, false);
+`)
+
+check('de medewerker ziet zijn contract',
+  (await countAs(wasser, "select count(*)::int as n from public.documents where id = 'd_contract'")) === 1)
+check('en het afgeschermde verslag niet',
+  (await countAs(wasser, "select count(*)::int as n from public.documents where id = 'd_gesprek'")) === 0)
+check('een collega ziet er helemaal niets van',
+  (await countAs(voorman, 'select count(*)::int as n from public.documents')) === 0)
+check('het management ziet beide',
+  (await countAs(baas, 'select count(*)::int as n from public.documents')) === 2)
+
+/* --- ondertekenen mag; de rest niet --- */
+
+check('ondertekenen van je eigen contract mag',
+  await magSchrijven(wasser, `update public.documents
+     set signed_at = 5, signed_by = '${wasserId}', signed_name = 'Tom Verhoeven'
+   where id = 'd_contract';`))
+
+check('en is ook echt vastgelegd',
+  (await db.query("select signed_at from public.documents where id = 'd_contract'"))
+    .rows[0].signed_at == 5)
+
+check('twee keer tekenen kan niet',
+  !(await magSchrijven(wasser, `update public.documents
+     set signed_at = 9 where id = 'd_contract';`)))
+
+await magSchrijven(wasser, `update public.documents
+   set visible_to_employee = true where id = 'd_gesprek';`)
+check('jezelf zichtbaar maken wat op ongezien staat lukt niet',
+  (await db.query("select visible_to_employee from public.documents where id = 'd_gesprek'"))
+    .rows[0].visible_to_employee === false)
+
+check('de titel van je eigen document veranderen kan niet',
+  !(await magSchrijven(wasser, `update public.documents
+     set title = 'Iets anders' where id = 'd_contract';`)))
+
+await db.exec(`
+  insert into public.documents
+    (id, user_id, user_name, kind, title, storage_path, visible_to_employee,
+     uploaded_by, uploaded_at, requires_signature)
+  values ('d_tweede', '${wasserId}', 'Tom', 'verklaring', 'Geheimhouding',
+          '${wasserId}/d_tweede.pdf', true, '${baasId}', 1, true);
+`)
+check('tekenen op andermans naam kan niet',
+  !(await magSchrijven(wasser, `update public.documents
+     set signed_at = 7, signed_by = '${voormanId}' where id = 'd_tweede';`)))
+
+check('een document toevoegen doet alleen het management',
+  !(await magSchrijven(wasser, `insert into public.documents
+     (id, user_id, user_name, kind, title, storage_path, uploaded_at)
+     values ('d_zelf', '${wasserId}', 'Tom', 'overig', 'Zelf', '${wasserId}/d_zelf.pdf', 1);`)))
+
+console.log('\n15. De opslag hangt aan dezelfde regels')
+
+await db.exec(`
+  insert into storage.objects (bucket_id, name) values
+    ('dossiers', '${wasserId}/d_contract.pdf'),
+    ('dossiers', '${wasserId}/d_gesprek.pdf');
+  alter table storage.objects enable row level security;
+  alter table storage.objects force row level security;
+`)
+
+check('het bestand van je contract mag je ophalen',
+  (await countAs(wasser,
+    `select count(*)::int as n from storage.objects where name = '${wasserId}/d_contract.pdf'`)) === 1)
+check('dat van het afgeschermde verslag niet',
+  (await countAs(wasser,
+    `select count(*)::int as n from storage.objects where name = '${wasserId}/d_gesprek.pdf'`)) === 0)
+check('een collega komt er niet bij',
+  (await countAs(voorman, 'select count(*)::int as n from storage.objects')) === 0)
+check('het management wel',
+  (await countAs(baas, 'select count(*)::int as n from storage.objects')) === 2)
+check('de emmer staat niet open',
+  (await db.query("select public from storage.buckets where id = 'dossiers'")).rows[0].public === false)
+
+
+console.log('\n16. Een leesteken blokkeert niets meer')
+
+check('een leesteken voor een onbekend kanaal mag',
+  await magSchrijven(wasser, `insert into public.channel_reads (id, user_id, channel_id, last_read_at)
+     values ('r_wees', '${wasserId}', 'ch_bestaat_niet', 5);`))
+
+await db.exec(`
+  insert into public.channel_reads (id, user_id, channel_id, last_read_at)
+  values ('r_opruimen', '${wasserId}', 'ch_utr', 5) on conflict (id) do nothing;
+  delete from public.channels where id = 'ch_utr';
+`)
+check('en verdwijnt met zijn kanaal',
+  (await db.query("select count(*)::int as n from public.channel_reads where channel_id = 'ch_utr'"))
+    .rows[0].n === 0)
 
 await db.close()
 

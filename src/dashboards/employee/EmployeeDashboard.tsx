@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  CalendarCheck, CalendarDays, GraduationCap, LayoutGrid, MessageSquare,
-  Package, Receipt, Timer,
+  CalendarCheck, CalendarDays, FolderLock, GraduationCap, LayoutGrid,
+  MessageSquare, Package, Receipt, Timer,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db } from '../../lib/db'
@@ -15,12 +15,15 @@ import KostenIndienen from './KostenIndienen'
 import MijnRooster from './MijnRooster'
 import Opleiding from '../../components/Opleiding'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
+import Dossier from '../../components/Dossier'
 import { Start, type Tegel } from '../../components/Tegels'
 import { useNavTarget, usePerms } from '../../store/useNav'
 import { useAuth } from '../../store/useAuth'
 import { COURSES } from '../../lib/courses'
 import { weekStart } from '../../lib/roster'
-import type { CourseProgress, Expense, InventoryItem, Shift, TimeEntry } from '../../lib/types'
+import type {
+  CourseProgress, Expense, InventoryItem, PersonnelDocument, Shift, TimeEntry,
+} from '../../lib/types'
 
 const DAY = 86_400_000
 
@@ -33,6 +36,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   kosten: { title: 'Kosten', subtitle: 'Bonnen indienen ter goedkeuring' },
   opleiding: { title: 'Opleiding', subtitle: 'Cursussen en certificaten' },
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken met collega’s' },
+  dossier: { title: 'Mijn dossier', subtitle: 'Je gegevens, contracten en documenten' },
 }
 
 export default function EmployeeDashboard() {
@@ -58,6 +62,8 @@ export default function EmployeeDashboard() {
   const bonnen = useLiveQuery(() => db.expenses.toArray(), [], [] as Expense[])
   const voortgang = useLiveQuery(
     () => db.courseProgress.where('userId').equals(me.id).toArray(), [me.id], [] as CourseProgress[])
+  const mijnDocs = useLiveQuery(
+    () => db.documents.where('userId').equals(me.id).toArray(), [me.id], [] as PersonnelDocument[])
   const ongelezen = useOverlegTeller()
 
   const cijfers = useMemo(() => {
@@ -81,8 +87,12 @@ export default function EmployeeDashboard() {
     const teDoen = verplicht.filter(
       (c) => !voortgang.some((p) => p.courseId === c.id && p.passed)).length
 
-    return { diensten, gewerkt, loopt, laag, openBonnen, afgekeurd, teDoen }
-  }, [shifts, entries, voorraad, bonnen, voortgang, me])
+    // Wat er in het dossier op mijn handtekening wacht.
+    const teTekenen = mijnDocs.filter(
+      (d) => d.requiresSignature && !d.signedAt && !d.declinedAt).length
+
+    return { diensten, gewerkt, loopt, laag, openBonnen, afgekeurd, teDoen, teTekenen }
+  }, [shifts, entries, voorraad, bonnen, voortgang, mijnDocs, me])
 
   const items: NavItem[] = [
     { key: 'start', label: 'Start', icon: LayoutGrid },
@@ -92,6 +102,7 @@ export default function EmployeeDashboard() {
     { key: 'materiaal', label: 'Materiaal', icon: Package },
     { key: 'kosten', label: 'Kosten', icon: Receipt },
     { key: 'opleiding', label: 'Opleiding', icon: GraduationCap },
+    { key: 'dossier', label: 'Mijn dossier', icon: FolderLock, badge: cijfers.teTekenen || undefined },
     ...(perms.can('chat.use')
       ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
       : []),
@@ -166,6 +177,17 @@ export default function EmployeeDashboard() {
       urgent: cijfers.teDoen > 0,
       onClick: () => setPage('opleiding'),
     },
+    {
+      key: 'dossier',
+      label: 'Mijn dossier',
+      hint: 'Je contract, je gegevens en wat er nog getekend moet',
+      icon: FolderLock,
+      tint: cijfers.teTekenen ? 'warn' : 'neutraal',
+      stat: cijfers.teTekenen,
+      statLabel: cijfers.teTekenen === 1 ? 'wacht op je handtekening' : 'wachten op je handtekening',
+      urgent: cijfers.teTekenen > 0,
+      onClick: () => setPage('dossier'),
+    },
     ...(perms.can('chat.use') ? [{
       key: 'overleg',
       label: 'Overleg',
@@ -195,6 +217,7 @@ export default function EmployeeDashboard() {
       {page === 'materiaal' && <Materiaal />}
       {page === 'kosten' && <KostenIndienen />}
       {page === 'opleiding' && <Opleiding />}
+      {page === 'dossier' && <Dossier person={me} />}
       {page === 'overleg' && <Overleg />}
     </Shell>
   )

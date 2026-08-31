@@ -22,6 +22,7 @@ export const THEMA_LABELS: Record<ThemeKeuze, { label: string; hint: string }> =
 
 const SLEUTEL = 'tw.thema'
 const BEWEGING = 'tw.beweging'
+const ZIJBALK = 'tw.zijbalk'
 
 function lees<T extends string>(sleutel: string, geldig: readonly T[], standaard: T): T {
   try {
@@ -84,8 +85,15 @@ interface ThemeStore {
   /** Wat er nu daadwerkelijk staat */
   actief: 'licht' | 'donker'
   rustig: boolean
+  /**
+   * De zijbalk ingeklapt tot alleen icoontjes. Wie de weg kent wil zijn
+   * scherm gebruiken voor de inhoud, niet voor een menu dat hij uit zijn
+   * hoofd kent.
+   */
+  zijbalkKlein: boolean
   setThema: (v: ThemeKeuze) => void
   setBeweging: (v: BewegingKeuze) => void
+  setZijbalk: (klein: boolean) => void
 }
 
 const THEMAS = ['systeem', 'licht', 'donker'] as const
@@ -93,18 +101,25 @@ const BEWEGINGEN = ['systeem', 'vol', 'rustig'] as const
 
 const startThema = lees<ThemeKeuze>(SLEUTEL, THEMAS, 'systeem')
 const startBeweging = lees<BewegingKeuze>(BEWEGING, BEWEGINGEN, 'systeem')
+const startZijbalk = lees<'open' | 'klein'>(ZIJBALK, ['open', 'klein'], 'open') === 'klein'
 
 export const useTheme = create<ThemeStore>((set) => ({
   thema: startThema,
   beweging: startBeweging,
   actief: effectiefThema(startThema),
   rustig: effectieveBeweging(startBeweging) === 'rustig',
+  zijbalkKlein: startZijbalk,
 
   setThema: (v) => {
     try { localStorage.setItem(SLEUTEL, v) } catch { /* privémodus */ }
     const actief = effectiefThema(v)
     pasToe(actief, null)
     set({ thema: v, actief })
+  },
+
+  setZijbalk: (klein) => {
+    try { localStorage.setItem(ZIJBALK, klein ? 'klein' : 'open') } catch { /* privémodus */ }
+    set({ zijbalkKlein: klein })
   },
 
   setBeweging: (v) => {

@@ -2,12 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  Building2, CalendarRange, GraduationCap, Loader2, Mic, MicOff,
-  Package, Search, Truck, Users, X,
+  AlertTriangle, Bug, Building2, CalendarDays, CalendarRange, ClipboardList,
+  FileText, FolderLock, GraduationCap, Hash, Inbox, LayoutDashboard, LayoutGrid,
+  Loader2, Mail, MapPin, MessageSquare, Mic, MicOff, Package, Radio, Receipt,
+  ScrollText, Search, Server, Settings, Timer, Truck, Users, Wrench, X,
 } from 'lucide-react'
 import { db } from '../lib/db'
-import { SERVICES } from '../lib/types'
+import { ASSET_CATEGORIES, DOCUMENT_KINDS, SERVICES, type Permission } from '../lib/types'
 import { money, time } from '../lib/format'
+import { mayRead } from '../lib/chat'
+import { useAuth } from '../store/useAuth'
 import { usePerms, useNav } from '../store/useNav'
 import {
   cleanSpokenQuery, listenOnce, voiceAvailability, voiceSupported,
@@ -32,6 +36,51 @@ const MAX_QUERY = 64
 const MAX_PER_GROUP = 5
 const DEBOUNCE_MS = 180
 
+/* ------------------------------------------------------------------ *
+ *  De schermen zelf
+ *
+ *  Wie de weg niet kent typt de naam van wat hij zoekt, niet die van een
+ *  record. "Post", "voorraad", "rooster" -- dat hoort je naar dat scherm te
+ *  brengen. Onder `ook` staan de woorden waarmee mensen het óók noemen.
+ * ------------------------------------------------------------------ */
+
+interface Scherm {
+  page: string
+  label: string
+  hint: string
+  icon: typeof Truck
+  recht?: Permission
+  ook?: string[]
+}
+
+const SCHERMEN: Scherm[] = [
+  { page: 'start',      label: 'Start',        hint: 'Het tegeloverzicht van je dashboard', icon: LayoutGrid, ook: ['home', 'begin', 'tegels'] },
+  { page: 'vandaag',    label: 'Vandaag',      hint: 'Wasopdrachten en wachtrij',       icon: Truck,           recht: 'jobs.view', ook: ['wachtrij', 'wasbeurten'] },
+  { page: 'planning',   label: 'Planning',     hint: 'Alle wasopdrachten',              icon: CalendarRange,   recht: 'planning.view' },
+  { page: 'rooster',    label: 'Rooster',      hint: 'Wanneer je bent ingeroosterd',    icon: CalendarDays,    recht: 'roster.viewOwn', ook: ['diensten', 'werktijden'] },
+  { page: 'uren',       label: 'Uren',         hint: 'In- en uitklokken',               icon: Timer,           recht: 'hours.own', ook: ['tijd', 'klok'] },
+  { page: 'materiaal',  label: 'Materiaal',    hint: 'Voorraad en verbruik',            icon: Package,         recht: 'inventory.view', ook: ['voorraad', 'chemie'] },
+  { page: 'kosten',     label: 'Kosten',       hint: 'Bonnen indienen',                 icon: Receipt,         recht: 'expenses.submit', ook: ['bon', 'declaratie'] },
+  { page: 'financieel', label: 'Financieel',   hint: 'Kosten valideren en resultaat',   icon: Receipt,         recht: 'finance.view', ook: ['omzet', 'marge', 'bonnen'] },
+  { page: 'overzicht',  label: 'Overzicht',    hint: 'Cijfers en grafieken',            icon: LayoutDashboard, ook: ['kpi', 'cijfers'] },
+  { page: 'personeel',  label: 'Personeel',    hint: 'Dossiers, rechten en vestigingen', icon: Users,          recht: 'staff.view', ook: ['medewerkers', 'dossier'] },
+  { page: 'aanmeldingen', label: 'Aanmeldingen', hint: 'Wie zich heeft aangemeld',      icon: Inbox,           recht: 'signups.view' },
+  { page: 'dossier',    label: 'Mijn dossier', hint: 'Je contract en documenten',       icon: FolderLock,      ook: ['contract', 'documenten', 'loonstrook'] },
+  { page: 'techniek',   label: 'Techniek',     hint: 'Storingen, onderhoud, werkbonnen', icon: Wrench,         recht: 'faults.view' },
+  { page: 'storingen',  label: 'Storingen',    hint: 'Meldingen beoordelen',            icon: AlertTriangle,   recht: 'faults.view', ook: ['defect', 'kapot'] },
+  { page: 'werkbonnen', label: 'Werkbonnen',   hint: 'Het werk zelf',                   icon: ClipboardList,   recht: 'workorders.view' },
+  { page: 'installaties', label: 'Installaties', hint: 'Machinepark en QR-labels',      icon: Wrench,          recht: 'assets.view', ook: ['machines', 'apparaten'] },
+  { page: 'onderhoud',  label: 'Onderhoud',    hint: 'Schema’s en beurten',             icon: CalendarRange,   recht: 'maintenance.view' },
+  { page: 'opleiding',  label: 'Opleiding',    hint: 'Cursussen en certificaten',       icon: GraduationCap,   recht: 'learning.take', ook: ['cursus', 'elearning', 'veiligheid'] },
+  { page: 'overleg',    label: 'Overleg',      hint: 'Kanalen en gesprekken',           icon: MessageSquare,   recht: 'chat.use', ook: ['chat', 'berichten', 'kanaal'] },
+  { page: 'tickets',    label: 'Meldingen',    hint: 'Wat gebruikers tegenkomen',       icon: Bug,             recht: 'dev.tickets' },
+  { page: 'logboek',    label: 'Logboek',      hint: 'Fouten en waarschuwingen',        icon: ScrollText,      recht: 'dev.logs', ook: ['errors', 'fouten'] },
+  { page: 'meekijken',  label: 'Meekijken',    hint: 'Alles wat er nu gebeurt',         icon: Radio,           recht: 'dev.logs', ook: ['live', 'monitor'] },
+  { page: 'post',       label: 'Post',         hint: 'Wat er via Resend is verstuurd',  icon: Mail,            recht: 'dev.logs', ook: ['mail', 'email', 'resend'] },
+  { page: 'systeem',    label: 'Systeem',      hint: 'Versies, verbinding en opslag',   icon: Server,          recht: 'dev.logs' },
+  { page: 'beheer',     label: 'Beheer',       hint: 'Vestigingen, klanten, instellingen', icon: Settings,     recht: 'admin.settings', ook: ['locaties', 'instellingen'] },
+]
+
 type Hit = {
   id: string
   group: string
@@ -55,6 +104,7 @@ export default function GlobalSearch() {
   const session = useRef<VoiceSession | null>(null)
 
   const perms = usePerms()
+  const me = useAuth((s) => s.user)
   const goto = useNav((s) => s.goto)
   const searchRequest = useNav((s) => s.searchRequest)
   const clearSearchRequest = useNav((s) => s.clearSearchRequest)
@@ -111,93 +161,304 @@ export default function GlobalSearch() {
     setBusy(true)
     ;(async () => {
       const found: Hit[] = []
-      const has = (value: unknown) => String(value ?? '').toLowerCase().includes(needle)
+      const has = (...velden: unknown[]) =>
+        velden.some((v) => String(v ?? '').toLowerCase().includes(needle))
+
+      /**
+       * Elke bron levert hoogstens vijf treffers. Zonder die rem duwt één
+       * veelvoorkomend woord alle andere soorten uit beeld -- en juist het
+       * overzicht is waar je voor komt.
+       */
+      const voegToe = (groep: string, maak: () => Hit) => {
+        if (found.filter((h) => h.group === groep).length >= MAX_PER_GROUP) return false
+        found.push(maak())
+        return true
+      }
+
+      /* ---------------------------------------------------------------- *
+       *  Schermen
+       *
+       *  Zoeken op "post" of "voorraad" hoort je naar dat scherm te brengen.
+       *  Wie de weg niet kent typt de naam van wat hij zoekt, niet die van
+       *  een record.
+       * ---------------------------------------------------------------- */
+
+      for (const scherm of SCHERMEN) {
+        if (scherm.recht && !perms.can(scherm.recht)) continue
+        if (!has(scherm.label, scherm.hint, scherm.ook?.join(' '))) continue
+        voegToe('Schermen', () => ({
+          id: 'nav:' + scherm.page,
+          group: 'Schermen',
+          icon: scherm.icon,
+          title: scherm.label,
+          subtitle: scherm.hint,
+          page: scherm.page,
+        }))
+      }
+
+      /* ------------------------------ Werk ---------------------------- */
 
       if (perms.can('jobs.view')) {
-        const jobs = await db.washJobs.toArray()
-        for (const j of jobs) {
-          if (has(j.plate) || has(j.ticket) || has(j.companyName)) {
-            found.push({
-              id: 'job:' + j.id,
-              group: 'Wasbeurten',
-              icon: Truck,
-              title: j.plate,
-              subtitle: `${j.companyName} · ${SERVICES[j.service].label} · ${j.status}`,
-              right: time(j.scheduledAt),
-              page: perms.can('planning.view') ? 'planning' : 'vandaag',
-            })
-            if (found.filter((h) => h.group === 'Wasbeurten').length >= MAX_PER_GROUP) break
-          }
+        for (const j of await db.washJobs.toArray()) {
+          if (!has(j.plate, j.ticket, j.companyName, j.assignedName)) continue
+          if (!voegToe('Wasbeurten', () => ({
+            id: 'job:' + j.id,
+            group: 'Wasbeurten',
+            icon: Truck,
+            title: j.plate,
+            subtitle: `${j.companyName} · ${SERVICES[j.service].label} · ${j.status}`,
+            right: time(j.scheduledAt),
+            page: perms.can('planning.view') ? 'planning' : 'vandaag',
+          }))) break
         }
       }
 
       if (perms.can('customers.view')) {
-        const companies = await db.companies.toArray()
-        for (const c of companies) {
-          if (has(c.name) || has(c.city) || has(c.contact)) {
-            found.push({
-              id: 'co:' + c.id,
-              group: 'Klanten',
-              icon: Building2,
-              title: c.name,
-              subtitle: `${c.contact} · ${c.city}`,
-              right: c.contractDiscountPct ? `${c.contractDiscountPct}% korting` : undefined,
-              page: 'klanten',
-            })
-            if (found.filter((h) => h.group === 'Klanten').length >= MAX_PER_GROUP) break
-          }
+        for (const c of await db.companies.toArray()) {
+          if (!has(c.name, c.city, c.contact, c.email)) continue
+          if (!voegToe('Klanten', () => ({
+            id: 'co:' + c.id,
+            group: 'Klanten',
+            icon: Building2,
+            title: c.name,
+            subtitle: `${c.contact} · ${c.city}`,
+            right: c.contractDiscountPct ? `${c.contractDiscountPct}% korting` : undefined,
+            page: 'klanten',
+          }))) break
         }
       }
 
       if (perms.can('staff.view')) {
-        const users = await db.users.toArray()
-        for (const u of users) {
-          if (has(u.name) || has(u.email) || has(u.personnelNumber) || has(u.function)) {
-            found.push({
-              id: 'user:' + u.id,
-              group: 'Medewerkers',
-              icon: Users,
-              title: u.name,
-              subtitle: [u.personnelNumber, u.function].filter(Boolean).join(' · ') || u.email,
-              page: 'personeel',
-            })
-            if (found.filter((h) => h.group === 'Medewerkers').length >= MAX_PER_GROUP) break
-          }
+        for (const u of await db.users.toArray()) {
+          if (!has(u.name, u.email, u.personnelNumber, u.function)) continue
+          if (!voegToe('Medewerkers', () => ({
+            id: 'user:' + u.id,
+            group: 'Medewerkers',
+            icon: Users,
+            title: u.name,
+            subtitle: [u.personnelNumber, u.function].filter(Boolean).join(' · ') || u.email,
+            right: u.active ? undefined : 'inactief',
+            page: 'personeel',
+          }))) break
         }
       }
 
       if (perms.can('inventory.view')) {
-        const items = await db.inventory.toArray()
-        for (const i of items) {
-          if (has(i.name) || has(i.supplier)) {
-            found.push({
-              id: 'inv:' + i.id,
-              group: 'Voorraad',
-              icon: Package,
-              title: i.name,
-              subtitle: `${i.supplier} · ${i.stock} ${i.unit} op voorraad`,
-              right: money(i.pricePerUnit),
-              page: 'materiaal',
-            })
-            if (found.filter((h) => h.group === 'Voorraad').length >= MAX_PER_GROUP) break
-          }
+        for (const i of await db.inventory.toArray()) {
+          if (!has(i.name, i.supplier)) continue
+          if (!voegToe('Voorraad', () => ({
+            id: 'inv:' + i.id,
+            group: 'Voorraad',
+            icon: Package,
+            title: i.name,
+            subtitle: `${i.supplier} · ${i.stock} ${i.unit} op voorraad`,
+            right: money(i.pricePerUnit),
+            page: 'materiaal',
+          }))) break
         }
       }
 
       if (perms.can('learning.take')) {
-        const courses = await db.courses.toArray()
-        for (const c of courses) {
-          if (has(c.title) || has(c.summary) || has(c.code)) {
-            found.push({
-              id: 'crs:' + c.id,
-              group: 'Cursussen',
-              icon: GraduationCap,
-              title: c.title,
-              subtitle: `${c.code} · ${c.estimatedMinutes} min`,
-              page: 'opleiding',
-            })
-            if (found.filter((h) => h.group === 'Cursussen').length >= MAX_PER_GROUP) break
-          }
+        for (const c of await db.courses.toArray()) {
+          if (!has(c.title, c.summary, c.code)) continue
+          if (!voegToe('Cursussen', () => ({
+            id: 'crs:' + c.id,
+            group: 'Cursussen',
+            icon: GraduationCap,
+            title: c.title,
+            subtitle: `${c.code} · ${c.estimatedMinutes} min`,
+            page: 'opleiding',
+          }))) break
+        }
+      }
+
+      /* --------------------------- Vestigingen ------------------------ */
+
+      if (perms.can('locations.view')) {
+        for (const l of await db.locations.toArray()) {
+          if (!has(l.name, l.code, l.city, l.address)) continue
+          if (!voegToe('Vestigingen', () => ({
+            id: 'loc:' + l.id,
+            group: 'Vestigingen',
+            icon: MapPin,
+            title: l.name,
+            subtitle: `${l.code} · ${l.address}, ${l.city}`,
+            right: l.bays ? `${l.bays} banen` : undefined,
+            page: 'beheer',
+          }))) break
+        }
+      }
+
+      /* ---------------------------- Techniek -------------------------- */
+
+      if (perms.can('assets.view')) {
+        for (const a of await db.assets.toArray()) {
+          if (!has(a.name, a.code, a.brand, a.model, a.serialNumber)) continue
+          if (!voegToe('Installaties', () => ({
+            id: 'asset:' + a.id,
+            group: 'Installaties',
+            icon: Wrench,
+            title: a.name,
+            subtitle: `${a.code} · ${ASSET_CATEGORIES[a.category]}`,
+            right: a.status,
+            page: 'installaties',
+          }))) break
+        }
+      }
+
+      if (perms.can('faults.view')) {
+        for (const f of await db.faults.toArray()) {
+          if (!has(f.title, f.number, f.assetName, f.description)) continue
+          if (!voegToe('Storingen', () => ({
+            id: 'fault:' + f.id,
+            group: 'Storingen',
+            icon: AlertTriangle,
+            title: f.title,
+            subtitle: `${f.number} · ${f.assetName ?? 'geen installatie'} · ${f.status}`,
+            right: f.severity,
+            page: 'storingen',
+          }))) break
+        }
+      }
+
+      if (perms.can('workorders.view')) {
+        for (const w of await db.workOrders.toArray()) {
+          if (!has(w.title, w.number, w.assetName, w.assignedName)) continue
+          if (!voegToe('Werkbonnen', () => ({
+            id: 'wo:' + w.id,
+            group: 'Werkbonnen',
+            icon: ClipboardList,
+            title: w.title,
+            subtitle: `${w.number} · ${w.assignedName ?? 'niet toegewezen'}`,
+            right: w.status,
+            page: 'werkbonnen',
+          }))) break
+        }
+      }
+
+      /* ----------------------------- Kosten --------------------------- */
+
+      if (perms.canAny('expenses.viewTeam', 'expenses.approve', 'finance.view')) {
+        for (const e of await db.expenses.toArray()) {
+          if (!has(e.description, e.supplier, e.submittedByName)) continue
+          if (!voegToe('Kosten', () => ({
+            id: 'exp:' + e.id,
+            group: 'Kosten',
+            icon: Receipt,
+            title: e.description || e.supplier,
+            subtitle: `${e.supplier} · ${e.submittedByName} · ${e.status}`,
+            right: money(e.amountExcl),
+            page: 'financieel',
+          }))) break
+        }
+      }
+
+      /* ---------------------------- Overleg --------------------------- */
+
+      if (perms.can('chat.use')) {
+        const kanalen = await db.channels.toArray()
+        const zichtbaar = kanalen.filter((c) => mayRead(me, c))
+
+        for (const c of zichtbaar) {
+          if (!has(c.name, c.topic)) continue
+          if (!voegToe('Kanalen', () => ({
+            id: 'ch:' + c.id,
+            group: 'Kanalen',
+            icon: Hash,
+            title: c.name,
+            subtitle: c.topic ?? 'Overleg',
+            page: 'overleg',
+          }))) break
+        }
+
+        // Alleen zoeken in kanalen waar je bij mag; de rest bestaat voor jou niet.
+        const toegestaan = new Set(zichtbaar.map((c) => c.id))
+        const berichten = (await db.chatMessages.toArray())
+          .filter((m) => !m.deletedAt && toegestaan.has(m.channelId))
+          .sort((a, b) => b.at - a.at)
+
+        for (const m of berichten) {
+          if (!has(m.body, m.authorName)) continue
+          const kanaal = zichtbaar.find((c) => c.id === m.channelId)
+          if (!voegToe('Berichten', () => ({
+            id: 'cm:' + m.id,
+            group: 'Berichten',
+            icon: MessageSquare,
+            title: m.body.slice(0, 70),
+            subtitle: `${m.authorName} in ${kanaal?.name ?? 'overleg'}`,
+            right: time(m.at),
+            page: 'overleg',
+          }))) break
+        }
+      }
+
+      /* --------------------------- Meldingen -------------------------- */
+
+      for (const t of await db.tickets.toArray()) {
+        const vanMij = t.reportedBy === me?.id
+        if (!vanMij && !perms.can('dev.tickets')) continue
+        if (!has(t.title, t.number, t.description)) continue
+        if (!voegToe('Meldingen', () => ({
+          id: 'tk:' + t.id,
+          group: 'Meldingen',
+          icon: Bug,
+          title: t.title,
+          subtitle: `${t.number} · ${t.reportedByName} · ${t.status}`,
+          right: t.priority,
+          page: perms.can('dev.tickets') ? 'tickets' : 'meldingen',
+        }))) break
+      }
+
+      /* -------------------------- Aanmeldingen ------------------------ */
+
+      if (perms.can('signups.view')) {
+        for (const a of await db.signups.toArray()) {
+          if (!has(a.name, a.email, a.companyName)) continue
+          if (!voegToe('Aanmeldingen', () => ({
+            id: 'sg:' + a.id,
+            group: 'Aanmeldingen',
+            icon: Inbox,
+            title: a.name,
+            subtitle: `${a.email} · ${a.kind}`,
+            right: a.status,
+            page: 'aanmeldingen',
+          }))) break
+        }
+      }
+
+      /* --------------------------- Documenten ------------------------- */
+
+      for (const d of await db.documents.toArray()) {
+        // De database geeft je alleen wat je mag zien, maar dubbel op slot
+        // is hier op zijn plaats: een dossierstuk is geen wasbeurt.
+        const vanMij = d.userId === me?.id && d.visibleToEmployee
+        if (!vanMij && !perms.can('staff.view')) continue
+        if (!has(d.title, d.userName, d.description)) continue
+        if (!voegToe('Documenten', () => ({
+          id: 'doc:' + d.id,
+          group: 'Documenten',
+          icon: FileText,
+          title: d.title,
+          subtitle: `${DOCUMENT_KINDS[d.kind].label} · ${d.userName}`,
+          right: d.signedAt ? 'ondertekend' : d.requiresSignature ? 'te tekenen' : undefined,
+          page: vanMij && !perms.can('staff.view') ? 'dossier' : 'personeel',
+        }))) break
+      }
+
+      /* ------------------------------ Post ---------------------------- */
+
+      if (perms.canAny('dev.logs', 'admin.audit')) {
+        for (const e of await db.emailLog.toArray()) {
+          if (!has(e.subject, e.toEmail, e.template)) continue
+          if (!voegToe('Post', () => ({
+            id: 'em:' + e.id,
+            group: 'Post',
+            icon: Mail,
+            title: e.subject,
+            subtitle: `${e.toEmail} · ${e.status}`,
+            right: time(e.at),
+            page: 'post',
+          }))) break
         }
       }
 
@@ -209,7 +470,7 @@ export default function GlobalSearch() {
     })()
 
     return () => { cancelled = true }
-  }, [debounced, perms])
+  }, [debounced, perms, me])
 
   const grouped = useMemo(() => {
     const map = new Map<string, Hit[]>()

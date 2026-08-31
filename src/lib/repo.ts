@@ -4,6 +4,7 @@ import {
   SERVICES,
   type AppNotification, type Course, type CourseProgress, type Expense,
   type ExpenseStatus, type InventoryItem, type NotificationKind, type Permission,
+  SHIFT_KINDS,
   type Role, type ServiceKind, type Shift, type ShiftKind, type TimeEntry,
   type User, type WashJob, type WashStatus,
 } from './types'
@@ -197,6 +198,57 @@ export const timeEntries = {
 
 /* ----------------------------- Rooster ---------------------------- */
 
+/**
+ * Wie het rooster wijzigde, voor in het bericht aan de betrokkene.
+ * Staat de persoon niet in de cache, dan noemen we het gewoon "het kantoor".
+ */
+async function actor(id?: string): Promise<{ id: string; name: string }> {
+  const u = id ? await db.users.get(id) : undefined
+  return { id: u?.id ?? 'systeem', name: u?.name ?? 'Het kantoor' }
+}
+
+/**
+ * Bericht over een dienst die van jou is.
+ *
+ * Ook per mail: een dienst die verschuift terwijl jij het niet weet, is de
+ * ene helft van een misverstand waar de andere helft om vier uur 's ochtends
+ * voor de deur staat.
+ */
+async function meldRooster(
+  shift: Shift,
+  doorId: string | undefined,
+  wat: 'ingepland' | 'gewijzigd' | 'vervallen',
+) {
+  const door = await actor(doorId)
+  if (door.id === shift.userId) return
+
+  const dag = new Date(shift.startAt).toLocaleDateString('nl-NL', {
+    weekday: 'long', day: 'numeric', month: 'long',
+  })
+  const tijd = SHIFT_KINDS[shift.kind].counts
+    ? ` van ${new Date(shift.startAt).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}` +
+      ` tot ${new Date(shift.endAt).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}`
+    : ''
+
+  const kop =
+    wat === 'ingepland' ? `Je staat ingepland op ${dag}` :
+    wat === 'gewijzigd' ? `Je dienst van ${dag} is gewijzigd` :
+    `Je dienst van ${dag} is vervallen`
+
+  await notifications.send({
+    to: { id: shift.userId, name: shift.userName },
+    from: door,
+    kind: 'rooster',
+    title: kop,
+    body: wat === 'vervallen'
+      ? 'Je hoeft die dag niet te komen.'
+      : `${SHIFT_KINDS[shift.kind].label}${tijd}.` +
+        (shift.note ? ` ${shift.note}` : ''),
+    link: 'rooster',
+    mail: true,
+  })
+}
+
 export const shifts = {
   async create(input: {
     user: Pick<User, 'id' | 'name'>
@@ -219,18 +271,34 @@ export const shifts = {
       createdBy: input.createdBy,
       updatedAt: Date.now(),
     }
-    return put('shifts', db.shifts, shift)
+    const opgeslagen = await put('shifts', db.shifts, shift)
+    await meldRooster(shift, input.createdBy, 'ingepland')
+    return opgeslagen
   },
 
-  async update(id: string, patch: Partial<Shift>) {
+  async update(id: string, patch: Partial<Shift>, doorId?: string) {
     const shift = await db.shifts.get(id)
     if (!shift) return
-    return put('shifts', db.shifts, { ...shift, ...patch, id })
+    const bijgewerkt = await put('shifts', db.shifts, { ...shift, ...patch, id })
+
+    /* Alleen berichten als er iets verandert waar de betrokkene iets aan
+       heeft. Een opmerking die wordt bijgesteld hoeft geen mail. */
+    const raakt =
+      patch.startAt !== undefined && patch.startAt !== shift.startAt ||
+      patch.endAt !== undefined && patch.endAt !== shift.endAt ||
+      patch.kind !== undefined && patch.kind !== shift.kind
+
+    if (raakt && bijgewerkt) {
+      await meldRooster(bijgewerkt, doorId ?? shift.createdBy, 'gewijzigd')
+    }
+    return bijgewerkt
   },
 
-  async remove(id: string) {
+  async remove(id: string, doorId?: string) {
+    const shift = await db.shifts.get(id)
     await db.shifts.delete(id)
     await enqueue('shifts', 'delete', id, null)
+    if (shift) await meldRooster(shift, doorId ?? shift.createdBy, 'vervallen')
   },
 }
 
@@ -477,9 +545,13 @@ export const users = {
     return put('users', db.users, { ...user, active })
   },
 
+  /**
+   * Het uurtarief staat in het afgeschermde deel van het dossier, niet in
+   * het profiel. Deze functie is er nog voor oude aanroepen en zet hem op
+   * de juiste plek.
+   */
   async setRate(id: string, hourlyRate: number) {
-    const user = await db.users.get(id)
-    if (!user) return
-    return put('users', db.users, { ...user, hourlyRate })
+    const { dossier } = await import('./dossier')
+    return dossier.save(id, { hourlyRate })
   },
 }

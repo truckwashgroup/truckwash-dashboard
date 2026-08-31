@@ -312,6 +312,10 @@ export const chat = {
   },
 
   async markRead(channelId: string, userId: string, at = Date.now()) {
+    // Geen leesteken voor een kanaal dat we niet eens kennen. Zo'n regel
+    // heeft nergens betrekking op en zou alleen de wachtrij vervuilen.
+    if (!(await db.channels.get(channelId))) return
+
     const id = `${userId}__${channelId}`
     const bestaand = await db.channelReads.get(id)
     if (bestaand && bestaand.lastReadAt >= at) return bestaand

@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  ArrowLeft, BadgeCheck, KeyRound, Mail, MapPin, Phone, Send, ShieldCheck, SlidersHorizontal,
+  ArrowLeft, BadgeCheck, FolderLock, KeyRound, Mail, MapPin, Phone, Send,
+  ShieldCheck, SlidersHorizontal,
   Timer, UserCog, UserPlus, Users,
 } from 'lucide-react'
 import { db } from '../../lib/db'
@@ -12,6 +13,7 @@ import { Badge, Card, Empty, Field, Modal, Stat } from '../../components/ui'
 import WeekRooster from '../../components/WeekRooster'
 import PermissionEditor, { PermissionSummary } from '../../components/PermissionEditor'
 import BerichtVersturen from '../../components/BerichtVersturen'
+import Dossier from '../../components/Dossier'
 import SmartRosterPanel from '../../components/SmartRosterPanel'
 import { useAuth } from '../../store/useAuth'
 import { usePerms } from '../../store/useNav'
@@ -33,9 +35,16 @@ export default function Personeel({ days }: { days: number }) {
   const jobs = useLiveQuery(() => db.washJobs.toArray(), [], [] as WashJob[])
   const entries = useLiveQuery(() => db.timeEntries.toArray(), [], [] as TimeEntry[])
 
+  /* De uurtarieven staan in het afgeschermde deel van het dossier. Wie daar
+     niet bij mag krijgt niets binnen, en ziet dus loonkosten van nul. */
+  const tarieven = useLiveQuery(async () => {
+    const rijen = await db.personnelPrivate.toArray()
+    return new Map(rijen.filter((r) => r.hourlyRate).map((r) => [r.userId, r.hourlyRate!]))
+  }, [], new Map<string, number>())
+
   const rows = useMemo(
-    () => staffPerformance(users, jobs, entries, days),
-    [users, jobs, entries, days],
+    () => staffPerformance(users, jobs, entries, days, tarieven),
+    [users, jobs, entries, days, tarieven],
   )
 
   const selected = users.find((u) => u.id === selectedId) ?? null
@@ -172,6 +181,7 @@ function PersonDetail({
   const [editing, setEditing] = useState(false)
   const [permissions, setPermissions] = useState(false)
   const [berichten, setBerichten] = useState(false)
+  const [tab, setTab] = useState<'overzicht' | 'dossier'>('overzicht')
 
   const jobs = useLiveQuery(() => db.washJobs.toArray(), [], [] as WashJob[])
   const entries = useLiveQuery(() => db.timeEntries.toArray(), [], [] as TimeEntry[])
@@ -244,7 +254,6 @@ function PersonDetail({
           <Info label="Telefoon" value={person.phone ?? '—'} icon={<Phone size={13} />} />
           <Info label="Functie" value={person.function ?? '—'} />
           <Info label="Contracturen" value={person.contractHours ? `${person.contractHours} u/week` : '—'} />
-          <Info label="Uurtarief" value={person.hourlyRate ? money(person.hourlyRate) : '—'} />
           <Info
             label="In dienst sinds"
             value={person.startDate
@@ -305,6 +314,28 @@ function PersonDetail({
         )}
       </Card>
 
+      <div className="row" style={{ gap: 6, margin: '16px 0 0' }}>
+        <button
+          className={`btn sm ${tab === 'overzicht' ? 'primary' : 'ghost'}`}
+          onClick={() => setTab('overzicht')}
+        >
+          Overzicht en rooster
+        </button>
+        <button
+          className={`btn sm ${tab === 'dossier' ? 'primary' : 'ghost'}`}
+          onClick={() => setTab('dossier')}
+        >
+          <FolderLock size={14} /> Dossier
+        </button>
+      </div>
+
+      {tab === 'dossier' && (
+        <div className="mt">
+          <Dossier person={person} />
+        </div>
+      )}
+
+      {tab === 'overzicht' && <>
       <div className="grid cols-4" style={{ margin: '16px 0' }}>
         <Stat label={`Wasbeurten (${days}d)`} value={number(stats?.jobs ?? 0)} />
         <Stat label="Gewerkte uren" value={duration((stats?.minuten ?? 0) * 60000)} />
@@ -315,6 +346,7 @@ function PersonDetail({
       <Card title="Rooster" hint={canEdit ? 'Klik op een dienst of op + om te wijzigen' : undefined}>
         <WeekRooster person={person} editable={canEdit} />
       </Card>
+      </>}
 
       <EditPersonDialog
         open={editing}

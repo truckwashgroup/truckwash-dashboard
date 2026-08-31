@@ -159,11 +159,20 @@ export interface StaffRow {
   loonkosten: number
 }
 
+/**
+ * Prestaties per medewerker.
+ *
+ * De uurtarieven komen los mee. Ze staan namelijk niet meer in het profiel
+ * -- dat leest iedereen die hier werkt -- maar in het afgeschermde deel van
+ * het dossier. Wie daar niet bij mag krijgt hier dus loonkosten van nul, en
+ * dat is precies goed: hij hoort ze niet te zien.
+ */
 export function staffPerformance(
   users: User[],
   jobs: WashJob[],
   entries: TimeEntry[],
   days: number,
+  tarieven?: Map<string, number>,
 ): StaffRow[] {
   const from = startOfDay(Date.now() - (days - 1) * DAY)
 
@@ -185,7 +194,7 @@ export function staffPerformance(
         omzet: Math.round(omzet * 100) / 100,
         minuten: Math.round(minuten),
         gemMinPerWas: mine.length ? Math.round(minuten / mine.length) : 0,
-        loonkosten: Math.round(((minuten / 60) * (u.hourlyRate ?? 0)) * 100) / 100,
+        loonkosten: Math.round(((minuten / 60) * (tarieven?.get(u.id) ?? u.hourlyRate ?? 0)) * 100) / 100,
       }
     })
     .sort((a, b) => b.omzet - a.omzet)

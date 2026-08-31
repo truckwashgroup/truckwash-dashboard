@@ -3187,3 +3187,125 @@ table.data.matrix th { vertical-align: bottom; }
 .proef.nee { border-color: var(--line-danger); background: var(--tint-danger-weak); }
 .proef.nee > .ico { color: var(--danger); }
 .proef.nee > .tekst strong { text-decoration: line-through; opacity: .7; }
+
+/* ========================= De bestandenkijker ====================== */
+
+.kijker-backdrop {
+  position: fixed; inset: 0; z-index: 90;
+  display: grid; place-items: center;
+  padding: 18px;
+  background: rgba(6, 10, 18, .72);
+  backdrop-filter: blur(6px);
+}
+
+.kijker {
+  display: flex; flex-direction: column;
+  width: min(1100px, 100%);
+  height: min(88vh, 100%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, .45);
+  overflow: hidden;
+}
+
+.kijker-kop {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--bg-2);
+  flex: none;
+}
+.kijker-kop .wat { display: grid; flex: 1; min-width: 0; }
+.kijker-kop .wat strong {
+  font-size: .92rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.kijker-kop .wat span { font-size: .73rem; color: var(--text-3); }
+
+.kijker-kop .zoom {
+  display: flex; align-items: center; gap: 3px; flex: none;
+}
+.kijker-kop .zoom span {
+  font-size: .74rem; color: var(--text-3);
+  min-width: 42px; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.kijker-blad {
+  position: relative;
+  flex: 1; min-height: 0;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.kijker-midden {
+  display: grid; justify-items: center; align-content: center; gap: 9px;
+  min-height: 100%;
+  padding: 40px 28px;
+  text-align: center;
+  color: var(--text-3);
+}
+.kijker-midden svg { color: var(--text-3); }
+.kijker-midden strong { font-size: .95rem; color: var(--text); }
+.kijker-midden span { font-size: .84rem; max-width: 44ch; line-height: 1.6; }
+.kijker-midden.fout svg { color: var(--warn); }
+
+.kijker-beeld {
+  display: grid; place-items: start center;
+  padding: 18px;
+  min-height: 100%;
+}
+.kijker-beeld img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  background: #fff;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, .28);
+}
+
+.kijker-pdf { padding: 18px; display: grid; gap: 14px; justify-items: center; }
+.kijker-pdf > div { display: grid; gap: 14px; justify-items: center; width: 100%; }
+
+.pdf-blad {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  background: #fff;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, .28);
+}
+
+.kijker-tekst {
+  margin: 0;
+  padding: 18px 20px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: .8rem; line-height: 1.65;
+  white-space: pre-wrap; word-break: break-word;
+  color: var(--text-2);
+}
+
+/* Bladeren tussen de bijlagen van één bericht */
+
+.kijker-blad .blader {
+  position: sticky; top: 50%; z-index: 2;
+  display: grid; place-items: center;
+  width: 38px; height: 38px;
+  margin-top: -19px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background .16s var(--ease), opacity .16s var(--ease);
+}
+.kijker-blad .blader.links  { float: left;  margin-left: 10px; }
+.kijker-blad .blader.rechts { float: right; margin-right: 10px; }
+.kijker-blad .blader:hover:not(:disabled) { background: var(--bg-2); }
+.kijker-blad .blader:disabled { opacity: .3; cursor: default; }
+
+@media (max-width: 620px) {
+  .kijker-backdrop { padding: 0; }
+  .kijker { height: 100%; border-radius: 0; border: 0; }
+  .kijker-kop { padding: 10px; }
+  .kijker-kop .zoom { display: none; }
+}

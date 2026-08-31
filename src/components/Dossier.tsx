@@ -30,6 +30,8 @@ import { Badge, Card, Empty, Field, Modal } from './ui'
 import { useAuth } from '../store/useAuth'
 import { usePerms } from '../store/useNav'
 import { toast } from '../store/useToasts'
+import Bekijker from './Bekijker'
+import type { Bekijkbaar } from '../lib/bekijken'
 
 /* ------------------------------------------------------------------ *
  *  Het personeelsdossier
@@ -276,22 +278,17 @@ function DocumentRegel({
   onTekenen: () => void
   onVerbergen: () => void
 }) {
-  const [bezig, setBezig] = useState(false)
+  const [kijkt, setKijkt] = useState<number | null>(null)
 
   const wachtOpHandtekening = doc.requiresSignature && !doc.signedAt && !doc.declinedAt
   const verlopen = !!doc.expiresAt && doc.expiresAt < Date.now()
 
-  async function openen() {
-    setBezig(true)
-    try {
-      const link = await documenten.openen(doc)
-      window.open(link, '_blank', 'noopener,noreferrer')
-    } catch (e) {
-      toast.error(e instanceof DossierFout ? e.message : 'Openen lukte niet')
-    } finally {
-      setBezig(false)
-    }
-  }
+  const teBekijken: Bekijkbaar[] = [{
+    naam: doc.title,
+    mime: doc.mime,
+    size: doc.sizeBytes,
+    haal: () => documenten.openen(doc),
+  }]
 
   async function weghalen() {
     if (!confirm(`"${doc.title}" definitief weghalen uit het dossier?`)) return
@@ -358,9 +355,15 @@ function DocumentRegel({
             <FileSignature size={14} /> Tekenen
           </button>
         )}
-        <button className="btn ghost sm" onClick={() => void openen()} disabled={bezig} title="Openen">
-          {bezig ? <Loader2 size={14} className="spin" /> : <Download size={14} />}
+        <button className="btn ghost sm" onClick={() => setKijkt(0)} title="Bekijken">
+          <Eye size={14} />
         </button>
+        <Bekijker
+          bestanden={teBekijken}
+          index={kijkt}
+          onSluiten={() => setKijkt(null)}
+          onWissel={setKijkt}
+        />
         {magBeheren && (
           <>
             <button
@@ -1094,6 +1097,7 @@ export function TekenDialoog({
   const [naam, setNaam] = useState('')
   const [akkoord, setAkkoord] = useState(false)
   const [gelezen, setGelezen] = useState(false)
+  const [leest, setLeest] = useState<number | null>(null)
   const [weigeren, setWeigeren] = useState(false)
   const [reden, setReden] = useState('')
   const [bezig, setBezig] = useState(false)
@@ -1110,16 +1114,14 @@ export function TekenDialoog({
 
   if (!doc) return null
 
-  async function openen() {
-    if (!doc) return
-    try {
-      const link = await documenten.openen(doc)
-      window.open(link, '_blank', 'noopener,noreferrer')
-      setGelezen(true)
-    } catch (e) {
-      toast.error(e instanceof DossierFout ? e.message : 'Openen lukte niet')
-    }
-  }
+  /*
+   * Tekenen kan pas na lezen, en lezen gebeurt nu hier in het scherm. Dat
+   * was eerst een nieuw venster -- dat op de tablet niet openging, waardoor
+   * je wel moest tekenen maar niet kon zien waarvoor.
+   */
+  const teLezen: Bekijkbaar[] = doc
+    ? [{ naam: doc.title, mime: doc.mime, size: doc.sizeBytes, haal: () => documenten.openen(doc) }]
+    : []
 
   function tekenStart(e: React.PointerEvent<HTMLCanvasElement>) {
     const c = canvas.current
@@ -1217,17 +1219,28 @@ export function TekenDialoog({
         </>
       ) : (
         <>
-          <button className="scan-cta" onClick={() => void openen()} type="button">
+          <button
+            className="scan-cta"
+            onClick={() => { setLeest(0); setGelezen(true) }}
+            type="button"
+          >
             <FileText size={20} />
             <span>
-              <strong>{gelezen ? 'Nog eens openen' : 'Eerst lezen'}</strong>
+              <strong>{gelezen ? 'Nog eens lezen' : 'Eerst lezen'}</strong>
               <span>
                 {gelezen
-                  ? 'Je hebt het document geopend.'
-                  : 'Het document opent in een nieuw venster. Tekenen kan pas daarna.'}
+                  ? 'Je hebt het document ingezien.'
+                  : 'Het document opent hier in beeld. Tekenen kan pas daarna.'}
               </span>
             </span>
           </button>
+
+          <Bekijker
+            bestanden={teLezen}
+            index={leest}
+            onSluiten={() => setLeest(null)}
+            onWissel={setLeest}
+          />
 
           <Field label="Je handtekening" help="Met de muis of je vinger. Mag ook leeg blijven.">
             <div className="krabbel">

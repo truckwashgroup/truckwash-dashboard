@@ -8,14 +8,16 @@ import {
 } from 'lucide-react'
 import { db } from '../../lib/db'
 import { expenses as expRepo } from '../../lib/repo'
-import type { Expense, WashJob } from '../../lib/types'
+import type { Expense, MailBericht, WashJob } from '../../lib/types'
 import { dateShort, money, moneyShort } from '../../lib/format'
 import { Badge, Card, Empty, Field, Modal, Stat } from '../../components/ui'
 import { useAuth } from '../../store/useAuth'
 import { toast } from '../../store/useToasts'
 import { expensesByCategory, managementKpis, startOfDay } from '../../lib/analytics'
 import { PALETTE, gridStroke, hoverFill, tooltipStyle } from '../../lib/charts'
-import { postbus } from '../../lib/postbus'
+import { magOpenen, postbus } from '../../lib/postbus'
+import Bekijker from '../../components/Bekijker'
+import type { Bekijkbaar } from '../../lib/bekijken'
 
 const DAY = 86_400_000
 
@@ -193,9 +195,7 @@ export default function Financieel({ days }: { days: number }) {
                               {e.amountExcl === 0 && ' — bedrag nog invullen'}
                             </div>
                           )}
-                          {e.attachmentPath && (
-                            <Bijlage pad={e.attachmentPath} naam={e.attachmentName} />
-                          )}
+                          <Bijlage bon={e} />
                           {e.rejectReason && (
                             <div style={{ fontSize: '.73rem', color: 'var(--danger)' }}>
                               Reden: {e.rejectReason}
@@ -346,25 +346,56 @@ function PnlLine({ label, value, strong }: { label: string; value: number; stron
  *  dat kan uitlekken.
  * ------------------------------------------------------------------ */
 
-function Bijlage({ pad, naam }: { pad: string; naam?: string }) {
-  const [bezig, setBezig] = useState(false)
+function Bijlage({ bon }: { bon: Expense }) {
+  const post = useLiveQuery<MailBericht | undefined>(
+    async () => (bon.mailboxId ? db.mailbox.get(bon.mailboxId) : undefined),
+    [bon.mailboxId],
+  )
+  const [kijkt, setKijkt] = useState<number | null>(null)
 
-  async function openen() {
-    setBezig(true)
-    try {
-      const link = await postbus.openBijlage({ path: pad })
-      window.open(link, '_blank', 'noopener,noreferrer')
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'De bijlage is niet op te halen')
-    } finally {
-      setBezig(false)
-    }
-  }
+  /*
+   * Een mail met drie bonnen eraan leverde hier één knop op, en de andere
+   * twee waren nergens meer te vinden. Kwam deze bon uit de post, dan hangt
+   * alles wat er bij die mail zat er nu onder.
+   */
+  const bijlagen = useMemo<Bekijkbaar[]>(() => {
+    const uitPost: Bekijkbaar[] = (post?.attachments ?? []).map((b) => ({
+      naam: b.naam,
+      mime: b.mime,
+      size: b.size,
+      geblokkeerd: magOpenen(b)
+        ? undefined
+        : (b.controleReden || 'Deze bijlage kwam niet door de controle.'),
+      haal: () => postbus.openBijlage(b),
+    }))
+
+    // De bon wijst naar één bestand. Zit dat al bij de post, dan niet twee keer.
+    if (!bon.attachmentPath) return uitPost
+    if (uitPost.some((b) => b.naam === bon.attachmentName)) return uitPost
+    return [
+      {
+        naam: bon.attachmentName ?? 'Bijlage',
+        haal: () => postbus.openBijlage({ path: bon.attachmentPath! }),
+      },
+      ...uitPost,
+    ]
+  }, [post, bon.attachmentPath, bon.attachmentName])
+
+  if (bijlagen.length === 0) return null
 
   return (
-    <button className="bon-bijlage" onClick={() => void openen()} disabled={bezig}>
-      {bezig ? <Loader2 size={12} className="spin" /> : <Paperclip size={12} />}
-      {naam ?? 'Bijlage'}
-    </button>
+    <>
+      {bijlagen.map((b, i) => (
+        <button key={b.naam + i} className="bon-bijlage" onClick={() => setKijkt(i)}>
+          <Paperclip size={12} /> {b.naam}
+        </button>
+      ))}
+      <Bekijker
+        bestanden={bijlagen}
+        index={kijkt}
+        onSluiten={() => setKijkt(null)}
+        onWissel={setKijkt}
+      />
+    </>
   )
 }

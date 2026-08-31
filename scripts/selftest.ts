@@ -2333,6 +2333,79 @@ check('de agenda staat op de server', !!(await db.agendaItems.get(blijvend.id)))
 
 }
 
+/* ==================================================================== *
+ *  Bijlagen bekijken
+ *
+ *  Wat een bestand is bepalen we aan de extensie, niet aan wat de afzender
+ *  zegt dat het is. Post komt van buiten, en iets dat zichzelf een plaatje
+ *  noemt is daarmee nog geen plaatje.
+ * ==================================================================== */
+
+console.log('\n— bijlagen bekijken —')
+
+{
+  const {
+    soortVan, extensieVan, grootteVan, MAX_TONEN, TeGroot,
+  } = await import('../src/lib/bekijken')
+  const { magOpenen, controleLabel } = await import('../src/lib/postbus')
+
+  /* --- wat tonen we zelf --- */
+
+  check('een jpeg is beeld', soortVan('bon.jpg', 'image/jpeg') === 'beeld')
+  check('een png ook', soortVan('scan.PNG') === 'beeld')
+  check('een pdf is een pdf', soortVan('factuur.pdf', 'application/pdf') === 'pdf')
+  check('een csv is tekst', soortVan('mutaties.csv', 'text/csv') === 'tekst')
+
+  /* --- en wat niet --- */
+
+  check('een zip tonen we niet', soortVan('spullen.zip', 'application/zip') === 'onbekend')
+  check('een exe al helemaal niet', soortVan('setup.exe') === 'onbekend')
+  check('een bestand zonder naam ook niet', soortVan('') === 'onbekend')
+
+  /*
+   * Dit is het geval waar het om gaat: de naam zegt plaatje, de afzender
+   * zegt iets anders. Twee bronnen die elkaar tegenspreken is precies het
+   * moment om niets te doen.
+   */
+  check('naam en type die elkaar tegenspreken leveren niets op',
+    soortVan('vakantiefoto.png', 'application/x-msdownload') === 'onbekend')
+  check('en andersom net zo goed',
+    soortVan('rapport.pdf', 'application/octet-stream') === 'onbekend')
+
+  check('zonder extensie mag het type het zeggen',
+    soortVan('bijlage', 'image/png') === 'beeld')
+  check('maar dan ook alleen voor wat we tekenen',
+    soortVan('bijlage', 'application/zip') === 'onbekend')
+
+  check('de extensie komt er los uit', extensieVan('Factuur.2026.PDF') === 'pdf')
+  check('geen punt betekent geen extensie', extensieVan('LEESMIJ') === '')
+
+  /* --- leesbare grootte --- */
+
+  check('bytes blijven bytes', grootteVan(900) === '900 B')
+  check('kilobytes worden afgerond', grootteVan(2048) === '2 kB')
+  check('megabytes met één decimaal', grootteVan(3_500_000) === '3.3 MB')
+  check('niets is niets', grootteVan(undefined) === '')
+
+  check('er zit een dak op wat we inladen', MAX_TONEN === 25 * 1024 * 1024)
+  check('een te groot bestand zegt wat het is',
+    new TeGroot(80 * 1024 * 1024).message.includes('80.0 MB'))
+
+  /* --- wat er tegengehouden is, gaat niet open --- */
+
+  check('een schone bijlage mag open',
+    magOpenen({ naam: 'a.pdf', mime: 'application/pdf', size: 1, path: 'p', controle: 'schoon' }))
+  check('een verdachte niet',
+    !magOpenen({ naam: 'a.pdf', mime: 'application/pdf', size: 1, path: 'p', controle: 'verdacht' }))
+  check('een mislukte controle ook niet',
+    !magOpenen({ naam: 'a.pdf', mime: 'application/pdf', size: 1, path: 'p', controle: 'mislukt' }))
+  check('van vóór de controle mag wel, met een waarschuwing',
+    magOpenen({ naam: 'a.pdf', mime: 'application/pdf', size: 1, path: 'p' }) &&
+    controleLabel({ naam: 'a.pdf', mime: 'application/pdf', size: 1, path: 'p' })?.tone === 'warn')
+  check('en een schone krijgt geen stempel',
+    controleLabel({ naam: 'a.pdf', mime: 'application/pdf', size: 1, path: 'p', controle: 'schoon' }) === null)
+}
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

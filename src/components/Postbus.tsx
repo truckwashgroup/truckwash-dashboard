@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  AlertTriangle, ArrowLeft, CheckCircle2, Code2, Download, EyeOff, Inbox,
+  AlertTriangle, ArrowLeft, CheckCircle2, Code2, Eye, EyeOff, Inbox,
   Loader2, Mail, MailOpen, Paperclip, Receipt, Search, Send, ShieldCheck,
   ShieldX, Trash2,
 } from 'lucide-react'
@@ -15,6 +15,8 @@ import { dateTime, money, relative } from '../lib/format'
 import { Badge, Card, Empty, Field, Modal, Stat } from './ui'
 import { useAuth } from '../store/useAuth'
 import { usePerms, useNav } from '../store/useNav'
+import Bekijker from './Bekijker'
+import type { Bekijkbaar } from '../lib/bekijken'
 import { toast } from '../store/useToasts'
 
 /* ------------------------------------------------------------------ *
@@ -200,20 +202,24 @@ function Bericht({
   door: { id: string; name: string }
 }) {
   const perms = usePerms()
-  const [bezig, setBezig] = useState<string | null>(null)
   const [toonRuw, setToonRuw] = useState(false)
+  const [kijkt, setKijkt] = useState<number | null>(null)
 
-  async function openBijlage(bijlage: MailBericht['attachments'][number]) {
-    setBezig(bijlage.path)
-    try {
-      const link = await postbus.openBijlage(bijlage)
-      window.open(link, '_blank', 'noopener,noreferrer')
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : `${bijlage.naam} openen lukte niet`)
-    } finally {
-      setBezig(null)
-    }
-  }
+  /*
+   * Alle bijlagen van dit bericht gaan mee naar de kijker, ook de
+   * tegengehouden. Die tonen we niet, maar ze blijven wel staan -- met de
+   * reden erbij. Een bijlage die zomaar uit het rijtje verdwijnt is een
+   * bijlage waarvan niemand weet dat hij er was.
+   */
+  const teBekijken: Bekijkbaar[] = bericht.attachments.map((b) => ({
+    naam: b.naam,
+    mime: b.mime,
+    size: b.size,
+    geblokkeerd: magOpenen(b)
+      ? undefined
+      : (b.controleReden || 'Deze bijlage kwam niet door de controle.'),
+    haal: () => postbus.openBijlage(b),
+  }))
 
   async function zet(status: MailStatus) {
     await postbus.setStatus(bericht.id, status, door)
@@ -267,13 +273,10 @@ function Bericht({
                 <button
                   key={b.path}
                   className={`bijlage ${mag ? '' : 'geblokkeerd'}`}
-                  onClick={() => void openBijlage(b)}
-                  disabled={bezig === b.path || !mag}
-                  title={mag ? 'Openen' : b.controleReden}
+                  onClick={() => setKijkt(bericht.attachments.indexOf(b))}
+                  title={mag ? 'Bekijken' : b.controleReden}
                 >
-                  {bezig === b.path
-                    ? <Loader2 size={15} className="spin" />
-                    : mag ? <Download size={15} /> : <ShieldX size={15} />}
+                  {mag ? <Eye size={15} /> : <ShieldX size={15} />}
                   <span className="n">{b.naam}</span>
                   {stempel
                     ? <Badge tone={stempel.tone as never}>{stempel.label}</Badge>
@@ -282,6 +285,13 @@ function Bericht({
                 </button>
               )
             })}
+
+            <Bekijker
+              bestanden={teBekijken}
+              index={kijkt}
+              onSluiten={() => setKijkt(null)}
+              onWissel={setKijkt}
+            />
 
             {bericht.attachments.some((b) => !b.controle) && (
               <div className="signup-note" style={{ marginTop: 8 }}>

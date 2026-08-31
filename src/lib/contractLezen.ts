@@ -15,6 +15,8 @@
  *  € 2.850" is iets anders dan een willekeurig bedrag ergens in de tekst.
  * ------------------------------------------------------------------ */
 
+import { laadPdfjs } from './pdf'
+
 export type Zekerheid = 'hoog' | 'middel' | 'laag'
 
 export interface Vondst<T> {
@@ -43,21 +45,6 @@ export interface ContractGegevens {
 /* ------------------------------------------------------------------ *
  *  De tekstlaag uit de PDF halen
  * ------------------------------------------------------------------ */
-
-let pdfjs: typeof import('pdfjs-dist') | null = null
-
-/**
- * pdf.js is groot. Hij wordt pas opgehaald als iemand daadwerkelijk een
- * contract inleest, niet bij het opstarten van de app.
- */
-async function laadPdfjs() {
-  if (pdfjs) return pdfjs
-  const mod = await import('pdfjs-dist')
-  const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
-  mod.GlobalWorkerOptions.workerSrc = worker.default
-  pdfjs = mod
-  return mod
-}
 
 export class GeenTekstlaag extends Error {
   constructor() {

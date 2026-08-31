@@ -64,7 +64,7 @@ const SCHERMEN: Scherm[] = [
   { page: 'vandaag',    label: 'Vandaag',      hint: 'Wasopdrachten en wachtrij',       icon: Truck,           recht: 'jobs.view', ook: ['wachtrij', 'wasbeurten'] },
   { page: 'planning',   label: 'Planning',     hint: 'Alle wasopdrachten',              icon: CalendarRange,   recht: 'planning.view' },
   { page: 'rooster',    label: 'Rooster',      hint: 'Wanneer je bent ingeroosterd',    icon: CalendarDays,    recht: 'roster.viewOwn', ook: ['diensten', 'werktijden'] },
-  { page: 'uren',       label: 'Uren',         hint: 'In- en uitklokken',               icon: Timer,           recht: 'hours.own', ook: ['tijd', 'klok'] },
+  { page: 'uren',       label: 'Uren',         hint: 'Je geregistreerde uren',          icon: Timer,           recht: 'hours.own', ook: ['tijd', 'klok', 'inklokken', 'urenstaat'] },
   { page: 'materiaal',  label: 'Materiaal',    hint: 'Voorraad en verbruik',            icon: Package,         recht: 'inventory.view', ook: ['voorraad', 'chemie'] },
   { page: 'kosten',     label: 'Kosten',       hint: 'Bonnen indienen',                 icon: Receipt,         recht: 'expenses.submit', ook: ['bon', 'declaratie'] },
   { page: 'financieel', label: 'Financieel',   hint: 'Kosten valideren en resultaat',   icon: Receipt,         recht: 'finance.view', ook: ['omzet', 'marge', 'bonnen'] },

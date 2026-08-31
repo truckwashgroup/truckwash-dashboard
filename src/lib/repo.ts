@@ -175,24 +175,28 @@ export const expenses = {
 
 /* ----------------------------- Uren ------------------------------- */
 
+/*
+ * In- en uitklokken doet het dashboard niet meer.
+ *
+ * Dat gebeurt op het apparaat op de vestiging: je toetst je persoonlijke
+ * code in of scant je badge, en daarmee ontstaat de urenregel -- op de plek
+ * waar je ook werkelijk staat. Een knop op ieders telefoon maakt van
+ * inklokken iets wat je vanaf de bank doet, en dat is geen urenstaat meer
+ * maar een voorstel.
+ *
+ * Wat hier over is, is het enige wat het kantoor nog met de hand doet:
+ * een regel afsluiten die is blijven openstaan omdat iemand aan het eind van
+ * de dag vergat uit te klokken. De database laat dat toe aan het management
+ * en aan een leidinggevende, en verder aan niemand.
+ */
 export const timeEntries = {
-  async clockIn(user: Pick<User, 'id' | 'name'>, jobId?: string, note?: string) {
-    const entry: TimeEntry = {
-      id: uid('te'),
-      userId: user.id,
-      userName: user.name,
-      jobId,
-      start: Date.now(),
-      note,
-      updatedAt: Date.now(),
-    }
-    return put('timeEntries', db.timeEntries, entry)
-  },
-
-  async clockOut(id: string) {
+  async afsluiten(id: string, tot = Date.now()) {
     const entry = await db.timeEntries.get(id)
-    if (!entry) return
-    return put('timeEntries', db.timeEntries, { ...entry, end: Date.now() })
+    if (!entry || entry.end) return entry
+    return put('timeEntries', db.timeEntries, {
+      ...entry,
+      end: Math.max(tot, entry.start),
+    })
   },
 }
 

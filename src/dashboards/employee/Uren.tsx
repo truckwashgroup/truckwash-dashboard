@@ -1,20 +1,29 @@
 import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Play, Square, Timer } from 'lucide-react'
+import { CreditCard, Timer } from 'lucide-react'
 import { db } from '../../lib/db'
-import { timeEntries as timeRepo } from '../../lib/repo'
 import type { TimeEntry } from '../../lib/types'
 import { dateShort, duration, money, time } from '../../lib/format'
-import { Card, Empty, Field, Stat } from '../../components/ui'
+import { Card, Empty, Stat } from '../../components/ui'
 import { useAuth } from '../../store/useAuth'
-import { toast } from '../../store/useToasts'
 import { startOfDay } from '../../lib/analytics'
+
+/* ------------------------------------------------------------------ *
+ *  Je uren
+ *
+ *  Kijken, niet klokken. In- en uitklokken gebeurt op het apparaat op de
+ *  vestiging: je toetst je persoonlijke code in of scant je badge, en
+ *  daarmee ontstaat de regel -- op de plek waar je ook werkelijk staat.
+ *
+ *  Een knop op ieders telefoon maakte van inklokken iets wat je vanaf de
+ *  bank kon doen. Dan is een urenstaat geen urenstaat meer maar een
+ *  voorstel, en dat is niet waar hij voor is.
+ * ------------------------------------------------------------------ */
 
 const DAY = 86_400_000
 
 export default function Uren() {
   const user = useAuth((s) => s.user)!
-  const [note, setNote] = useState('')
   const [, setTick] = useState(0)
 
   useEffect(() => {
@@ -45,18 +54,6 @@ export default function Uren() {
 
   const rate = user.hourlyRate ?? 0
 
-  async function start() {
-    await timeRepo.clockIn({ id: user.id, name: user.name }, undefined, note || undefined)
-    setNote('')
-    toast.ok('Tijdregistratie gestart')
-  }
-
-  async function stop() {
-    if (!running) return
-    await timeRepo.clockOut(running.id)
-    toast.ok('Tijdregistratie gestopt')
-  }
-
   return (
     <>
       <div className="grid cols-3" style={{ marginBottom: 16 }}>
@@ -79,39 +76,30 @@ export default function Uren() {
         />
       </div>
 
-      <Card title="Klok" hint={running ? 'Loopt nu' : 'Niet gestart'}>
+      <Card title="Klok" hint={running ? 'Je staat ingeklokt' : 'Je staat niet ingeklokt'}>
         {running ? (
-          <div className="row">
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: '2rem', fontWeight: 700, letterSpacing: '-.03em' }}>
-                {duration(Date.now() - running.start)}
-              </div>
-              <div style={{ fontSize: '.82rem', color: 'var(--text-3)' }}>
-                Gestart om {time(running.start)}
-                {running.note ? ` · ${running.note}` : ''}
-              </div>
+          <div className="klok-nu">
+            <div className="teller">{duration(Date.now() - running.start)}</div>
+            <div className="sinds">
+              Ingeklokt om {time(running.start)}
+              {running.note ? ` · ${running.note}` : ''}
             </div>
-            <button className="btn danger lg" onClick={() => void stop()}>
-              <Square size={16} /> Stoppen
-            </button>
           </div>
         ) : (
-          <div className="row" style={{ alignItems: 'flex-end' }}>
-            <div style={{ flex: 1, minWidth: 220 }}>
-              <Field label="Omschrijving (optioneel)">
-                <input
-                  className="input"
-                  placeholder="Bijv. wasstraat ochtenddienst"
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                />
-              </Field>
-            </div>
-            <button className="btn primary lg" onClick={() => void start()} style={{ marginBottom: 13 }}>
-              <Play size={16} /> Starten
-            </button>
-          </div>
+          <p style={{ fontSize: '.87rem', color: 'var(--text-2)', lineHeight: 1.6 }}>
+            Er loopt op dit moment geen registratie op jouw naam.
+          </p>
         )}
+
+        <div className="signup-note" style={{ marginTop: 14, marginBottom: 0 }}>
+          <CreditCard size={16} />
+          <span>
+            In- en uitklokken doe je aan de kassa op de vestiging, met je
+            persoonlijke code of je badge. Dat kan hier bewust niet: waar je
+            werkt hoort te blijken uit waar je inklokt. Klopt er iets niet,
+            zeg het dan tegen je leidinggevende — die kan het rechtzetten.
+          </span>
+        </div>
       </Card>
 
       <Card title="Registraties" hint="Laatste 28 dagen" flush className="mt">

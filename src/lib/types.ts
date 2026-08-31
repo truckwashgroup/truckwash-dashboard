@@ -256,7 +256,7 @@ export type Permission =
   /* rooster */
   | 'roster.viewOwn' | 'roster.viewTeam' | 'roster.edit' | 'roster.publish'
   /* uren */
-  | 'hours.own' | 'hours.viewTeam' | 'hours.approve'
+  | 'hours.own' | 'hours.viewTeam' | 'hours.approve' | 'hours.clock'
   /* voorraad */
   | 'inventory.view' | 'inventory.adjust' | 'inventory.manage'
   /* kosten */
@@ -323,9 +323,10 @@ export const PERMISSIONS: PermissionMeta[] = [
   { key: 'roster.edit',       group: 'Rooster',    label: 'Rooster maken',        hint: 'Diensten inplannen, wijzigen en verwijderen.' },
   { key: 'roster.publish',    group: 'Rooster',    label: 'Rooster publiceren',   hint: 'Een concept definitief maken en iedereen berichten.' },
 
-  { key: 'hours.own',         group: 'Uren',       label: 'Eigen uren',           hint: 'In- en uitklokken, eigen registraties zien.' },
+  { key: 'hours.own',         group: 'Uren',       label: 'Eigen uren',           hint: 'Je eigen urenstaat inzien. Klokken gebeurt aan de kassa.' },
   { key: 'hours.viewTeam',    group: 'Uren',       label: 'Uren van het team',    hint: 'Zien hoeveel het team gewerkt heeft.' },
   { key: 'hours.approve',     group: 'Uren',       label: 'Uren goedkeuren',      hint: 'Registraties accorderen voor de verloning.' },
+  { key: 'hours.clock',       group: 'Uren',       label: 'Uren wegschrijven',    hint: 'Voor het kassa-account: in- en uitklokken namens wie zich meldt. Hoort niet bij een persoon.' },
 
   { key: 'inventory.view',    group: 'Voorraad',   label: 'Voorraad zien',        hint: 'Standen en verbruik bekijken.' },
   { key: 'inventory.adjust',  group: 'Voorraad',   label: 'Verbruik boeken',      hint: 'Materiaal afboeken en leveringen bijboeken.' },

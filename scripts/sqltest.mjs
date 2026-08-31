@@ -115,7 +115,9 @@ await run(db, '0013_berichten_mogen_van_iedereen.sql draait', sqlFile('supabase/
 await run(db, '0014_wijzigingsverzoeken.sql draait', sqlFile('supabase/migrations/0014_wijzigingsverzoeken.sql'))
 await run(db, '0015_agenda.sql draait', sqlFile('supabase/migrations/0015_agenda.sql'))
 await run(db, '0016_werkgevers.sql draait', sqlFile('supabase/migrations/0016_werkgevers.sql'))
-await run(db, '0017_berichten_over_de_grens.sql draait', sqlFile('supabase/migrations/0017_berichten_over_de_grens.sql'))
+await run(db, '0017_berichten_over_de_grens.sql draait', sqlFile('supabase/migrations/0017_berichten_over_de_grens.sql'))
+await run(db, '0018_klokken_gaat_via_de_kassa.sql draait', sqlFile('supabase/migrations/0018_klokken_gaat_via_de_kassa.sql'))
+await run(db, '0019_een_bericht_gelezen_melden.sql draait', sqlFile('supabase/migrations/0019_een_bericht_gelezen_melden.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -135,7 +137,9 @@ await run(db, '0013 nogmaals', sqlFile('supabase/migrations/0013_berichten_mogen
 await run(db, '0014 nogmaals', sqlFile('supabase/migrations/0014_wijzigingsverzoeken.sql'))
 await run(db, '0015 nogmaals', sqlFile('supabase/migrations/0015_agenda.sql'))
 await run(db, '0016 nogmaals', sqlFile('supabase/migrations/0016_werkgevers.sql'))
-await run(db, '0017 nogmaals', sqlFile('supabase/migrations/0017_berichten_over_de_grens.sql'))
+await run(db, '0017 nogmaals', sqlFile('supabase/migrations/0017_berichten_over_de_grens.sql'))
+await run(db, '0018 nogmaals', sqlFile('supabase/migrations/0018_klokken_gaat_via_de_kassa.sql'))
+await run(db, '0019 nogmaals', sqlFile('supabase/migrations/0019_een_bericht_gelezen_melden.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
 const bedrijven = await db.query('select count(*)::int as n from public.companies')
@@ -1350,6 +1354,130 @@ await db.exec(
 check('bij het loskoppelen komt het bericht nog aan',
   await magSchrijven(werkgever,
     bericht(werkgever, rickRow.id, 'nt_wg_afscheid', ellenRow.id)))
+
+
+console.log('\n23. Uren: klokken gaat via de kassa')
+
+/*
+ * Een knop op ieders telefoon maakte van inklokken iets wat je vanaf de bank
+ * kon doen. Dat kan nu niet meer -- en niet alleen omdat de knop weg is:
+ * de database laat het niet toe. Anders was het een knop die weg is, en dat
+ * is iets anders dan iets wat niet kan.
+ */
+
+// Het kassa-account: een gewoon werknemersaccount met één los recht erbij.
+const kassa = 'd4d4d4d4-4444-4444-4444-d4d4d4d4d4d4'
+await db.exec(`
+  insert into auth.users (id, email) values ('${kassa}', 'kassa.utr@truckwash1group.nl');
+  update public.profiles
+     set roles = array['employee']::text[], active = true,
+         grants = array['hours.clock']::text[]
+   where email = 'kassa.utr@truckwash1group.nl';
+
+  alter table public.time_entries force row level security;
+  grant select, insert, update, delete on all tables in schema public to authenticated;
+`)
+
+async function urenRegel(id) {
+  const r = await db.query(
+    `select started_at, ended_at, user_id from public.time_entries where id = '${id}'`)
+  return r.rows[0]
+}
+
+/* --- zelfbediening is eruit --- */
+
+check('een werknemer klokt zichzelf niet meer in',
+  !(await magSchrijven(wasser, `insert into public.time_entries
+     (id, user_id, user_name, started_at) values
+     ('te_zelf', '${wasserId}', 'Tom', 100);`)))
+
+check('ook niet op naam van een collega',
+  !(await magSchrijven(wasser, `insert into public.time_entries
+     (id, user_id, user_name, started_at) values
+     ('te_collega', '${voormanId}', 'Joris', 100);`)))
+
+/* --- de kassa wel, ook voor een ander --- */
+
+check('de kassa schrijft de regel van wie zich meldt',
+  await magSchrijven(kassa, `insert into public.time_entries
+     (id, user_id, user_name, started_at) values
+     ('te_kassa', '${wasserId}', 'Tom', 100);`))
+
+check('en klokt hem ook weer uit',
+  await magSchrijven(kassa,
+    `update public.time_entries set ended_at = 900 where id = 'te_kassa';`))
+check('wat er dan ook echt staat',
+  Number((await urenRegel('te_kassa')).ended_at) === 900,
+  JSON.stringify(await urenRegel('te_kassa')))
+
+/* --- de eigenaar van de regel mag er zelf niet aan --- */
+
+await magSchrijven(wasser,
+  `update public.time_entries set started_at = 1 where id = 'te_kassa';`)
+check('de medewerker verzet zijn eigen begintijd niet',
+  Number((await urenRegel('te_kassa')).started_at) === 100)
+
+check('en gooit hem ook niet weg',
+  !(await magSchrijven(wasser, `delete from public.time_entries where id = 'te_kassa';`))
+  || !!(await urenRegel('te_kassa')))
+
+/* --- vergeten uit te klokken: de leidinggevende sluit af --- */
+
+await db.exec(`
+  insert into public.time_entries (id, user_id, user_name, started_at)
+  values ('te_open', '${wasserId}', 'Tom', 200);`)
+
+check('een leidinggevende sluit een lopende regel af',
+  await magSchrijven(voorman,
+    `update public.time_entries set ended_at = 800 where id = 'te_open';`))
+check('en dat staat er dan ook',
+  Number((await urenRegel('te_open')).ended_at) === 800)
+
+/*
+ * Let op: een UPDATE die op de beveiligingsregels strandt raakt nul rijen en
+ * meldt niets. Nakijken doe je dus achteraf, aan wat er staat -- niet aan of
+ * er iets omviel.
+ */
+await db.exec(`
+  insert into public.time_entries (id, user_id, user_name, started_at)
+  values ('te_open3', '${wasserId}', 'Tom', 600);`)
+
+await magSchrijven(voorman,
+  `update public.time_entries set started_at = 5, ended_at = 700 where id = 'te_open3';`)
+check('maar hij verzet het begin niet',
+  Number((await urenRegel('te_open3')).started_at) === 600)
+
+await magSchrijven(voorman,
+  `update public.time_entries set user_id = '${voormanId}', ended_at = 700 where id = 'te_open3';`)
+check('en zet hem niet op naam van iemand anders',
+  (await urenRegel('te_open3')).user_id === wasserId)
+
+await db.exec(`
+  insert into public.time_entries (id, user_id, user_name, started_at)
+  values ('te_open2', '${wasserId}', 'Tom', 300);`)
+check('afsluiten is geen nieuwe regel schrijven',
+  !(await magSchrijven(voorman, `insert into public.time_entries
+     (id, user_id, user_name, started_at) values
+     ('te_voorman', '${wasserId}', 'Tom', 400);`)))
+
+/* --- het kantoor houdt de sleutels --- */
+
+check('het management corrigeert wel',
+  await magSchrijven(baas,
+    `update public.time_entries set started_at = 250 where id = 'te_open2';`))
+check('en mag als enige weggooien',
+  await magSchrijven(baas, `delete from public.time_entries where id = 'te_open2';`))
+check('de regel is dan ook echt weg', !(await urenRegel('te_open2')))
+
+/* --- kijken verandert niet --- */
+
+check('je ziet je eigen uren gewoon',
+  (await countAs(wasser,
+    `select count(*)::int as n from public.time_entries where user_id = '${wasserId}'`)) > 0)
+check('een leidinggevende ziet die van zijn team',
+  (await countAs(voorman, 'select count(*)::int as n from public.time_entries')) > 0)
+check('een klant ziet er geen',
+  (await countAs(klant, 'select count(*)::int as n from public.time_entries')) === 0)
 
 await db.close()
 

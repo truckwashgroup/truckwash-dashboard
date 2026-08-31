@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   CalendarDays, CheckCircle2, ClipboardList, Clock, GraduationCap, LayoutGrid,
-  MessageSquare, Send, Sparkles, Timer, TriangleAlert, Truck, Users,
+  MessageSquare, Send, Sparkles, Square, Timer, TriangleAlert, Truck, Users,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db } from '../../lib/db'
@@ -20,6 +20,8 @@ import Agenda from '../../components/Agenda'
 import { Start, type Tegel, type TegelTint } from '../../components/Tegels'
 import { useAuth } from '../../store/useAuth'
 import { usePerms, useNavTarget } from '../../store/useNav'
+import { timeEntries as timeRepo } from '../../lib/repo'
+import { toast } from '../../store/useToasts'
 import { shiftsOnDay, shiftHours, shiftRange, weekStart } from '../../lib/roster'
 import { startOfDay } from '../../lib/analytics'
 
@@ -344,11 +346,31 @@ function TeamVandaag({ team, onMessage }: { team: User[]; onMessage: () => void 
                         )}
                       </td>
                       <td>
-                        {running
-                          ? <Badge tone="ok" dot>Ingeklokt {duration(Date.now() - running.start)}</Badge>
-                          : shift?.kind === 'dienst'
-                            ? <Badge tone="warn">Nog niet ingeklokt</Badge>
-                            : <Badge>—</Badge>}
+                        {running ? (
+                          <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                            <Badge tone="ok" dot>Ingeklokt {duration(Date.now() - running.start)}</Badge>
+                            {/*
+                              * Klokken gebeurt aan de kassa. Het enige wat
+                              * hier hoort is de regel van iemand die aan het
+                              * eind van de dag vergat uit te klokken -- anders
+                              * blijft die eeuwig doorlopen.
+                              */}
+                            {perms.can('hours.approve') && Date.now() - running.start > 12 * 3_600_000 && (
+                              <button
+                                className="btn ghost sm"
+                                title="Deze registratie loopt al meer dan twaalf uur — afsluiten"
+                                onClick={() => void timeRepo.afsluiten(running.id).then(
+                                  () => toast.info(`Registratie van ${user.name} afgesloten`))}
+                              >
+                                <Square size={13} />
+                              </button>
+                            )}
+                          </div>
+                        ) : shift?.kind === 'dienst' ? (
+                          <Badge tone="warn">Nog niet ingeklokt</Badge>
+                        ) : (
+                          <Badge>—</Badge>
+                        )}
                       </td>
                       <td className="num">{done}</td>
                       <td style={{ color: 'var(--text-3)' }}>

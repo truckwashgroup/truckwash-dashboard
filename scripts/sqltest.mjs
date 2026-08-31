@@ -973,7 +973,7 @@ check('hetzelfde bonnummer kan niet twee keer voorkomen',
      values ('sale_dubbel', 'KAS-UTR-1', 'KAS-UTR-1-20260831-0001', 'loc_utr')`)) !== null)
 
 
-console.log('\n18. Een bericht aan één persoon mag van iedereen komen')
+console.log('\n19. Een bericht aan één persoon mag van iedereen komen')
 
 /*
  * Dit was kapot: de belletjeslade is het algemene seinsysteem geworden,

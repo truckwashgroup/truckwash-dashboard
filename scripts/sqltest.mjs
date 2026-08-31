@@ -94,6 +94,17 @@ async function fresh() {
 
 const asUser = (db, uid) => db.exec(`set test.uid = '${uid}';`)
 
+/*
+ * Weer niemand zijn.
+ *
+ * De opstelling hieronder zet gegevens klaar met gewone db.exec-opdrachten,
+ * en die horen te gelden als "de server zelf" -- zoals een serverfunctie met
+ * de servicesleutel, waar auth.uid() leeg is. Blijft test.uid van de vorige
+ * controle staan, dan denkt de database dat die medewerker het doet, en dan
+ * loopt de opstelling tegen de rem op profiles aan.
+ */
+const asServer = (db) => db.exec(`set test.uid = '';`)
+
 /* ================================================================== */
 
 console.log('\n1. Schema opbouwen zoals jij het plakt')
@@ -118,7 +129,8 @@ await run(db, '0016_werkgevers.sql draait', sqlFile('supabase/migrations/0016_we
 await run(db, '0017_berichten_over_de_grens.sql draait', sqlFile('supabase/migrations/0017_berichten_over_de_grens.sql'))
 await run(db, '0018_klokken_gaat_via_de_kassa.sql draait', sqlFile('supabase/migrations/0018_klokken_gaat_via_de_kassa.sql'))
 await run(db, '0019_een_bericht_gelezen_melden.sql draait', sqlFile('supabase/migrations/0019_een_bericht_gelezen_melden.sql'))
-await run(db, '0020_van_melding_naar_plan.sql draait', sqlFile('supabase/migrations/0020_van_melding_naar_plan.sql'))
+await run(db, '0020_van_melding_naar_plan.sql draait', sqlFile('supabase/migrations/0020_van_melding_naar_plan.sql'))
+await run(db, '0021_je_eigen_dossier_en_de_rondleiding.sql draait', sqlFile('supabase/migrations/0021_je_eigen_dossier_en_de_rondleiding.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -141,7 +153,8 @@ await run(db, '0016 nogmaals', sqlFile('supabase/migrations/0016_werkgevers.sql'
 await run(db, '0017 nogmaals', sqlFile('supabase/migrations/0017_berichten_over_de_grens.sql'))
 await run(db, '0018 nogmaals', sqlFile('supabase/migrations/0018_klokken_gaat_via_de_kassa.sql'))
 await run(db, '0019 nogmaals', sqlFile('supabase/migrations/0019_een_bericht_gelezen_melden.sql'))
-await run(db, '0020 nogmaals', sqlFile('supabase/migrations/0020_van_melding_naar_plan.sql'))
+await run(db, '0020 nogmaals', sqlFile('supabase/migrations/0020_van_melding_naar_plan.sql'))
+await run(db, '0021 nogmaals', sqlFile('supabase/migrations/0021_je_eigen_dossier_en_de_rondleiding.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
 const bedrijven = await db.query('select count(*)::int as n from public.companies')
@@ -292,6 +305,7 @@ async function countAs(uid, sql) {
     return r.rows[0].n
   } finally {
     await db.exec('reset role;')
+    await asServer(db)
   }
 }
 
@@ -351,6 +365,7 @@ async function tryInsertNotification(uid, id, fromId) {
     return false
   } finally {
     await db.exec('reset role;')
+    await asServer(db)
   }
 }
 
@@ -402,6 +417,7 @@ async function tryInsertShift(uid, id) {
     return false
   } finally {
     await db.exec('reset role;')
+    await asServer(db)
   }
 }
 check('leidinggevende mag het rooster wijzigen', await tryInsertShift(voorman, 'sh_lead'))
@@ -452,6 +468,7 @@ async function magSchrijven(uid, sql) {
     return false
   } finally {
     await db.exec('reset role;')
+    await asServer(db)
   }
 }
 
@@ -596,6 +613,7 @@ const foutmelding = await (async () => {
     return String(e.message ?? e)
   } finally {
     await db.exec('reset role;')
+    await asServer(db)
   }
 })()
 
@@ -1252,6 +1270,7 @@ async function alsAnon(sql) {
     return false
   } finally {
     await db.exec('reset role;')
+    await asServer(db)
   }
 }
 
@@ -1480,6 +1499,98 @@ check('een leidinggevende ziet die van zijn team',
   (await countAs(voorman, 'select count(*)::int as n from public.time_entries')) > 0)
 check('een klant ziet er geen',
   (await countAs(klant, 'select count(*)::int as n from public.time_entries')) === 0)
+
+
+
+console.log('\n24. Wat je aan je eigen dossier mag veranderen')
+
+/*
+ * Dit was open. De regel op profiles zei "je mag je eigen rij bijwerken", en
+ * beveiligingsregels werken per rij en niet per kolom -- dus dat gold ook
+ * voor de kolom `roles`. Iedereen met een account kon zichzelf management
+ * maken en daarmee bij de omzet, de dossiers en de uurlonen van iedereen.
+ *
+ * Een UPDATE die op de rem loopt gooit hier wél een fout (het is een
+ * trigger, geen regel), maar we kijken achteraf naar wat er staat. Dat is
+ * het enige dat telt.
+ */
+
+async function rollenVanDeWasser() {
+  const r = await db.query(
+    `select roles, active, all_locations, grants
+       from public.profiles where email = 'wasser@truckwash1group.nl'`)
+  return r.rows[0]
+}
+
+await magSchrijven(wasser,
+  `update public.profiles set roles = array['management']::text[]
+    where email = 'wasser@truckwash1group.nl';`)
+check('een werknemer maakt zichzelf geen management',
+  !(await rollenVanDeWasser()).roles.includes('management'),
+  JSON.stringify((await rollenVanDeWasser()).roles))
+
+await magSchrijven(wasser,
+  `update public.profiles set grants = array['finance.view']::text[]
+    where email = 'wasser@truckwash1group.nl';`)
+check('en geeft zichzelf geen losse rechten',
+  ((await rollenVanDeWasser()).grants ?? []).length === 0,
+  JSON.stringify((await rollenVanDeWasser()).grants))
+
+await magSchrijven(wasser,
+  `update public.profiles set all_locations = true where email = 'wasser@truckwash1group.nl';`)
+check('en zet zichzelf niet op alle vestigingen',
+  (await rollenVanDeWasser()).all_locations === false)
+
+await magSchrijven(wasser,
+  `update public.profiles set hourly_rate = 99 where email = 'wasser@truckwash1group.nl';`)
+check('en verhoogt zijn eigen uurloon niet',
+  Number((await db.query(
+    `select hourly_rate from public.profiles where email = 'wasser@truckwash1group.nl'`
+  )).rows[0].hourly_rate ?? 0) !== 99)
+
+/* --- wat wel van jou is --- */
+
+check('je eigen naam mag je wel wijzigen',
+  await magSchrijven(wasser,
+    `update public.profiles set name = 'Tom Verhoeven-Jansen' where email = 'wasser@truckwash1group.nl';`))
+check('en dat staat er dan ook',
+  (await db.query(
+    `select name from public.profiles where email = 'wasser@truckwash1group.nl'`
+  )).rows[0].name === 'Tom Verhoeven-Jansen')
+
+check('je telefoonnummer ook',
+  await magSchrijven(wasser,
+    `update public.profiles set phone = '06-11223344' where email = 'wasser@truckwash1group.nl';`))
+
+check('en welke rondleiding je hebt gezien',
+  await magSchrijven(wasser,
+    `update public.profiles set seen_tours = array['employee@1']::text[]
+      where email = 'wasser@truckwash1group.nl';`))
+
+/* --- het tijdelijke wachtwoord --- */
+
+check('het vinkje voor je wachtwoord mag je uitzetten',
+  await magSchrijven(wasser,
+    `update public.profiles set must_change_password = false where email = 'wasser@truckwash1group.nl';`))
+await magSchrijven(wasser,
+  `update public.profiles set must_change_password = true where email = 'wasser@truckwash1group.nl';`)
+check('maar niet aanzetten',
+  (await db.query(
+    `select must_change_password from public.profiles
+      where email = 'wasser@truckwash1group.nl'`)).rows[0].must_change_password === false)
+
+/* --- en het kantoor houdt de sleutels --- */
+
+check('het management deelt wel rollen uit',
+  await magSchrijven(baas,
+    `update public.profiles set roles = array['employee','supervisor']::text[]
+      where email = 'wasser@truckwash1group.nl';`))
+check('en dat werkt ook echt',
+  (await rollenVanDeWasser()).roles.includes('supervisor'))
+
+await db.exec(`
+  update public.profiles set roles = array['employee']::text[], hourly_rate = 22
+   where email = 'wasser@truckwash1group.nl';`)
 
 await db.close()
 

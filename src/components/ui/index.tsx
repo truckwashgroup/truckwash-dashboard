@@ -1,7 +1,7 @@
-import { type ReactNode, useEffect } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Inbox, X } from 'lucide-react'
+import { ChevronDown, Inbox, X } from 'lucide-react'
 
 /* ---------------------------- Card ------------------------------- */
 
@@ -102,10 +102,10 @@ export function Modal({
           <motion.div
             className="modal"
             style={width ? { width: `min(${width}px, 100%)` } : undefined}
-            initial={{ opacity: 0, y: 18, scale: .98 }}
+            initial={{ opacity: 0, y: 22, scale: .97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 12, scale: .98 }}
-            transition={{ duration: .18 }}
+            exit={{ opacity: 0, y: 10, scale: .98 }}
+            transition={{ type: 'spring', stiffness: 380, damping: 30, mass: .8 }}
           >
             <div className="row" style={{ alignItems: 'flex-start' }}>
               <div style={{ flex: 1 }}>
@@ -157,6 +157,109 @@ export function Field({
       <label>{label}</label>
       {children}
       {help && <span className="help">{help}</span>}
+    </div>
+  )
+}
+
+/* --------------------------- Dropdown ---------------------------- */
+
+export interface MenuItem {
+  key: string
+  label: string
+  hint?: string
+  icon?: ReactNode
+  onClick: () => void
+  tone?: 'danger'
+  badge?: number
+  disabled?: boolean
+}
+
+export interface MenuGroup {
+  /** Kopje boven de groep; leeg laten mag */
+  title?: string
+  items: MenuItem[]
+}
+
+/**
+ * Een menu onder een knop.
+ *
+ * Waarom dit er is: de balk bovenin liep vol met losse knopjes die alleen
+ * met een icoontje uitlegden wat ze deden. Onder één knop met leesbare regels
+ * eronder is het compacter én duidelijker.
+ *
+ * Sluit bij een klik ernaast, bij Escape, en na het kiezen van een regel.
+ */
+export function Dropdown({
+  label, icon, items, align = 'right', title, className = '',
+}: {
+  label?: ReactNode
+  icon: ReactNode
+  items: MenuGroup[]
+  align?: 'left' | 'right'
+  title?: string
+  className?: string
+}) {
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+
+  const zichtbaar = items
+    .map((g) => ({ ...g, items: g.items.filter(Boolean) }))
+    .filter((g) => g.items.length > 0)
+
+  return (
+    <div className={`menu-wrap ${className}`}>
+      <button
+        className={`menu-trigger ${open ? 'open' : ''}`}
+        onClick={() => setOpen((v) => !v)}
+        title={title}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        {icon}
+        {label && <span className="label">{label}</span>}
+        <ChevronDown size={14} className="pijl" />
+      </button>
+
+      {open && (
+        <>
+          <div className="menu-layer" onClick={() => setOpen(false)} />
+          <motion.div
+            className={`menu-panel ${align}`}
+            initial={{ opacity: 0, y: -6, scale: .97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: .14, ease: [.22, .61, .36, 1] }}
+            role="menu"
+          >
+            {zichtbaar.map((g, gi) => (
+              <div key={g.title ?? gi} className="menu-group">
+                {g.title && <div className="menu-group-head">{g.title}</div>}
+                {g.items.map((it) => (
+                  <button
+                    key={it.key}
+                    className={`menu-item ${it.tone === 'danger' ? 'danger' : ''}`}
+                    disabled={it.disabled}
+                    onClick={() => { setOpen(false); it.onClick() }}
+                    role="menuitem"
+                  >
+                    {it.icon && <span className="ico">{it.icon}</span>}
+                    <span className="tekst">
+                      <strong>{it.label}</strong>
+                      {it.hint && <span>{it.hint}</span>}
+                    </span>
+                    {!!it.badge && <span className="badge brand">{it.badge}</span>}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </motion.div>
+        </>
+      )}
     </div>
   )
 }

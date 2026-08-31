@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { api, type PushChange } from './api'
 import { db, getMeta, setMeta } from './db'
+import { logLive } from './trail'
 import type { EntityName, OutboxRecord, SyncOp, SyncState } from './types'
 
 /* ------------------------------------------------------------------ *
@@ -52,22 +53,31 @@ export const useSync = create<SyncStore>((set, get) => ({
   sync: async (opts) => {
     if (!enabled || get().syncing) return
     set({ syncing: true, lastError: opts?.silent ? get().lastError : null })
+    const begin = Date.now()
     try {
       const reachable = await api.ping()
       if (!reachable) throw new Error('Geen verbinding')
       set({ online: true })
 
-      await pushOutbox()
+      const geduwd = await pushOutbox()
       // De server bepaalt de nieuwe cursor, niet de klok van dit apparaat.
       // Een telefoon met een verkeerd ingestelde tijd zou anders wijzigingen
       // overslaan of eindeloos opnieuw ophalen.
-      const serverTime = await pullChanges()
+      const { serverTime, opgehaald } = await pullChanges()
 
       await setMeta(LAST_SYNC, serverTime)
       set({ lastSyncAt: serverTime, lastError: null })
+
+      logLive('sync', `Ronde klaar — ${geduwd} verstuurd, ${opgehaald} opgehaald`, {
+        duur: Date.now() - begin,
+      })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       set({ lastError: msg, online: navigator.onLine && !msg.includes('verbinding') })
+      logLive('netwerk', `Synchroniseren mislukt: ${msg}`, {
+        duur: Date.now() - begin,
+        detail: e instanceof Error ? e.stack : undefined,
+      })
     } finally {
       set({ syncing: false })
       await get().refreshPending()
@@ -162,10 +172,11 @@ export const PUSH_ORDER: EntityName[] = [
 
 const RANG = new Map(PUSH_ORDER.map((e, i) => [e, i]))
 
-async function pushOutbox() {
+async function pushOutbox(): Promise<number> {
+  let totaal = 0
   for (;;) {
     const batch = await db.outbox.orderBy('createdAt').limit(BATCH).toArray()
-    if (!batch.length) return
+    if (!batch.length) return totaal
 
     // Ouders voor kinderen. Binnen een tabel blijft de volgorde van de
     // wachtrij staan; sorteren in JavaScript is stabiel.
@@ -182,6 +193,7 @@ async function pushOutbox() {
     try {
       await api.push(changes)
       await db.outbox.bulkDelete(batch.map((r) => r.id!))
+      totaal += batch.length
     } catch (e) {
       /*
        * Eén record dat de server weigert mag niet de hele wachtrij
@@ -222,6 +234,7 @@ async function pushPerStuk(batch: OutboxRecord[]): Promise<Error | null> {
         console.warn(
           `[sync] ${r.entity}/${r.recordId} is na ${MAX_TRIES} pogingen ` +
           `opgegeven en weggegooid. Laatste fout: ${msg}`)
+        logLive('netwerk', `Opgegeven: ${r.entity}/${r.recordId}`, { detail: msg })
       } else {
         await db.outbox.update(r.id!, { tries, lastError: msg })
       }
@@ -262,9 +275,10 @@ const TABLE_OF: Record<EntityName, () => any> = {
   emailLog: () => db.emailLog,
 }
 
-async function pullChanges(): Promise<number> {
+async function pullChanges(): Promise<{ serverTime: number; opgehaald: number }> {
   const since = await getMeta<number>(LAST_SYNC, 0)
   const result = await api.pull(since)
+  let opgehaald = 0
 
   // Records die nog in de outbox staan niet overschrijven: lokaal is nieuwer.
   const queued = new Set((await db.outbox.toArray()).map((r) => r.entity + ':' + r.recordId))
@@ -272,10 +286,14 @@ async function pullChanges(): Promise<number> {
   for (const [entity, rows] of Object.entries(result.changes) as [EntityName, any[]][]) {
     if (!rows?.length) continue
     const keep = rows.filter((r) => !queued.has(entity + ':' + r.id))
-    if (keep.length) await TABLE_OF[entity]().bulkPut(keep)
+    if (keep.length) {
+      await TABLE_OF[entity]().bulkPut(keep)
+      opgehaald += keep.length
+      logLive('sync', `${keep.length}x ${entity} opgehaald`)
+    }
   }
 
-  return result.serverTime
+  return { serverTime: result.serverTime, opgehaald }
 }
 
 /* ------------------------------------------------------------------ *

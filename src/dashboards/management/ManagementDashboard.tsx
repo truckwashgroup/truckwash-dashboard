@@ -239,26 +239,33 @@ export default function ManagementDashboard() {
       title={meta.title}
       subtitle={meta.subtitle}
       actions={
-        <>
-          {perms.can('notify.send') && (
-            <button className="btn sm hide-mobile" onClick={() => setMessaging(true)}>
-              <Send size={14} /> Bericht
-            </button>
-          )}
-          {showPeriod && (
-            <div className="row hide-mobile" style={{ gap: 5 }}>
-              {PERIODS.map((p) => (
-                <button
-                  key={p.days}
-                  className={`btn sm ${days === p.days ? 'primary' : 'ghost'}`}
-                  onClick={() => setDays(p.days)}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </>
+        showPeriod ? (
+          <div className="row hide-mobile" style={{ gap: 5 }}>
+            {PERIODS.map((p) => (
+              <button
+                key={p.days}
+                className={`btn sm ${days === p.days ? 'primary' : 'ghost'}`}
+                onClick={() => setDays(p.days)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        ) : undefined
+      }
+      menu={
+        perms.can('notify.send')
+          ? [{
+              title: 'Versturen',
+              items: [{
+                key: 'bericht',
+                label: 'Bericht sturen',
+                hint: 'Naar losse medewerkers of een hele groep',
+                icon: <Send size={16} />,
+                onClick: () => setMessaging(true),
+              }],
+            }]
+          : undefined
       }
     >
       {page === 'start' && (

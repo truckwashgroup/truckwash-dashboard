@@ -31,6 +31,9 @@ function push(kind: TrailEntry['kind'], text: string) {
 
   ring.push({ at, kind, text: text.slice(0, 200) })
   if (ring.length > MAX_ENTRIES) ring.shift()
+
+  // Dezelfde handeling gaat ook naar wie live meekijkt.
+  logLive(kind === 'pagina' ? 'pagina' : kind === 'fout' ? 'fout' : kind === 'sync' ? 'sync' : 'actie', text)
 }
 
 export const trail = {
@@ -63,6 +66,77 @@ export const trail = {
   clear() {
     ring.length = 0
   },
+}
+
+/* ------------------------------------------------------------------ *
+ *  Meekijken
+ *
+ *  Het spoor hierboven is voor de melder: vijftien minuten, kort en zonder
+ *  ruis. Dit is voor de ontwikkelaar: alles, met techniek erbij, en meteen.
+ *
+ *  Het staat alleen in het geheugen en gaat nergens heen. Wie meekijkt ziet
+ *  wat er op dit apparaat gebeurt terwijl het gebeurt -- dat is precies wat
+ *  je nodig hebt als iemand zegt "kijk, nu doet hij het weer".
+ * ------------------------------------------------------------------ */
+
+export type LiveSoort =
+  | 'pagina' | 'actie' | 'fout' | 'waarschuwing' | 'sync' | 'netwerk' | 'melding'
+
+export interface LiveEvent {
+  id: number
+  at: number
+  soort: LiveSoort
+  tekst: string
+  /** Techniek die je alleen wilt zien als je erop klikt */
+  detail?: string
+  /** Hoe lang iets duurde, in milliseconden */
+  duur?: number
+}
+
+const LIVE_MAX = 600
+const live: LiveEvent[] = []
+const luisteraars = new Set<(e: LiveEvent) => void>()
+let volgnummer = 0
+
+/** Legt een gebeurtenis vast en geeft hem door aan wie meekijkt. */
+export function logLive(
+  soort: LiveSoort,
+  tekst: string,
+  extra?: { detail?: string; duur?: number },
+) {
+  const e: LiveEvent = {
+    id: ++volgnummer,
+    at: Date.now(),
+    soort,
+    tekst: String(tekst).slice(0, 300),
+    detail: extra?.detail?.slice(0, 2000),
+    duur: extra?.duur,
+  }
+  live.push(e)
+  if (live.length > LIVE_MAX) live.shift()
+
+  for (const fn of luisteraars) {
+    try {
+      fn(e)
+    } catch {
+      // Een kijker die omvalt mag de app niet meenemen.
+    }
+  }
+}
+
+/** Meekijken. Geeft een functie terug om weer te stoppen. */
+export function onLive(fn: (e: LiveEvent) => void): () => void {
+  luisteraars.add(fn)
+  return () => { luisteraars.delete(fn) }
+}
+
+/** Wat er tot nu toe is langsgekomen, oud naar nieuw. */
+export function liveRecent(): LiveEvent[] {
+  return [...live]
+}
+
+export function liveClear() {
+  live.length = 0
 }
 
 /* ------------------------------------------------------------------ *
@@ -121,6 +195,7 @@ function report(level: CapturedError['level'], message: string, stack?: string) 
   bezig = true
   try {
     trail.error(schoon.slice(0, 120))
+    logLive(level === 'fout' ? 'fout' : 'waarschuwing', schoon, { detail: stack })
     sink?.({ level, message: schoon, stack: stack?.slice(0, 2000) })
   } catch {
     // Een opvanger die zelf omvalt mag de app niet meenemen.

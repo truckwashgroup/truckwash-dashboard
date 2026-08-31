@@ -180,15 +180,30 @@ export default function TechnicianDashboard() {
       title={meta.title}
       subtitle={page === 'overzicht' || page === 'start' ? dateFull(Date.now()) : meta.subtitle}
       actions={
-        <>
-          <button className="btn sm hide-mobile" onClick={() => setScanning(true)} title="Scan een QR-label">
-            <QrCode size={14} /> Scannen
-          </button>
-          <button className="btn primary sm" onClick={() => setMelden(true)}>
-            <AlertTriangle size={14} /> Storing
-          </button>
-        </>
+        <button className="btn primary sm" onClick={() => setScanning(true)} title="Scan een QR-label">
+          <QrCode size={14} />
+          <span className="hide-mobile">Scannen</span>
+        </button>
       }
+      menu={[{
+        title: 'Techniek',
+        items: [
+          {
+            key: 'scan',
+            label: 'QR-label scannen',
+            hint: 'Meteen bij de juiste installatie uitkomen',
+            icon: <QrCode size={16} />,
+            onClick: () => setScanning(true),
+          },
+          {
+            key: 'storing',
+            label: 'Storing melden',
+            hint: 'Met foto en urgentie',
+            icon: <AlertTriangle size={16} />,
+            onClick: () => setMelden(true),
+          },
+        ],
+      }]}
     >
       {page === 'start' && (
         <Start

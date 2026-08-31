@@ -19,10 +19,11 @@ export default function Toasts() {
           <motion.div
             key={t.id}
             className={`toast ${t.tone}`}
-            initial={{ opacity: 0, x: 40, scale: .96 }}
+            layout
+            initial={{ opacity: 0, x: 48, scale: .94 }}
             animate={{ opacity: 1, x: 0, scale: 1 }}
-            exit={{ opacity: 0, x: 40, scale: .96 }}
-            transition={{ duration: .18 }}
+            exit={{ opacity: 0, x: 24, scale: .94, height: 0, marginTop: 0 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 32, mass: .7 }}
             onClick={() => dismiss(t.id)}
           >
             {ICONS[t.tone]}

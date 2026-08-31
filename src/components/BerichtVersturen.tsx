@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Megaphone, Send, Users } from 'lucide-react'
+import { Mail, MailCheck, Megaphone, Send, Users } from 'lucide-react'
 import { db } from '../lib/db'
 import { notifications as notifyRepo } from '../lib/repo'
+import { mailBericht } from '../lib/mail'
 import { ROLE_LABELS, type NotificationKind, type Role, type User } from '../lib/types'
 import { initials } from '../lib/format'
 import { Badge, Field, Modal } from './ui'
@@ -50,6 +51,7 @@ export default function BerichtVersturen({
   const [title, setTitle] = useState(preset?.title ?? '')
   const [body, setBody] = useState(preset?.body ?? '')
   const [sending, setSending] = useState(false)
+  const [ookMail, setOokMail] = useState(false)
 
   function toggle(id: string) {
     const next = new Set(selected)
@@ -72,6 +74,24 @@ export default function BerichtVersturen({
           role, from: { id: me.id, name: me.name }, kind,
           title: title.slice(0, MAX_TITLE), body: body.slice(0, MAX_BODY),
         })
+
+        /*
+         * Een groepsbericht is één regel in de database, maar post gaat per
+         * persoon. Het adres komt uit het dossier; de serverfunctie zoekt het
+         * er zelf bij aan de hand van het id.
+         */
+        if (ookMail) {
+          const groep = allUsers.filter(
+            (u) => u.active && u.roles.includes(role) && u.id !== me.id)
+          for (const p of groep) {
+            void mailBericht(p.id, {
+              titel: title.slice(0, MAX_TITLE),
+              tekst: body.slice(0, MAX_BODY),
+              van: me.name,
+            })
+          }
+        }
+
         toast.ok(`Bericht verstuurd naar alle ${ROLE_LABELS[role].toLowerCase()}s`)
       } else {
         if (selected.size === 0) return toast.error('Kies minstens één ontvanger')
@@ -84,6 +104,7 @@ export default function BerichtVersturen({
             kind,
             title: title.slice(0, MAX_TITLE),
             body: body.slice(0, MAX_BODY),
+            mail: ookMail,
           })
         }
         toast.ok(`Bericht verstuurd naar ${selected.size} ${selected.size === 1 ? 'persoon' : 'personen'}`)
@@ -148,7 +169,7 @@ export default function BerichtVersturen({
       ) : (
         <Field label="Naar welke groep" help="Iedereen met deze rol krijgt het bericht.">
           <div className="row" style={{ gap: 6 }}>
-            {(['employee', 'supervisor', 'management'] as Role[]).map((r) => (
+            {(['employee', 'supervisor', 'technician', 'management'] as Role[]).map((r) => (
               <button
                 key={r}
                 type="button"
@@ -196,6 +217,22 @@ export default function BerichtVersturen({
           placeholder="Wat moeten ze weten?"
         />
       </Field>
+
+      <button
+        type="button"
+        className={`stop-toggle ${ookMail ? 'on' : ''}`}
+        onClick={() => setOokMail((v) => !v)}
+        style={{ marginBottom: 16 }}
+      >
+        {ookMail ? <MailCheck size={17} /> : <Mail size={17} />}
+        <span>
+          <strong>Ook per e-mail versturen</strong>
+          <span>
+            Voor wie nu niet in de app zit. Het adres komt uit het dossier —
+            staat daar niets, dan gaat er niets uit.
+          </span>
+        </span>
+      </button>
 
       <div className="row end">
         <button className="btn ghost" onClick={onClose}>Annuleren</button>

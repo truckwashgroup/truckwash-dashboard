@@ -114,12 +114,42 @@
   background: var(--surface-2); border-radius: 999px; overflow: hidden;
 }
 .wash-bar > span {
-  display: block; height: 100%; width: 0;
+  display: block; height: 100%; width: 100%;
   background: linear-gradient(90deg, var(--brand), var(--accent));
   border-radius: 999px;
+  transform-origin: left center;
 }
 
-@keyframes washFill { from { width: 0 } to { width: 100% } }
+/* De stappen boven de balk: waar je bent, en wat er nog komt. */
+.wash-stappen {
+  display: flex; align-items: center; justify-content: center;
+  gap: 7px; flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.wash-stappen .stap {
+  font-size: .68rem; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--text-3);
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  transition: color .3s var(--ease), background .3s var(--ease),
+              border-color .3s var(--ease);
+}
+.wash-stappen .stap.klaar { color: var(--text-2); }
+.wash-stappen .stap.nu {
+  color: var(--on-brand);
+  background: var(--brand);
+  border-color: var(--brand);
+  font-weight: 700;
+}
+
+@media (max-width: 620px) {
+  .wash-stappen .stap { display: none; }
+  .wash-stappen .stap.nu { display: inline; }
+}
+
+/* Wie rustige beweging wil krijgt geen wasstraat, maar wel een woord. */
+.wash-stage.rustig .wash-status { margin: 0; }
 
 .wash-sub { margin-top: 11px; font-size: .82rem; color: var(--text-3); }
 
@@ -213,7 +243,7 @@
   border-radius: var(--radius);
   border: 1px solid rgba(245,181,68,.32);
   background: rgba(245,181,68,.08);
-  color: #ffd894;
+  color: var(--text-warn);
   font-size: .85rem;
   line-height: 1.55;
   text-align: left;

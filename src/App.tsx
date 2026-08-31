@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AnimatePresence } from 'framer-motion'
+import { AnimatePresence, MotionConfig } from 'framer-motion'
 import { AlertTriangle, Loader2, RefreshCw, Trash2, Truck } from 'lucide-react'
 import { useAuth } from './store/useAuth'
 import { setSyncEnabled, startSyncEngine } from './lib/sync'
@@ -7,6 +7,7 @@ import { installErrorCapture, onCapturedError, trail } from './lib/trail'
 import { logs as logRepo } from './lib/tickets'
 import { useUpdates } from './lib/updates'
 import { useNav } from './store/useNav'
+import { useTheme } from './lib/theme'
 import Login from './components/Login'
 import CarwashAnimation from './components/CarwashAnimation'
 import RolePicker from './components/RolePicker'
@@ -23,6 +24,7 @@ import ManagementDashboard from './dashboards/management/ManagementDashboard'
 export default function App() {
   const { user, role, booting, restore } = useAuth()
   const initUpdates = useUpdates((s) => s.init)
+  const rustig = useTheme((s) => s.rustig)
 
   /** De wasstraat-animatie draait één keer per inlog. */
   const [washed, setWashed] = useState(false)
@@ -113,7 +115,12 @@ export default function App() {
   }
 
   return (
-    <>
+    /*
+     * De keuze "rustige beweging" moet ook gelden voor wat framer-motion
+     * doet, en dat gaat niet via CSS: dat animeert stijlen vanuit JavaScript.
+     * Hiermee luistert elke beweging in de app naar dezelfde knop.
+     */
+    <MotionConfig reducedMotion={rustig ? 'always' : 'never'}>
       {!user ? (
         <Login />
       ) : !washed ? (
@@ -138,7 +145,7 @@ export default function App() {
 
       <Toasts />
       <UpdateBanner />
-    </>
+    </MotionConfig>
   )
 }
 

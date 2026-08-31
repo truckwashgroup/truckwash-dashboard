@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   ArrowLeft, Bug, Check, Code2, Copy, Inbox, Lock, Mail, MessageSquare,
-  ScrollText, Search, Send, Server, Trash2, TriangleAlert,
+  Radio, ScrollText, Search, Send, Server, Trash2, TriangleAlert,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db } from '../../lib/db'
@@ -24,12 +24,14 @@ import { activeBackend } from '../../lib/api'
 import { toast } from '../../store/useToasts'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
 import Post from './Post'
+import Meekijken from './Meekijken'
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
   tickets: { title: 'Meldingen', subtitle: 'Wat gebruikers tegenkomen' },
   logboek: { title: 'Logboek', subtitle: 'Fouten en waarschuwingen uit de app' },
   systeem: { title: 'Systeem', subtitle: 'Versies, verbinding en opslag' },
   post: { title: 'Post', subtitle: 'Wat de app via Resend heeft verstuurd' },
+  meekijken: { title: 'Meekijken', subtitle: 'Alles wat er nu gebeurt, op volgorde' },
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
 }
 
@@ -49,6 +51,9 @@ export default function DeveloperDashboard() {
     ...(perms.can('dev.logs')
       ? [{ key: 'logboek', label: 'Logboek', icon: ScrollText, badge: fouten.length || undefined }]
       : []),
+    ...(perms.can('dev.logs')
+      ? [{ key: 'meekijken', label: 'Meekijken', icon: Radio }]
+      : []),
     { key: 'systeem', label: 'Systeem', icon: Server },
     { key: 'post', label: 'Post', icon: Mail },
     ...(perms.can('chat.use')
@@ -56,7 +61,7 @@ export default function DeveloperDashboard() {
       : []),
   ]
 
-  useNavTarget(['tickets', 'logboek', 'systeem', 'post', 'overleg'], (p) => setPage(p))
+  useNavTarget(['tickets', 'logboek', 'meekijken', 'systeem', 'post', 'overleg'], (p) => setPage(p))
 
   const meta = TITLES[page] ?? TITLES.tickets
 
@@ -72,6 +77,7 @@ export default function DeveloperDashboard() {
       {page === 'tickets' && <Tickets tickets={alleTickets} />}
       {page === 'logboek' && <Logboek logs={logs} />}
       {page === 'systeem' && <Systeem tickets={alleTickets} logs={logs} />}
+      {page === 'meekijken' && <Meekijken />}
       {page === 'post' && <Post />}
       {page === 'overleg' && <Overleg />}
     </Shell>

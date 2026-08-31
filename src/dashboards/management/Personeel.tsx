@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  ArrowLeft, BadgeCheck, KeyRound, Mail, MapPin, Phone, ShieldCheck, SlidersHorizontal,
+  ArrowLeft, BadgeCheck, KeyRound, Mail, MapPin, Phone, Send, ShieldCheck, SlidersHorizontal,
   Timer, UserCog, UserPlus, Users,
 } from 'lucide-react'
 import { db } from '../../lib/db'
@@ -11,6 +11,7 @@ import { duration, initials, money, number } from '../../lib/format'
 import { Badge, Card, Empty, Field, Modal, Stat } from '../../components/ui'
 import WeekRooster from '../../components/WeekRooster'
 import PermissionEditor, { PermissionSummary } from '../../components/PermissionEditor'
+import BerichtVersturen from '../../components/BerichtVersturen'
 import SmartRosterPanel from '../../components/SmartRosterPanel'
 import { useAuth } from '../../store/useAuth'
 import { usePerms } from '../../store/useNav'
@@ -170,6 +171,7 @@ function PersonDetail({
 }) {
   const [editing, setEditing] = useState(false)
   const [permissions, setPermissions] = useState(false)
+  const [berichten, setBerichten] = useState(false)
 
   const jobs = useLiveQuery(() => db.washJobs.toArray(), [], [] as WashJob[])
   const entries = useLiveQuery(() => db.timeEntries.toArray(), [], [] as TimeEntry[])
@@ -215,6 +217,9 @@ function PersonDetail({
           </div>
           {canEdit && (
             <div className="row" style={{ gap: 6 }}>
+              <button className="btn sm" onClick={() => setBerichten(true)}>
+                <Send size={14} /> Bericht
+              </button>
               <button className="btn sm" onClick={() => setEditing(true)}>
                 <UserCog size={14} /> Gegevens
               </button>
@@ -315,6 +320,12 @@ function PersonDetail({
         open={editing}
         person={person}
         onClose={() => setEditing(false)}
+      />
+
+      <BerichtVersturen
+        open={berichten}
+        onClose={() => setBerichten(false)}
+        team={[person]}
       />
 
       <Modal

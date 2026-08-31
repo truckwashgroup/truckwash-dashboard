@@ -159,12 +159,19 @@ export default function SupervisorDashboard() {
       onNavigate={setPage}
       title={meta.title}
       subtitle={page === 'team' || page === 'start' ? dateFull(Date.now()) : meta.subtitle}
-      actions={
-        perms.can('notify.send') ? (
-          <button className="btn primary sm" onClick={() => setMessaging(true)}>
-            <Send size={14} /> Bericht sturen
-          </button>
-        ) : undefined
+      menu={
+        perms.can('notify.send')
+          ? [{
+              title: 'Versturen',
+              items: [{
+                key: 'bericht',
+                label: 'Bericht sturen',
+                hint: 'Je team bereiken, ook wie nu niet in de app zit',
+                icon: <Send size={16} />,
+                onClick: () => setMessaging(true),
+              }],
+            }]
+          : undefined
       }
     >
       {page === 'start' && <Start tegels={tegels} />}

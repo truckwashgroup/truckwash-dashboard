@@ -2624,6 +2624,102 @@ console.log('\n— van melding naar plan —')
     terug?.stappen.find((s) => s.id === 's3')?.gekozen === false)
 }
 
+/* ==================================================================== *
+ *  De rondleiding
+ *
+ *  Per rol, en per rol een eigen versienummer. Dat laatste is de knop om
+ *  hem bij iedereen opnieuw te laten zien als er wezenlijk iets verandert
+ *  aan een dashboard.
+ * ==================================================================== */
+
+console.log('\n— de rondleiding —')
+
+{
+  const {
+    RONDLEIDINGEN, merk, moetZien, terugTeKijken, metGezien, zichtbareAanwijzers,
+  } = await import('../src/lib/rondleiding')
+  const { ROLE_ORDER } = await import('../src/lib/types')
+
+  /* --- er is er een voor elke rol --- */
+
+  check('elke rol heeft een rondleiding',
+    ROLE_ORDER.every((r) => !!RONDLEIDINGEN[r]),
+    ROLE_ORDER.filter((r) => !RONDLEIDINGEN[r]).join(', '))
+
+  check('en elke rondleiding heeft schermen',
+    ROLE_ORDER.every((r) => RONDLEIDINGEN[r].schermen.length >= 3))
+
+  check('met een titel en een tekst die er staan',
+    ROLE_ORDER.every((r) => RONDLEIDINGEN[r].schermen.every(
+      (s) => s.titel.length > 3 && s.tekst.length > 40)))
+
+  check('de rol in de rondleiding klopt met de sleutel',
+    ROLE_ORDER.every((r) => RONDLEIDINGEN[r].rol === r))
+
+  check('geen twee schermen met hetzelfde id binnen één rondleiding',
+    ROLE_ORDER.every((r) => {
+      const ids = RONDLEIDINGEN[r].schermen.map((s) => s.id)
+      return new Set(ids).size === ids.length
+    }))
+
+  /* --- het merkje --- */
+
+  check('het merkje bevat de rol en de versie', merk('employee') === 'employee@1')
+  check('en verschilt per rol', merk('management') !== merk('employee'))
+
+  /* --- wie moet hem zien --- */
+
+  const nieuw = { id: 'zt_n', roles: ['employee'], seenTours: [] } as never
+  const gezien = { id: 'zt_g', roles: ['employee'], seenTours: ['employee@1'] } as never
+  const erbij = { id: 'zt_e', roles: ['employee', 'management'],
+    seenTours: ['employee@1'] } as never
+
+  check('wie hem nog niet heeft gezien, ziet hem', moetZien(nieuw, 'employee'))
+  check('wie hem heeft gezien niet meer', !moetZien(gezien, 'employee'))
+  check('maar bij een nieuwe rol wel weer', moetZien(erbij, 'management'))
+  check('en niet nog eens voor de rol die hij al kende',
+    !moetZien(erbij, 'employee'))
+  check('zonder gebruiker gebeurt er niets', !moetZien(null, 'employee'))
+  check('en zonder rol ook niet', !moetZien(nieuw, null))
+
+  /*
+   * Het geval waar het versienummer voor bestaat: verandert er wezenlijk
+   * iets, dan hoogt iemand het op en ziet iedereen met die rol hem opnieuw.
+   */
+  const oudGezien = { id: 'zt_o', roles: ['employee'], seenTours: ['employee@0'] } as never
+  check('een oudere versie telt niet als gezien', moetZien(oudGezien, 'employee'))
+
+  /* --- afvinken --- */
+
+  check('afvinken zet het merkje erbij',
+    metGezien(nieuw, 'employee').includes('employee@1'))
+  check('en doet dat niet twee keer',
+    metGezien(gezien, 'employee').filter((m) => m === 'employee@1').length === 1)
+  check('wat er al stond blijft staan',
+    metGezien(erbij, 'management').includes('employee@1'))
+
+  /* --- terugkijken --- */
+
+  check('je kunt alleen de rondleidingen van je eigen rollen terugkijken',
+    terugTeKijken(erbij).length === 2)
+  check('een werknemer krijgt er één', terugTeKijken(nieuw).length === 1)
+  check('zonder gebruiker geen lijst', terugTeKijken(null).length === 0)
+
+  /* --- aanwijzers volgen de rechten --- */
+
+  const alles = zichtbareAanwijzers(RONDLEIDINGEN.employee, () => true)
+  const niets = zichtbareAanwijzers(RONDLEIDINGEN.employee, () => false)
+  check('met alle rechten zie je alle aanwijzers',
+    alles.length === RONDLEIDINGEN.employee.aanwijzers.length)
+  check('zonder rechten vallen de rechtgebonden weg', niets.length < alles.length)
+  check('maar de aanwijzers zonder recht blijven',
+    niets.length === RONDLEIDINGEN.employee.aanwijzers.filter((a) => !a.recht).length)
+
+  check('elke aanwijzer wijst ergens naartoe',
+    ROLE_ORDER.every((r) => RONDLEIDINGEN[r].aanwijzers.every(
+      (a) => a.doel.length > 0 && a.titel.length > 0)))
+}
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

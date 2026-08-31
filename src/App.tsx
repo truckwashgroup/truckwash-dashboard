@@ -23,6 +23,7 @@ import SupervisorDashboard from './dashboards/supervisor/SupervisorDashboard'
 import TechnicianDashboard from './dashboards/technician/TechnicianDashboard'
 import DeveloperDashboard from './dashboards/developer/DeveloperDashboard'
 import EmployerDashboard from './dashboards/employer/EmployerDashboard'
+import RondleidingPoort from './components/RondleidingPoort'
 import ManagementDashboard from './dashboards/management/ManagementDashboard'
 
 export default function App() {
@@ -182,6 +183,12 @@ export default function App() {
       ) : (
         <ManagementDashboard />
       )}
+
+      {/*
+        * De rondleiding komt over het dashboard heen te liggen, niet ervoor.
+        * Dat moet ook: de aanwijzers wijzen naar knoppen die er dan al staan.
+        */}
+      {role && washed && !user?.mustChangePassword && <RondleidingPoort rol={role} />}
 
       <Toasts />
       <UpdateBanner />

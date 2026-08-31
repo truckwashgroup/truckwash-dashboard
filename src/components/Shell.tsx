@@ -1,7 +1,8 @@
 import { type ReactNode, useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  AlertTriangle, Bug, LayoutGrid, LogOut, MessageSquarePlus, Mic, MoreHorizontal,
+  AlertTriangle, Bug, Compass, LayoutGrid, LogOut, MessageSquarePlus, Mic,
+  MoreHorizontal,
   PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings, SlidersHorizontal,
 } from 'lucide-react'
 import { useAuth } from '../store/useAuth'
@@ -24,6 +25,8 @@ import { trail } from '../lib/trail'
 import { useTheme } from '../lib/theme'
 import { usePerms } from '../store/useNav'
 import NotificationCenter from './NotificationCenter'
+import { terugTeKijken } from '../lib/rondleiding'
+import { useRondleiding } from '../store/useRondleiding'
 import type { LucideIcon } from 'lucide-react'
 
 export interface NavItem {
@@ -118,6 +121,9 @@ export default function Shell({
     },
   ]
 
+  const rondleidingen = terugTeKijken(user)
+  const startRondleiding = useRondleiding((s) => s.start)
+
   const persoonlijk: MenuGroup[] = [
     {
       items: [
@@ -137,6 +143,21 @@ export default function Shell({
         },
       ],
     },
+    /*
+     * De rondleiding terugkijken, per rol die je hebt. Alleen de rollen die
+     * je ook echt hebt -- een uitleg over een dashboard waar je niet in komt
+     * is geen uitleg maar een folder.
+     */
+    ...(rondleidingen.length > 0 ? [{
+      title: rondleidingen.length > 1 ? 'Rondleidingen' : undefined,
+      items: rondleidingen.map((r) => ({
+        key: 'rond-' + r.rol,
+        label: rondleidingen.length > 1 ? r.naam : 'Rondleiding opnieuw',
+        hint: rondleidingen.length > 1 ? undefined : 'Nog eens laten zien waar alles staat',
+        icon: <Compass size={16} />,
+        onClick: () => startRondleiding(r.rol),
+      })),
+    }] : []),
     {
       items: [
         {
@@ -168,6 +189,7 @@ export default function Shell({
                 className={`nav-item ${active === it.key ? 'active' : ''}`}
                 onClick={() => onNavigate(it.key)}
                 title={klein ? it.label : undefined}
+                data-rondleiding={`nav-${it.key}`}
               >
                 <Icon size={17} />
                 <span>{it.label}</span>
@@ -221,9 +243,9 @@ export default function Shell({
           </div>
           <span className="spacer" />
 
-          <LocationSwitcher />
+          <span data-rondleiding="locatie"><LocationSwitcher /></span>
 
-          <div className="topbar-search">
+          <div className="topbar-search" data-rondleiding="zoeken">
             <button className="search-trigger" onClick={() => openSearch(false)} title="Zoeken (Ctrl+K)">
               <Search size={15} />
               <span className="label">Zoeken…</span>
@@ -246,7 +268,7 @@ export default function Shell({
           {actions}
 
           <OverlegKnop onOpen={() => goto('overleg')} />
-          <NotificationCenter />
+          <span data-rondleiding="meldingen"><NotificationCenter /></span>
 
           <Dropdown
             icon={<MoreHorizontal size={17} />}
@@ -255,12 +277,14 @@ export default function Shell({
             className="hide-mobile"
           />
 
-          <Dropdown
-            icon={<span className="menu-av">{initials(user?.name ?? '?')}</span>}
-            items={persoonlijk}
-            title={user?.name}
-            className="menu-persoon"
-          />
+          <span data-rondleiding="ik">
+            <Dropdown
+              icon={<span className="menu-av">{initials(user?.name ?? '?')}</span>}
+              items={persoonlijk}
+              title={user?.name}
+              className="menu-persoon"
+            />
+          </span>
 
           <SyncPill />
         </header>

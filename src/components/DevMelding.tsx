@@ -289,6 +289,7 @@ export function DevMeldingKnop({ role, page }: { role?: string; page?: string })
         className="btn ghost sm"
         onClick={() => setOpen(true)}
         title="Werkt er iets niet? Geef het door aan de ontwikkelaar"
+        data-rondleiding="dev-melding"
       >
         <Bug size={14} /> <span className="hide-mobile">Devmelding</span>
       </button>

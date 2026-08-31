@@ -83,6 +83,15 @@ export interface User {
    * ontvanger, in dat van de afzender, en op elke server ertussenin.
    */
   mustChangePassword?: boolean
+
+  /**
+   * Welke rondleidingen deze persoon heeft gezien, als 'rol@versie'.
+   *
+   * Op het profiel en niet op het apparaat: anders begint hij op elke
+   * telefoon opnieuw. Het versienummer erin is de knop om hem bij iedereen
+   * met die rol nog eens te laten zien als er wezenlijk iets verandert.
+   */
+  seenTours?: string[]
 }
 
 /* ------------------------------------------------------------------ *

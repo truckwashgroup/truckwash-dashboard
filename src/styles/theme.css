@@ -3442,3 +3442,186 @@ table.data.matrix th { vertical-align: bottom; }
 .gesprek-terug .beurt:last-child { border-bottom: 0; }
 .gesprek-terug .beurt .v { font-size: .76rem; color: var(--text-3); margin-bottom: 3px; }
 .gesprek-terug .beurt .a { font-size: .85rem; line-height: 1.55; white-space: pre-wrap; }
+
+/* ========================== De rondleiding ========================= */
+
+.rondleiding-backdrop {
+  position: fixed; inset: 0; z-index: 120;
+  display: grid; place-items: center;
+  padding: 20px;
+  background: rgba(6, 10, 18, .78);
+  backdrop-filter: blur(8px);
+  animation: rond-in .28s var(--ease) both;
+}
+
+@keyframes rond-in { from { opacity: 0 } to { opacity: 1 } }
+
+.rondleiding-kaart {
+  position: relative;
+  width: min(520px, 100%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .5);
+  overflow: hidden;
+}
+
+.rondleiding-kaart .weg {
+  position: absolute; top: 12px; right: 12px; z-index: 3;
+  display: grid; place-items: center;
+  width: 30px; height: 30px;
+  border: 0; border-radius: 50%;
+  background: rgba(0, 0, 0, .25);
+  color: #fff;
+  cursor: pointer;
+  transition: background .16s var(--ease);
+}
+.rondleiding-kaart .weg:hover { background: rgba(0, 0, 0, .45); }
+
+/* --------------------------- Het plaatje -------------------------- */
+
+.rondleiding-prent {
+  position: relative;
+  height: 168px;
+  display: grid; place-items: center;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line-soft);
+}
+.rondleiding-prent .ico {
+  position: relative; z-index: 2;
+  display: grid; place-items: center;
+  width: 82px; height: 82px;
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .22);
+}
+.rondleiding-prent .bel {
+  position: absolute; bottom: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .5);
+  pointer-events: none;
+}
+
+.rondleiding-prent.t-brand  { background: linear-gradient(140deg, var(--tint-brand), var(--tint-brand-weak)); }
+.rondleiding-prent.t-brand  .ico { color: var(--brand); }
+.rondleiding-prent.t-ok     { background: linear-gradient(140deg, var(--tint-ok), var(--tint-brand-weak)); }
+.rondleiding-prent.t-ok     .ico { color: var(--ok); }
+.rondleiding-prent.t-info   { background: linear-gradient(140deg, var(--tint-info), var(--tint-brand-weak)); }
+.rondleiding-prent.t-info   .ico { color: var(--info); }
+.rondleiding-prent.t-warn   { background: linear-gradient(140deg, var(--tint-warn), var(--tint-brand-weak)); }
+.rondleiding-prent.t-warn   .ico { color: var(--warn); }
+.rondleiding-prent.t-paars  { background: linear-gradient(140deg, var(--tint-info), var(--tint-danger-weak)); }
+.rondleiding-prent.t-paars  .ico { color: var(--paars, var(--info)); }
+
+/* ---------------------------- De tekst ---------------------------- */
+
+.rondleiding-kaart .tekst { padding: 22px 26px 6px; }
+.rondleiding-kaart .tekst .rol {
+  display: inline-block;
+  font-size: .68rem; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 7px;
+}
+.rondleiding-kaart .tekst h2 {
+  font-size: 1.3rem; letter-spacing: -.025em; line-height: 1.25;
+  margin-bottom: 9px;
+}
+.rondleiding-kaart .tekst p {
+  font-size: .9rem; color: var(--text-2); line-height: 1.7;
+  min-height: 5.1em;
+}
+
+/* ---------------------------- De voet ----------------------------- */
+
+.rondleiding-kaart .voet {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 26px;
+}
+.rondleiding-kaart .stippen { display: flex; gap: 6px; flex: 1; }
+.rondleiding-kaart .stip {
+  width: 7px; height: 7px; padding: 0;
+  border: 0; border-radius: 50%;
+  background: var(--line);
+  cursor: pointer;
+  transition: width .22s var(--ease), background .22s var(--ease);
+}
+.rondleiding-kaart .stip.gehad { background: var(--text-3); }
+.rondleiding-kaart .stip.nu { width: 22px; border-radius: 4px; background: var(--brand); }
+.rondleiding-kaart .knoppen { display: flex; gap: 6px; flex: none; }
+
+.rondleiding-kaart .overslaan {
+  display: block; width: 100%;
+  padding: 11px 26px;
+  border: 0; border-top: 1px solid var(--line-soft);
+  background: var(--bg-2);
+  color: var(--text-3);
+  font: inherit; font-size: .76rem;
+  cursor: pointer;
+  transition: color .16s var(--ease);
+}
+.rondleiding-kaart .overslaan:hover { color: var(--text-2); }
+
+/* ---------------------------- Klaar ------------------------------- */
+
+.rondleiding-kaart.klaar {
+  padding: 38px 30px 30px;
+  text-align: center;
+}
+.rondleiding-kaart.klaar .vink {
+  display: grid; place-items: center;
+  width: 74px; height: 74px;
+  margin: 0 auto 18px;
+  border-radius: 50%;
+  background: var(--tint-ok);
+  border: 1px solid var(--line-ok);
+  color: var(--ok);
+}
+.rondleiding-kaart.klaar h2 { font-size: 1.4rem; letter-spacing: -.025em; margin-bottom: 10px; }
+.rondleiding-kaart.klaar p {
+  font-size: .89rem; color: var(--text-2); line-height: 1.7;
+  max-width: 40ch; margin: 0 auto 22px;
+}
+
+/* -------------------------- De aanwijzers ------------------------- */
+
+.aanwijzer-laag { position: fixed; inset: 0; z-index: 120; }
+
+.aanwijzer-laag .gat {
+  position: fixed;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 9999px rgba(6, 10, 18, .74), 0 0 0 2px var(--brand) inset;
+  pointer-events: none;
+}
+
+.aanwijzer-laag .ballon {
+  position: fixed;
+  width: min(300px, calc(100vw - 24px));
+  padding: 15px 17px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, .42);
+}
+.aanwijzer-laag .ballon .teller {
+  display: block;
+  font-size: .68rem; font-weight: 700;
+  letter-spacing: .09em; text-transform: uppercase;
+  color: var(--brand);
+  margin-bottom: 5px;
+}
+.aanwijzer-laag .ballon h3 { font-size: .96rem; margin-bottom: 5px; }
+.aanwijzer-laag .ballon p {
+  font-size: .83rem; color: var(--text-2); line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 620px) {
+  .rondleiding-backdrop { padding: 0; align-items: flex-end; }
+  .rondleiding-kaart { width: 100%; border-radius: var(--radius) var(--radius) 0 0; }
+  .rondleiding-prent { height: 132px; }
+  .rondleiding-kaart .tekst p { min-height: 0; }
+}
+
+/* Wie beweging heeft uitgezet, krijgt het ook hier niet. */
+[data-beweging="uit"] .rondleiding-prent .bel { display: none; }

@@ -2816,3 +2816,133 @@ table.data.matrix th { vertical-align: bottom; }
   background: var(--surface);
   font-size: .78rem; color: var(--text-3); line-height: 1.5;
 }
+
+/* ------------------------------------------------------------------
+   Een bijlage die is tegengehouden
+   ------------------------------------------------------------------ */
+
+.bijlage.geblokkeerd {
+  border-color: var(--line-danger);
+  background: var(--tint-danger-weak);
+  cursor: not-allowed;
+  opacity: .85;
+}
+.bijlage.geblokkeerd svg { color: var(--danger); }
+.bijlage .badge { flex: none; }
+
+/* ==================================================================
+   Agenda
+   ================================================================== */
+
+.agenda-raster {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line-soft);
+  border-top: 1px solid var(--line-soft);
+}
+
+.agenda-raster .dagnaam {
+  padding: 8px 4px;
+  background: var(--bg-2);
+  text-align: center;
+  font-size: .68rem; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.agenda-dag {
+  min-height: 74px;
+  padding: 6px 5px;
+  border: 0;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 4px;
+  justify-items: center;
+  transition: background .13s var(--ease);
+}
+.agenda-dag:hover { background: var(--surface-2); }
+.agenda-dag.buiten { opacity: .4; }
+.agenda-dag.vandaag .nummer {
+  background: var(--brand); color: var(--on-brand); font-weight: 800;
+}
+.agenda-dag.gekozen {
+  background: var(--tint-brand-soft);
+  box-shadow: inset 0 0 0 2px var(--brand);
+}
+
+.agenda-dag .nummer {
+  width: 24px; height: 24px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  font-size: .8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.agenda-dag .stipjes {
+  display: flex; align-items: center; justify-content: center;
+  gap: 3px; flex-wrap: wrap;
+  align-content: flex-start;
+}
+.agenda-dag .stip {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--text-3);
+}
+.agenda-dag .stip.t-brand    { background: var(--brand); }
+.agenda-dag .stip.t-ok       { background: var(--ok); }
+.agenda-dag .stip.t-warn     { background: var(--warn); }
+.agenda-dag .stip.t-danger   { background: var(--danger); }
+.agenda-dag .stip.t-info     { background: var(--info); }
+.agenda-dag .stip.t-paars    { background: var(--paars); }
+.agenda-dag .stip.t-oranje   { background: var(--oranje); }
+.agenda-dag .meer { font-size: .6rem; color: var(--text-3); }
+
+@media (max-width: 560px) {
+  .agenda-dag { min-height: 58px; }
+  .agenda-dag .nummer { width: 21px; height: 21px; font-size: .74rem; }
+}
+
+/* ------------------------- Wat er die dag is --------------------- */
+
+.agenda-dagvulling { display: grid; }
+
+.agenda-regel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 11px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line-soft);
+  border-left: 3px solid transparent;
+}
+.agenda-regel:last-child { border-bottom: 0; }
+.agenda-regel.t-brand  { border-left-color: var(--brand); }
+.agenda-regel.t-ok     { border-left-color: var(--ok); }
+.agenda-regel.t-warn   { border-left-color: var(--warn); }
+.agenda-regel.t-danger { border-left-color: var(--danger); }
+.agenda-regel.t-info   { border-left-color: var(--info); }
+.agenda-regel.t-paars  { border-left-color: var(--paars); }
+.agenda-regel.t-oranje { border-left-color: var(--oranje); }
+
+.agenda-regel .ico {
+  width: 32px; height: 32px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 10px;
+  background: var(--surface-3);
+  color: var(--text-3);
+}
+.agenda-regel.t-brand .ico  { background: var(--tint-brand); color: var(--brand); }
+.agenda-regel.t-ok .ico     { background: var(--tint-ok); color: var(--ok); }
+.agenda-regel.t-warn .ico   { background: var(--tint-warn); color: var(--warn); }
+.agenda-regel.t-danger .ico { background: var(--tint-danger); color: var(--danger); }
+
+.agenda-regel .tekst { display: grid; gap: 2px; min-width: 0; }
+.agenda-regel .kop { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.agenda-regel .kop strong { font-size: .89rem; }
+.agenda-regel .wanneer { font-size: .76rem; color: var(--text-3); }
+.agenda-regel .toelichting {
+  font-size: .81rem; color: var(--text-2); line-height: 1.5; margin-top: 3px;
+}
+.agenda-regel .deelnemers { font-size: .73rem; color: var(--text-3); margin-top: 2px; }

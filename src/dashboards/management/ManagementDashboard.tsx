@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   CalendarRange, GraduationCap, Inbox, LayoutDashboard, LayoutGrid,
-  Mail, MessageSquare, Package, Receipt, Send, Settings, Users, Wrench,
+  CalendarDays, Mail, MessageSquare, Package, Receipt, Send, Settings, Users,
+  Wrench,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db } from '../../lib/db'
@@ -19,6 +20,7 @@ import OpleidingOverzicht from '../../components/OpleidingOverzicht'
 import BerichtVersturen from '../../components/BerichtVersturen'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
 import Postbus from '../../components/Postbus'
+import Agenda from '../../components/Agenda'
 import { Start, type Tegel, type TegelTint } from '../../components/Tegels'
 import { useNavTarget, usePerms } from '../../store/useNav'
 import { startOfDay } from '../../lib/analytics'
@@ -46,11 +48,13 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   opleiding: { title: 'Opleiding', subtitle: 'Voortgang van iedereen' },
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
   postbus: { title: 'Postbus', subtitle: 'Post die binnenkomt op het dashboard' },
+  agenda: { title: 'Agenda', subtitle: 'Afspraken, verjaardagen en wat er aankomt' },
   beheer: { title: 'Beheer', subtitle: 'Instellingen, rechten en gegevens' },
 }
 
 const ZONDER_PERIODE = [
   'start', 'planning', 'beheer', 'opleiding', 'aanmeldingen', 'overleg', 'postbus',
+  'agenda',
 ]
 
 export default function ManagementDashboard() {
@@ -118,6 +122,9 @@ export default function ManagementDashboard() {
     { key: 'opleiding', label: 'Opleiding', icon: GraduationCap },
     ...(perms.can('chat.use')
       ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
+      : []),
+    ...(perms.can('agenda.view')
+      ? [{ key: 'agenda', label: 'Agenda', icon: CalendarDays }]
       : []),
     ...(perms.can('mail.read')
       ? [{ key: 'postbus', label: 'Postbus', icon: Mail, badge: cijfers.nieuwePost || undefined }]
@@ -225,6 +232,14 @@ export default function ManagementDashboard() {
       urgent: ongelezen > 0,
       onClick: () => setPage('overleg'),
     }] : []),
+    ...(perms.can('agenda.view') ? [{
+      key: 'agenda',
+      label: 'Agenda',
+      hint: 'Afspraken, verjaardagen en jubilea',
+      icon: CalendarDays,
+      tint: 'info' as TegelTint,
+      onClick: () => setPage('agenda'),
+    }] : []),
     ...(perms.can('mail.read') ? [{
       key: 'postbus',
       label: 'Postbus',
@@ -314,6 +329,7 @@ export default function ManagementDashboard() {
       {page === 'opleiding' && <OpleidingOverzicht />}
       {page === 'overleg' && <Overleg />}
       {page === 'postbus' && <Postbus />}
+      {page === 'agenda' && <Agenda />}
       {page === 'beheer' && <Beheer />}
 
       <BerichtVersturen open={messaging} onClose={() => setMessaging(false)} />

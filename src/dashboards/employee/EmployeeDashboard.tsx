@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  CalendarCheck, CalendarDays, FolderLock, GraduationCap, LayoutGrid,
-  MessageSquare, Package, Receipt, Timer,
+  CalendarCheck, CalendarDays, CalendarRange, FolderLock, GraduationCap,
+  LayoutGrid, MessageSquare, Package, Receipt, Timer,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db } from '../../lib/db'
@@ -16,6 +16,7 @@ import MijnRooster from './MijnRooster'
 import Opleiding from '../../components/Opleiding'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
 import Dossier from '../../components/Dossier'
+import Agenda from '../../components/Agenda'
 import { Start, type Tegel } from '../../components/Tegels'
 import { useNavTarget, usePerms } from '../../store/useNav'
 import { useAuth } from '../../store/useAuth'
@@ -37,6 +38,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   opleiding: { title: 'Opleiding', subtitle: 'Cursussen en certificaten' },
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken met collega’s' },
   dossier: { title: 'Mijn dossier', subtitle: 'Je gegevens, contracten en documenten' },
+  agenda: { title: 'Agenda', subtitle: 'Wat er aankomt op je vestiging' },
 }
 
 export default function EmployeeDashboard() {
@@ -103,6 +105,9 @@ export default function EmployeeDashboard() {
     { key: 'kosten', label: 'Kosten', icon: Receipt },
     { key: 'opleiding', label: 'Opleiding', icon: GraduationCap },
     { key: 'dossier', label: 'Mijn dossier', icon: FolderLock, badge: cijfers.teTekenen || undefined },
+    ...(perms.can('agenda.view')
+      ? [{ key: 'agenda', label: 'Agenda', icon: CalendarRange }]
+      : []),
     ...(perms.can('chat.use')
       ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
       : []),
@@ -218,6 +223,7 @@ export default function EmployeeDashboard() {
       {page === 'kosten' && <KostenIndienen />}
       {page === 'opleiding' && <Opleiding />}
       {page === 'dossier' && <Dossier person={me} />}
+      {page === 'agenda' && <Agenda />}
       {page === 'overleg' && <Overleg />}
     </Shell>
   )

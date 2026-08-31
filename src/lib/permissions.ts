@@ -19,6 +19,7 @@ const EMPLOYEE: Permission[] = [
   'expenses.submit',
   'learning.take',
   'locations.view',
+  'agenda.view',
   // Iedereen op de vloer moet een storing kunnen melden; dat is precies wie
   // hem als eerste ziet.
   'assets.view', 'faults.report',
@@ -37,6 +38,7 @@ const EMPLOYEE: Permission[] = [
 const TECHNICIAN: Permission[] = [
   'dev.report',
   'chat.use',
+  'agenda.view', 'agenda.edit',
   'roster.viewOwn',
   'hours.own',
   'expenses.submit',
@@ -74,6 +76,7 @@ const SUPERVISOR: Permission[] = [
   'notify.send', 'notify.broadcast',
   'learning.assign',
   'chat.manage',
+  'agenda.edit',
   'pos.discount', 'pos.refund', 'pos.cash',
 ]
 

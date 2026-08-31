@@ -321,9 +321,16 @@ export const notifications = {
     body: string
     link?: string
     mail?: boolean
+    /**
+     * Een vast id, voor berichten die maar één keer horen te bestaan --
+     * een felicitatie bijvoorbeeld. Sturen twee apparaten hem tegelijk,
+     * dan schrijft de tweede dezelfde regel over in plaats van er een
+     * tweede bij te zetten.
+     */
+    id?: string
   }) {
     const note: AppNotification = {
-      id: uid('nt'),
+      id: input.id ?? uid('nt'),
       toUserId: input.to.id,
       kind: input.kind,
       title: input.title.trim(),

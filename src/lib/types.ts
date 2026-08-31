@@ -268,6 +268,8 @@ export type Permission =
   | 'mail.read' | 'mail.send'
   /* wijzigingen in het dossier */
   | 'staff.request' | 'staff.approve'
+  /* agenda */
+  | 'agenda.view' | 'agenda.edit'
   /* kassa */
   | 'pos.use' | 'pos.discount' | 'pos.refund' | 'pos.cash' | 'pos.manage'
   /* beheer */
@@ -359,6 +361,9 @@ export const PERMISSIONS: PermissionMeta[] = [
 
   { key: 'staff.request',     group: 'Personeel',  label: 'Wijziging aanvragen',  hint: 'Een verandering in een dossier voorstellen; het management beslist.' },
   { key: 'staff.approve',     group: 'Personeel',  label: 'Wijziging goedkeuren', hint: 'Voorgestelde wijzigingen doorvoeren of afwijzen.', sensitive: true },
+
+  { key: 'agenda.view',       group: 'Agenda',     label: 'Agenda zien',          hint: 'Afspraken, verjaardagen en wat er aankomt.' },
+  { key: 'agenda.edit',       group: 'Agenda',     label: 'Agenda beheren',       hint: 'Afspraken toevoegen en wijzigen.' },
 
   { key: 'mail.read',         group: 'Postbus',    label: 'Post lezen',           hint: 'Binnengekomen e-mail en wat er is verstuurd.', sensitive: true },
   { key: 'mail.send',         group: 'Postbus',    label: 'Post versturen',       hint: 'Zelf een mail opstellen naar een adres naar keuze.', sensitive: true },
@@ -1093,12 +1098,38 @@ export const MAIL_STATUS: Record<MailStatus, { label: string; tone: string }> = 
   genegeerd:  { label: 'Genegeerd',  tone: 'default' },
 }
 
+/**
+ * De uitkomst van de controle op een bijlage.
+ *
+ * Wat er gecontroleerd wordt staat in de serverfunctie: klopt het bestand
+ * met wat het beweert te zijn, zit er geen actieve inhoud in, en -- als er
+ * een scanner is aangesloten -- wat zegt die.
+ *
+ * Zolang dit niet 'schoon' is, weigert de app het bestand te openen.
+ */
+export type BijlageControle = 'onbekend' | 'schoon' | 'verdacht' | 'mislukt'
+
+export const CONTROLE_LABELS: Record<BijlageControle, { label: string; tone: string }> = {
+  onbekend: { label: 'Nog niet gecontroleerd', tone: 'warn' },
+  schoon:   { label: 'Gecontroleerd',          tone: 'ok' },
+  verdacht: { label: 'Geweigerd',              tone: 'danger' },
+  mislukt:  { label: 'Controle mislukt',       tone: 'warn' },
+}
+
 export interface MailBijlage {
   naam: string
   mime: string
   size: number
   /** Pad in de emmer 'post'. Nooit een openbaar adres. */
   path: string
+
+  /** Uitkomst van de controle. Ontbreekt bij oudere berichten. */
+  controle?: BijlageControle
+  /** Waarom hij is geweigerd, of waarom de controle niet lukte */
+  controleReden?: string
+  controleOp?: number
+  /** Welke scanner het zei, als er een is aangesloten */
+  scanner?: string
 }
 
 export interface MailBericht {
@@ -1199,6 +1230,43 @@ export interface DossierWijziging {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Agenda
+ *
+ *  Alleen de afspraken die iemand er zelf in zet. Verjaardagen, jubilea en
+ *  aflopende contracten staan er niet in: die volgen uit gegevens die er al
+ *  zijn, en worden bij het tonen berekend. Twee waarheden over dezelfde
+ *  datum lopen vroeg of laat uit elkaar.
+ * ------------------------------------------------------------------ */
+
+export type AgendaSoort = 'afspraak' | 'verlof' | 'opleiding' | 'onderhoud' | 'overig'
+
+export const AGENDA_SOORTEN: Record<AgendaSoort, { label: string; hint: string }> = {
+  afspraak:  { label: 'Afspraak',  hint: 'Overleg, bezoek, gesprek' },
+  verlof:    { label: 'Verlof',    hint: 'Vrij, vakantie, bijzonder verlof' },
+  opleiding: { label: 'Opleiding', hint: 'Cursus, keuring, examen' },
+  onderhoud: { label: 'Onderhoud', hint: 'Werk aan de installatie of het pand' },
+  overig:    { label: 'Overig',    hint: 'Wat hier niet in past' },
+}
+
+export interface AgendaItem {
+  id: string
+  title: string
+  description?: string
+  soort: AgendaSoort
+  startAt: number
+  endAt: number
+  /** Hele dag: dan doen de tijden er niet toe */
+  heleDag: boolean
+  locationId?: string
+  /** Wie erbij moeten zijn */
+  deelnemers: string[]
+  createdBy: string
+  createdByName: string
+  createdAt: number
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
  *  Sync
  * ------------------------------------------------------------------ */
 
@@ -1210,6 +1278,7 @@ export type EntityName =
   | 'tickets' | 'ticketMessages' | 'logEvents'
   | 'signups' | 'channels' | 'chatMessages' | 'channelReads' | 'emailLog'
   | 'personnelPrivate' | 'documents' | 'mailbox' | 'changeRequests'
+  | 'agendaItems'
 
 export type SyncOp = 'put' | 'delete'
 

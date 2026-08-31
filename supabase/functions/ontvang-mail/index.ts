@@ -21,6 +21,7 @@
  * =========================================================================== */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
+import { controleerBijlage } from './controle.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -221,7 +222,11 @@ Deno.serve(async (req) => {
   const binnen = (pak(data, 'attachments') ?? []) as Willekeurig[]
   const bijlagen: {
     naam: string; mime: string; size: number; path: string
+    controle: string; controleReden?: string; controleOp: number; scanner?: string
   }[] = []
+
+  /** Bijlagen die zijn tegengehouden, voor in het bericht. */
+  const geweigerd: string[] = []
 
   for (const [i, a] of (Array.isArray(binnen) ? binnen : []).entries()) {
     try {
@@ -243,6 +248,19 @@ Deno.serve(async (req) => {
         continue
       }
 
+      /*
+       * Controleren vóór opslaan. Wat niet door de controle komt gaat de
+       * opslag niet in -- dan kan het ook niet per ongeluk geopend worden,
+       * en staat er niets waar iemand later op klikt.
+       */
+      const uitkomst = await controleerBijlage(bytes, naam, mime)
+
+      if (uitkomst.uitkomst === 'verdacht') {
+        console.warn(`[ontvang-mail] bijlage ${naam} geweigerd: ${uitkomst.reden}`)
+        geweigerd.push(`${naam} — ${uitkomst.reden}`)
+        continue
+      }
+
       const pad = `${berichtId}/${i + 1}-${naam}`
       const { error } = await admin.storage.from(EMMER).upload(pad, bytes, {
         contentType: mime,
@@ -253,7 +271,16 @@ Deno.serve(async (req) => {
         continue
       }
 
-      bijlagen.push({ naam, mime, size: bytes.byteLength, path: pad })
+      bijlagen.push({
+        naam,
+        mime,
+        size: bytes.byteLength,
+        path: pad,
+        controle: uitkomst.uitkomst,
+        controleReden: uitkomst.reden,
+        controleOp: nu(),
+        scanner: uitkomst.scanner,
+      })
     } catch (e) {
       console.error('[ontvang-mail] bijlage overslaan: ' + String(e))
     }
@@ -268,7 +295,9 @@ Deno.serve(async (req) => {
     van_naam: van.naam ?? null,
     aan: aan.adres || '',
     onderwerp,
-    tekst,
+    tekst: geweigerd.length
+      ? tekst + '\n\n---\nTegengehouden bijlagen:\n' + geweigerd.map((g) => '· ' + g).join('\n')
+      : tekst,
     had_html: Boolean(html),
     at: nu(),
     status: 'nieuw',

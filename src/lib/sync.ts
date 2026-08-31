@@ -124,7 +124,7 @@ export async function ensureBackendMatches(): Promise<boolean> {
     db.signups.clear(), db.channels.clear(),
     db.chatMessages.clear(), db.channelReads.clear(), db.emailLog.clear(),
     db.personnelPrivate.clear(), db.documents.clear(), db.mailbox.clear(),
-    db.changeRequests.clear(),
+    db.changeRequests.clear(), db.agendaItems.clear(),
     // Wijzigingen die voor een andere server bedoeld waren zijn onbruikbaar.
     db.outbox.clear(),
   ])
@@ -181,6 +181,7 @@ export const PUSH_ORDER: EntityName[] = [
   'workOrders', 'courseProgress', 'notifications',
   'chatMessages', 'channelReads', 'ticketMessages', 'logEvents',
   'signups', 'emailLog', 'documents', 'mailbox', 'changeRequests',
+  'agendaItems',
 ]
 
 const RANG = new Map(PUSH_ORDER.map((e, i) => [e, i]))
@@ -301,6 +302,7 @@ const TABLE_OF: Record<EntityName, () => any> = {
   documents: () => db.documents,
   mailbox: () => db.mailbox,
   changeRequests: () => db.changeRequests,
+  agendaItems: () => db.agendaItems,
 }
 
 async function pullChanges(): Promise<{ serverTime: number; opgehaald: number }> {

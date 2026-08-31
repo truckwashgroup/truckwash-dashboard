@@ -116,6 +116,7 @@ const TABLES: Record<EntityName, string> = {
   documents: 'documents',
   mailbox: 'mailbox',
   changeRequests: 'change_requests',
+  agendaItems: 'agenda_items',
 }
 
 /** Kolommen waarvan de naam niet simpelweg de snake_case-variant is. */

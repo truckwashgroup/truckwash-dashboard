@@ -2,10 +2,14 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   AlertTriangle, ArrowLeft, CheckCircle2, Code2, Download, EyeOff, Inbox,
-  Loader2, Mail, MailOpen, Paperclip, Receipt, Search, Send, Trash2,
+  Loader2, Mail, MailOpen, Paperclip, Receipt, Search, Send, ShieldCheck,
+  ShieldX, Trash2,
 } from 'lucide-react'
 import { db } from '../lib/db'
-import { bijbehorendeBon, filterPost, grootte, onbekeken, postbus } from '../lib/postbus'
+import {
+  bijbehorendeBon, controleLabel, filterPost, grootte, magOpenen, onbekeken,
+  postbus,
+} from '../lib/postbus'
 import { MAIL_STATUS, type Expense, type MailBericht, type MailStatus } from '../lib/types'
 import { dateTime, money, relative } from '../lib/format'
 import { Badge, Card, Empty, Field, Modal, Stat } from './ui'
@@ -199,13 +203,13 @@ function Bericht({
   const [bezig, setBezig] = useState<string | null>(null)
   const [toonRuw, setToonRuw] = useState(false)
 
-  async function openBijlage(pad: string, naam: string) {
-    setBezig(pad)
+  async function openBijlage(bijlage: MailBericht['attachments'][number]) {
+    setBezig(bijlage.path)
     try {
-      const link = await postbus.openBijlage({ path: pad })
+      const link = await postbus.openBijlage(bijlage)
       window.open(link, '_blank', 'noopener,noreferrer')
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : `${naam} openen lukte niet`)
+      toast.error(e instanceof Error ? e.message : `${bijlage.naam} openen lukte niet`)
     } finally {
       setBezig(null)
     }
@@ -256,20 +260,38 @@ function Bericht({
         {bericht.attachments.length > 0 && (
           <div className="post-bijlagen">
             <div className="kop"><Paperclip size={14} /> Bijlagen</div>
-            {bericht.attachments.map((b) => (
-              <button
-                key={b.path}
-                className="bijlage"
-                onClick={() => void openBijlage(b.path, b.naam)}
-                disabled={bezig === b.path}
-              >
-                {bezig === b.path
-                  ? <Loader2 size={15} className="spin" />
-                  : <Download size={15} />}
-                <span className="n">{b.naam}</span>
-                <span className="s">{grootte(b.size)}</span>
-              </button>
-            ))}
+            {bericht.attachments.map((b) => {
+              const stempel = controleLabel(b)
+              const mag = magOpenen(b)
+              return (
+                <button
+                  key={b.path}
+                  className={`bijlage ${mag ? '' : 'geblokkeerd'}`}
+                  onClick={() => void openBijlage(b)}
+                  disabled={bezig === b.path || !mag}
+                  title={mag ? 'Openen' : b.controleReden}
+                >
+                  {bezig === b.path
+                    ? <Loader2 size={15} className="spin" />
+                    : mag ? <Download size={15} /> : <ShieldX size={15} />}
+                  <span className="n">{b.naam}</span>
+                  {stempel
+                    ? <Badge tone={stempel.tone as never}>{stempel.label}</Badge>
+                    : <Badge tone="ok"><ShieldCheck size={11} /> nagekeken</Badge>}
+                  <span className="s">{grootte(b.size)}</span>
+                </button>
+              )
+            })}
+
+            {bericht.attachments.some((b) => !b.controle) && (
+              <div className="signup-note" style={{ marginTop: 8 }}>
+                <AlertTriangle size={16} />
+                <span>
+                  Deze bijlage kwam binnen voordat er werd gecontroleerd. Open
+                  hem alleen als je de afzender vertrouwt.
+                </span>
+              </div>
+            )}
           </div>
         )}
 

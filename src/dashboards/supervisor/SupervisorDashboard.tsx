@@ -16,6 +16,7 @@ import OpleidingOverzicht from '../../components/OpleidingOverzicht'
 import Opleiding from '../../components/Opleiding'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
 import Personeel from '../management/Personeel'
+import Agenda from '../../components/Agenda'
 import { Start, type Tegel, type TegelTint } from '../../components/Tegels'
 import { useAuth } from '../../store/useAuth'
 import { usePerms, useNavTarget } from '../../store/useNav'
@@ -34,6 +35,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   mijn: { title: 'Mijn opleiding', subtitle: 'Cursussen die jij moet doen' },
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
   personeel: { title: 'Dossiers', subtitle: 'Gegevens inzien en wijzigingen aanvragen' },
+  agenda: { title: 'Agenda', subtitle: 'Afspraken, verjaardagen en wat er aankomt' },
 }
 
 export default function SupervisorDashboard() {
@@ -77,6 +79,9 @@ export default function SupervisorDashboard() {
     ...(perms.can('learning.assign') ? [{ key: 'opleiding', label: 'Opleiding', icon: GraduationCap }] : []),
     ...(perms.can('staff.view')
       ? [{ key: 'personeel', label: 'Dossiers', icon: Users }]
+      : []),
+    ...(perms.can('agenda.view')
+      ? [{ key: 'agenda', label: 'Agenda', icon: CalendarDays }]
       : []),
     { key: 'mijn', label: 'Mijn cursussen', icon: ClipboardList },
     ...(perms.can('chat.use')
@@ -138,6 +143,14 @@ export default function SupervisorDashboard() {
       urgent: ongelezen > 0,
       onClick: () => setPage('overleg'),
     }] : []),
+    ...(perms.can('agenda.view') ? [{
+      key: 'agenda',
+      label: 'Agenda',
+      hint: 'Afspraken, verjaardagen en jubilea van je team',
+      icon: CalendarDays,
+      tint: 'info' as TegelTint,
+      onClick: () => setPage('agenda'),
+    }] : []),
     ...(perms.can('staff.view') ? [{
       key: 'personeel',
       label: 'Dossiers',
@@ -196,6 +209,7 @@ export default function SupervisorDashboard() {
       {page === 'mijn' && <Opleiding />}
       {page === 'overleg' && <Overleg />}
       {page === 'personeel' && <Personeel days={30} />}
+      {page === 'agenda' && <Agenda />}
 
       <BerichtVersturen open={messaging} onClose={() => setMessaging(false)} team={team} />
     </Shell>

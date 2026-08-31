@@ -2,7 +2,7 @@ import Dexie, { type Table } from 'dexie'
 import type {
   AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   CourseProgress, EmailLog, Expense, Fault, InventoryItem, Location, LogEvent,
-  DossierWijziging, MailBericht, MaintenancePlan, OutboxRecord,
+  AgendaItem, DossierWijziging, MailBericht, MaintenancePlan, OutboxRecord,
   PersonnelDocument, PersonnelPrivate,
   Shift, Signup, StockMovement, Ticket,
   TicketMessage, TimeEntry, User, WashJob, WorkOrder,
@@ -41,6 +41,7 @@ class TruckwashDB extends Dexie {
   documents!: Table<PersonnelDocument, string>
   mailbox!: Table<MailBericht, string>
   changeRequests!: Table<DossierWijziging, string>
+  agendaItems!: Table<AgendaItem, string>
   outbox!: Table<OutboxRecord, number>
   meta!: Table<{ key: string; value: unknown }, string>
 
@@ -120,6 +121,11 @@ class TruckwashDB extends Dexie {
     // v10: wijzigingsverzoeken op een dossier
     this.version(10).stores({
       changeRequests: 'id, userId, status, aangevraagdOp, updatedAt',
+    })
+
+    // v11: de agenda
+    this.version(11).stores({
+      agendaItems: 'id, soort, startAt, locationId, updatedAt',
     })
   }
 }

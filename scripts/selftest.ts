@@ -1869,6 +1869,221 @@ await sync()
 check('de verzoeken staan op de server',
   (await db.changeRequests.get(verzoek!.id))?.status === 'goedgekeurd')
 
+
+/* ==================================================================== */
+
+console.log('\n27. Agenda, verjaardagen en jubilea')
+
+const {
+  gebeurtenissen, perDag, beginVanDag, teVieren, feliciteer, MIJLPALEN,
+  agenda: agendaRepo,
+} = await import('../src/lib/agenda')
+
+const DAG_MS = 86_400_000
+
+/* Een vaste dag om mee te rekenen: 15 juni 2026. */
+const peildag = new Date(2026, 5, 15).getTime()
+
+const agendaMensen = [
+  {
+    id: 'zt_a', email: 'a@x.nl', password: '', name: 'Anna Bakker',
+    roles: ['employee'] as never, active: true, locationId: 'loc_utr',
+    // Jarig op de peildag, en precies vijf jaar in dienst.
+    startDate: new Date(2021, 5, 15).getTime(),
+    updatedAt: 0,
+  },
+  {
+    id: 'zt_b', email: 'b@x.nl', password: '', name: 'Bram Jansen',
+    roles: ['employee'] as never, active: true, locationId: 'loc_utr',
+    // Begint vandaag.
+    startDate: peildag,
+    updatedAt: 0,
+  },
+  {
+    id: 'zt_c', email: 'c@x.nl', password: '', name: 'Carla Smit',
+    roles: ['employee'] as never, active: true, locationId: 'loc_utr',
+    // Drie jaar in dienst: geen mijlpaal.
+    startDate: new Date(2023, 5, 15).getTime(),
+    updatedAt: 0,
+  },
+  {
+    id: 'zt_d', email: 'd@x.nl', password: '', name: 'Daan Weg',
+    roles: ['employee'] as never, active: false, locationId: 'loc_utr',
+    startDate: new Date(2016, 5, 15).getTime(),
+    updatedAt: 0,
+  },
+]
+
+const agendaPrive = [
+  { id: 'zt_a', userId: 'zt_a', birthDate: new Date(1990, 5, 15).getTime(), updatedAt: 0 },
+  { id: 'zt_c', userId: 'zt_c', birthDate: new Date(1985, 0, 3).getTime(), updatedAt: 0 },
+]
+
+const gevonden = gebeurtenissen({
+  van: beginVanDag(peildag),
+  tot: beginVanDag(peildag) + DAG_MS,
+  ik: null,
+  items: [],
+  mensen: agendaMensen as never,
+  prive: agendaPrive as never,
+  shifts: [],
+  documenten: [],
+  onderhoud: [],
+})
+
+const soorten = gevonden.map((g) => g.soort)
+
+check('een verjaardag komt in de agenda', soorten.includes('verjaardag'))
+check('een jubileum van vijf jaar ook', soorten.includes('jubileum'))
+check('een eerste werkdag ook', soorten.includes('indienst'))
+check('drie jaar in dienst is geen jubileum',
+  !gevonden.some((g) => g.soort === 'jubileum' && g.titel.includes('Carla')))
+check('wie uit dienst is telt niet mee',
+  !gevonden.some((g) => g.titel.includes('Daan')))
+check('de leeftijd staat erbij',
+  gevonden.find((g) => g.soort === 'verjaardag')?.toelichting === 'Wordt 36',
+  String(gevonden.find((g) => g.soort === 'verjaardag')?.toelichting))
+check('het jubileum noemt het aantal jaren',
+  (gevonden.find((g) => g.soort === 'jubileum')?.titel ?? '').includes('5 jaar'),
+  String(gevonden.find((g) => g.soort === 'jubileum')?.titel))
+
+check('een verjaardag buiten de periode telt niet mee',
+  !gevonden.some((g) => g.titel.includes('Carla') && g.soort === 'verjaardag'))
+check('mijlpalen bevatten geen 3', !MIJLPALEN.includes(3))
+check('en wel 5, 10 en 25',
+  MIJLPALEN.includes(5) && MIJLPALEN.includes(10) && MIJLPALEN.includes(25))
+
+/* --- een aflopend document --- */
+
+const metDocument = gebeurtenissen({
+  van: beginVanDag(peildag),
+  tot: beginVanDag(peildag) + DAG_MS,
+  ik: null,
+  items: [],
+  mensen: agendaMensen as never,
+  prive: agendaPrive as never,
+  shifts: [],
+  documenten: [{
+    id: 'zt_doc', userId: 'zt_a', userName: 'Anna Bakker', kind: 'contract',
+    title: 'Arbeidsovereenkomst', storagePath: 'x', mime: 'application/pdf',
+    sizeBytes: 1, visibleToEmployee: true, uploadedBy: 'x', uploadedByName: 'x',
+    uploadedAt: 0, requiresSignature: false, expiresAt: peildag, updatedAt: 0,
+  }] as never,
+  onderhoud: [],
+})
+check('een aflopend contract staat in de agenda',
+  metDocument.some((g) => g.soort === 'contract'))
+
+/* --- per dag groeperen --- */
+
+const gegroepeerd = perDag(gevonden)
+check('alles valt op dezelfde dag', gegroepeerd.size === 1, String(gegroepeerd.size))
+check('en er staat meer dan één ding op',
+  (gegroepeerd.get(beginVanDag(peildag)) ?? []).length >= 3)
+
+/* --- wat er te vieren valt --- */
+
+const feest = teVieren(agendaMensen as never, agendaPrive as never, peildag)
+check('drie dingen te vieren', feest.length === 3, String(feest.length))
+check('het id ligt vast op persoon en jaar',
+  feest.some((f) => f.id === 'nt_vj_zt_a_2026'), feest.map((f) => f.id).join(','))
+check('de tekst spreekt iemand aan met zijn voornaam',
+  feest.some((f) => f.titel.includes('Anna')))
+check('een dag zonder iets te vieren levert niets op',
+  teVieren(agendaMensen as never, agendaPrive as never,
+    new Date(2026, 6, 4).getTime()).length === 0)
+
+/* --- feliciteren stuurt één bericht per persoon per jaar --- */
+
+for (const m of agendaMensen) await db.users.put(m as never)
+for (const pv of agendaPrive) await db.personnelPrivate.put(pv as never)
+
+const ilseA = (await db.users.get('u_manager'))!
+const eersteRonde = await feliciteer(ilseA, peildag)
+check('er zijn felicitaties verstuurd', eersteRonde === 3, String(eersteRonde))
+
+const tweedeRonde = await feliciteer(ilseA, peildag)
+check('een tweede ronde stuurt niets extra', tweedeRonde === 0, String(tweedeRonde))
+
+const gefeliciteerd = (await db.notifications.toArray()).filter(
+  (n) => n.id.startsWith('nt_vj_') || n.id.startsWith('nt_jub_') || n.id.startsWith('nt_id_'))
+check('en er staan er precies drie', gefeliciteerd.length === 3, String(gefeliciteerd.length))
+
+/* --- een afspraak toevoegen --- */
+
+const afspraak = await agendaRepo.create({
+  title: 'Keuring hogedrukinstallatie',
+  soort: 'onderhoud',
+  startAt: peildag + 9 * 3_600_000,
+  endAt: peildag + 11 * 3_600_000,
+  locationId: 'loc_utr',
+  deelnemers: ['zt_a'],
+  door: ilseA,
+})
+
+check('de afspraak staat erin', !!(await db.agendaItems.get(afspraak.id)))
+check('met de juiste soort', afspraak.soort === 'onderhoud')
+
+const deelnemerBericht = (await db.notifications.toArray()).filter(
+  (n) => n.toUserId === 'zt_a' && n.title.includes('In je agenda'))
+check('de deelnemer krijgt bericht', deelnemerBericht.length === 1)
+
+/*
+ * Een afspraak hangt aan een vestiging, en die telt mee. Ilse zit op het
+ * hoofdkantoor en mag overal bij; Anna werkt in Utrecht en ziet hem ook.
+ */
+const alsIlse = gebeurtenissen({
+  van: beginVanDag(peildag),
+  tot: beginVanDag(peildag) + DAG_MS,
+  ik: ilseA,
+  items: [afspraak],
+  mensen: agendaMensen as never,
+  prive: agendaPrive as never,
+  shifts: [],
+  documenten: [],
+  onderhoud: [],
+})
+check('de afspraak komt terug in de agenda',
+  alsIlse.some((g) => g.id === afspraak.id))
+
+const elders = (await db.users.toArray()).find(
+  (u) => u.locationId && u.locationId !== 'loc_utr' && !u.allLocations)!
+const alsIemandElders = gebeurtenissen({
+  van: beginVanDag(peildag),
+  tot: beginVanDag(peildag) + DAG_MS,
+  ik: elders,
+  items: [afspraak],
+  mensen: agendaMensen as never,
+  prive: agendaPrive as never,
+  shifts: [],
+  documenten: [],
+  onderhoud: [],
+})
+check('en niet bij iemand van een andere vestiging',
+  !alsIemandElders.some((g) => g.id === afspraak.id), elders.name)
+
+const metAfspraak = alsIlse
+check('hele dagen staan boven de tijdgebonden dingen',
+  metAfspraak[0].heleDag === true)
+
+await agendaRepo.remove(afspraak.id)
+check('weghalen werkt', !(await db.agendaItems.get(afspraak.id)))
+
+/* --- alles overleeft de rondgang --- */
+
+const blijvend = await agendaRepo.create({
+  title: 'Zelftest blijft staan',
+  soort: 'afspraak',
+  startAt: peildag,
+  endAt: peildag + 3_600_000,
+  door: ilseA,
+})
+await sync()
+await db.agendaItems.clear()
+await setMeta(LAST_SYNC, 0)
+await sync()
+check('de agenda staat op de server', !!(await db.agendaItems.get(blijvend.id)))
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  AlertTriangle, CalendarClock, ClipboardList, Gauge, GraduationCap, LayoutGrid,
-  MessageSquare, QrCode, Wrench,
+  AlertTriangle, CalendarClock, CalendarDays, ClipboardList, Gauge,
+  GraduationCap, LayoutGrid, MessageSquare, QrCode, Wrench,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db } from '../../lib/db'
@@ -23,6 +23,7 @@ import Installaties from './Installaties'
 import Onderhoud from './Onderhoud'
 import Opleiding from '../../components/Opleiding'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
+import Agenda from '../../components/Agenda'
 import { Start, type Tegel, type TegelTint } from '../../components/Tegels'
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
@@ -34,6 +35,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   onderhoud: { title: 'Onderhoud', subtitle: 'Schemas en wat er openstaat' },
   opleiding: { title: 'Mijn cursussen', subtitle: 'Veiligheid en techniek' },
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
+  agenda: { title: 'Agenda', subtitle: 'Beurten, keuringen en afspraken' },
 }
 
 export default function TechnicianDashboard() {
@@ -75,6 +77,9 @@ export default function TechnicianDashboard() {
       ? [{ key: 'onderhoud', label: 'Onderhoud', icon: CalendarClock, badge: achterstallig.length || undefined }]
       : []),
     { key: 'opleiding', label: 'Cursussen', icon: GraduationCap },
+    ...(perms.can('agenda.view')
+      ? [{ key: 'agenda', label: 'Agenda', icon: CalendarDays }]
+      : []),
     ...(perms.can('chat.use')
       ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
       : []),
@@ -232,6 +237,7 @@ export default function TechnicianDashboard() {
       {page === 'onderhoud' && <Onderhoud plans={plans} assets={assets} />}
       {page === 'opleiding' && <Opleiding />}
       {page === 'overleg' && <Overleg />}
+      {page === 'agenda' && <Agenda />}
 
       <QrScanner
         open={scanning}

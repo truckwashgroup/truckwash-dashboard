@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import { AnimatePresence, MotionConfig } from 'framer-motion'
 import { AlertTriangle, Loader2, RefreshCw, Trash2, Truck } from 'lucide-react'
 import { useAuth } from './store/useAuth'
+import { effectivePermissions } from './lib/permissions'
 import { setSyncEnabled, startSyncEngine } from './lib/sync'
 import { installErrorCapture, onCapturedError, trail } from './lib/trail'
 import { logs as logRepo } from './lib/tickets'
 import { useUpdates } from './lib/updates'
 import { useNav } from './store/useNav'
 import { useTheme } from './lib/theme'
+import { feliciteer } from './lib/agenda'
 import Login from './components/Login'
 import CarwashAnimation from './components/CarwashAnimation'
 import RolePicker from './components/RolePicker'
@@ -76,6 +78,32 @@ export default function App() {
   useEffect(() => {
     if (!user) setWashed(false)
   }, [user])
+
+  /*
+   * Verjaardagen, jubilea en eerste werkdagen.
+   *
+   * Een verjaardag die niemand opmerkt is erger dan geen verjaardag in het
+   * systeem. Dit kijkt na het inloggen of er vandaag iets te vieren valt.
+   *
+   * Het id van zo'n bericht ligt vast op persoon en jaar, dus doen tien
+   * apparaten dit tegelijk, dan staat er één felicitatie -- de rest schrijft
+   * dezelfde regel over. Alleen wie het personeel mag zien doet de moeite;
+   * de rest heeft de gegevens toch niet.
+   */
+  useEffect(() => {
+    if (!user || !washed) return
+    if (!effectivePermissions(user).has('staff.view')) return
+
+    const t = setTimeout(() => {
+      void feliciteer(user).then((aantal) => {
+        if (aantal > 0) {
+          console.info(`[agenda] ${aantal} felicitatie(s) verstuurd`)
+        }
+      }).catch(() => { /* een felicitatie mag nooit iets breken */ })
+    }, 4000)
+
+    return () => clearTimeout(t)
+  }, [user, washed])
 
   if (booting) {
     return (

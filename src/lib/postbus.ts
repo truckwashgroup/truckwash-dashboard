@@ -2,7 +2,10 @@ import { db, uid } from './db'
 import { enqueue } from './sync'
 import { laatsteMailFout, mailVrij } from './mail'
 import { supabase, supabaseConfigured } from './api/supabaseApi'
-import type { Expense, MailBericht, MailBijlage, MailStatus, User } from './types'
+import { CONTROLE_LABELS } from './types'
+import type {
+  BijlageControle, Expense, MailBericht, MailBijlage, MailStatus, User,
+} from './types'
 
 /* ------------------------------------------------------------------ *
  *  Postbus
@@ -27,6 +30,41 @@ async function put<T extends { id: string; updatedAt?: number }>(
   await table.put(stamped)
   await enqueue(entity, 'put', record.id, stamped)
   return stamped
+}
+
+/**
+ * Een bijlage die niet door de controle kwam.
+ *
+ * Wat er gecontroleerd wordt gebeurt op de server, bij het binnenkomen:
+ * klopt het bestand met wat het beweert te zijn, zit er geen actieve inhoud
+ * in, en -- als er een scanner is aangesloten -- wat zegt die.
+ */
+export class BijlageGeweigerd extends Error {
+  constructor(readonly controle: BijlageControle, readonly detail?: string) {
+    super(
+      controle === 'verdacht'
+        ? `Deze bijlage is tegengehouden. ${detail ?? ''}`.trim()
+        : controle === 'mislukt'
+          ? `De controle op deze bijlage is niet gelukt, dus hij gaat niet open. ${detail ?? ''}`.trim()
+          : 'Deze bijlage is nog niet gecontroleerd.',
+    )
+  }
+}
+
+/** Mag deze bijlage geopend worden? */
+export function magOpenen(bijlage: MailBijlage): boolean {
+  // Geen uitkomst betekent: van vóór de controle. Die laten we door, met
+  // een waarschuwing in beeld.
+  return !bijlage.controle || bijlage.controle === 'schoon'
+}
+
+/** Wat er bij een bijlage in het scherm hoort te staan. */
+export function controleLabel(bijlage: MailBijlage): { label: string; tone: string } | null {
+  if (!bijlage.controle) {
+    return { label: 'Niet gecontroleerd', tone: 'warn' }
+  }
+  if (bijlage.controle === 'schoon') return null
+  return CONTROLE_LABELS[bijlage.controle]
 }
 
 export const postbus = {
@@ -55,9 +93,20 @@ export const postbus = {
    * Kort met opzet: een link die in een gesprek belandt of in de
    * geschiedenis van een browser blijft staan, is daarna niets meer waard.
    */
-  async openBijlage(bijlage: Pick<MailBijlage, 'path'>): Promise<string> {
+  async openBijlage(bijlage: Pick<MailBijlage, 'path' | 'controle' | 'controleReden'>): Promise<string> {
     if (!supabaseConfigured) {
       throw new Error('De opslag is nog niet ingesteld.')
+    }
+
+    /*
+     * Niet openen wat niet is nagekeken.
+     *
+     * Bijlagen van oudere berichten hebben nog geen uitkomst; die zijn
+     * binnengekomen voordat er gecontroleerd werd. Die laten we door met
+     * een waarschuwing in het scherm, niet stilzwijgend.
+     */
+    if (bijlage.controle && bijlage.controle !== 'schoon') {
+      throw new BijlageGeweigerd(bijlage.controle, bijlage.controleReden)
     }
     const { data, error } = await supabase().storage
       .from(EMMER)

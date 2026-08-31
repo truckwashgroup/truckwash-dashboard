@@ -191,7 +191,11 @@ interface Bijlage {
  * mail. Ze alle drie proberen is goedkoper dan uitzoeken welke het deze
  * keer was.
  */
-async function haalInhoud(a: Willekeurig, emailId: string | null): Promise<Uint8Array | null> {
+async function haalInhoud(
+  a: Willekeurig,
+  vanResend: Willekeurig | undefined,
+): Promise<Uint8Array | null> {
+  // 1. Staat de inhoud er gewoon bij? Dan zijn we klaar.
   const inhoud = a.content ?? a.data ?? a.body ?? a.base64
   if (typeof inhoud === 'string' && inhoud.length > 0) {
     try {
@@ -202,25 +206,69 @@ async function haalInhoud(a: Willekeurig, emailId: string | null): Promise<Uint8
     }
   }
 
+  // 2. Een adres in de webhook zelf, of het adres dat Resend teruggaf.
   const adres = pak(a, 'url', 'download_url', 'content_url', 'href', 'link')
-  if (typeof adres === 'string' && /^https:\/\//.test(adres)) {
-    const bytes = await haalVan(adres)
-    if (bytes) return bytes
-  }
+    ?? (vanResend ? pak(vanResend, 'download_url', 'url') : undefined)
 
-  const bijlageId = pak(a, 'id', 'attachment_id', 'content_id')
-  if (RESEND_KEY && emailId && typeof bijlageId === 'string') {
-    // Twee vormen, want Resend heeft dit onderweg veranderd.
-    for (const url of [
-      `https://api.resend.com/emails/${emailId}/attachments/${bijlageId}`,
-      `https://api.resend.com/emails/${emailId}/attachments/${bijlageId}/download`,
-    ]) {
-      const bytes = await haalVan(url, RESEND_KEY)
-      if (bytes) return bytes
-    }
+  if (typeof adres === 'string' && /^https:\/\//.test(adres)) {
+    // Een voorondertekend adres wil de sleutel meestal niet; lukt het zonder
+    // niet, dan alsnog met.
+    return (await haalVan(adres)) ?? (await haalVan(adres, RESEND_KEY))
   }
 
   return null
+}
+
+/**
+ * De bijlagen bij een binnengekomen mail opvragen bij Resend.
+ *
+ * Dit moest erbij nadat bleek dat de webhook alleen namen en soorten
+ * meestuurt en niet de inhoud. Dat is op zich verstandig van Resend -- een
+ * factuur van acht megabyte door een webhook duwen gaat een keer mis -- maar
+ * het betekent wel dat er een tweede stap is die je moet zetten.
+ *
+ *   GET https://api.resend.com/emails/receiving/{id}/attachments
+ *
+ * Daar komt per bijlage een download_url uit die een uur geldig is. Lang
+ * genoeg; wij halen hem meteen op en zetten hem in onze eigen emmer.
+ */
+async function haalBijlagenLijst(emailId: string | null): Promise<Willekeurig[]> {
+  if (!RESEND_KEY || !emailId) return []
+  try {
+    const res = await fetch(
+      `https://api.resend.com/emails/receiving/${emailId}/attachments?limit=100`,
+      { headers: { Authorization: `Bearer ${RESEND_KEY}` } },
+    )
+    if (!res.ok) {
+      console.warn(
+        `[ontvang-mail] bijlagenlijst opvragen gaf ${res.status}: ${await res.text()}`)
+      return []
+    }
+    const body = await res.json()
+    const lijst = Array.isArray(body?.data) ? body.data : []
+    console.log(`[ontvang-mail] Resend kent ${lijst.length} bijlage(n) bij ${emailId}`)
+    return lijst
+  } catch (e) {
+    console.warn('[ontvang-mail] bijlagenlijst opvragen mislukte: ' + String(e))
+    return []
+  }
+}
+
+/** De regel uit de lijst die bij deze bijlage hoort. */
+function zoekBijResend(
+  a: Willekeurig,
+  lijst: Willekeurig[],
+  index: number,
+): Willekeurig | undefined {
+  const naam = String(a.filename ?? a.name ?? '').toLowerCase()
+  const contentId = String(a.content_id ?? a.contentId ?? '')
+
+  return (
+    (contentId && lijst.find((r) => String(r.content_id ?? '') === contentId)) ||
+    (naam && lijst.find((r) => String(r.filename ?? '').toLowerCase() === naam)) ||
+    // Geen naam om op te matchen? Dan op volgorde; die is bij één mail gelijk.
+    lijst[index]
+  )
 }
 
 async function haalVan(url: string, sleutel?: string): Promise<Uint8Array | null> {
@@ -327,12 +375,21 @@ Deno.serve(async (req) => {
   const geweigerd: string[] = []
 
   const lijst = Array.isArray(binnen) ? binnen : []
+
+  /*
+   * Resend zet de inhoud niet in de webhook, alleen de namen. De
+   * download-adressen vraag je apart op -- één keer per mail, niet per
+   * bijlage.
+   */
+  const viaResend = lijst.length ? await haalBijlagenLijst(providerId) : []
   console.log(`[ontvang-mail] ${berichtId}: ${lijst.length} bijlage(n) in de webhook`)
 
   for (const [i, a] of lijst.entries()) {
     const naam = veiligeNaam(String(a.filename ?? a.name ?? a.file_name ?? `bijlage-${i + 1}`))
+    const bijResend = zoekBijResend(a, viaResend, i)
     const mime = String(
-      a.content_type ?? a.contentType ?? a.type ?? a.mime_type ?? 'application/octet-stream')
+      a.content_type ?? a.contentType ?? a.type ?? a.mime_type ??
+      bijResend?.content_type ?? 'application/octet-stream')
 
     /*
      * Eén regel per bijlage in het logboek van de functie, met de velden die
@@ -357,12 +414,13 @@ Deno.serve(async (req) => {
         continue
       }
 
-      const bytes = await haalInhoud(a, providerId)
+      const bytes = await haalInhoud(a, bijResend)
       if (!bytes) {
         mislukt(
-          'De webhook bevatte geen inhoud voor deze bijlage, en ophalen bij ' +
-          'Resend lukte ook niet. Kijk of RESEND_API_KEY als geheim staat ' +
-          'ingesteld bij de functie.',
+          'Het bestand zelf is niet opgehaald. Resend stuurt de inhoud niet ' +
+          'mee in de webhook; die moet apart worden opgevraagd, en dat lukte ' +
+          'niet. Kijk in het logboek van de functie ontvang-mail wat de ' +
+          'bijlagenlijst terugzei.',
         )
         continue
       }

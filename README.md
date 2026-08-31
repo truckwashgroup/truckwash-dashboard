@@ -667,22 +667,41 @@ de app.
 
 ### Uitrollen
 
+De CLI staat als devDependency in dit project, dus je hoeft niets globaal te
+installeren — `npx supabase` en `npm run` vinden hem vanzelf. Eén keer
+inloggen is genoeg:
+
 ```bash
-npm install -g supabase          # eenmalig
-supabase login
-supabase link --project-ref <jouw-project-ref>
+npx supabase login
 
-supabase secrets set RESEND_API_KEY=re_xxxxxxxx
-supabase secrets set MAIL_FROM="Truckwash1 Group <dashboard@preview.truckwash.cloud>"
-
-supabase functions deploy stuur-mail --no-verify-jwt
+npm run secrets            # welke geheimen staan er (namen, geen waarden)
+npm run functions          # alle drie de functies uitrollen
 ```
 
-Dat `--no-verify-jwt` is nodig omdat één verzoek van iemand zonder account
-moet kunnen komen: de bevestiging van zijn eigen aanmelding. De controle
-gebeurt in de functie zelf, en strenger dan een JWT-check alleen — die mail
-gaat alleen uit als er bij dat adres werkelijk in het laatste kwartier een
-aanmelding binnenkwam, en één keer.
+Geheimen zet je met de CLI; ze gelden voor alle functies in het project:
+
+```bash
+npx supabase secrets set RESEND_API_KEY=re_xxxxxxxx --project-ref <ref>
+npx supabase secrets set MAIL_FROM="Truckwash1 Group <dashboard@preview.truckwash.cloud>" --project-ref <ref>
+```
+
+> **Let op het verschil tussen `functions:open` en `functions:dicht`.**
+> Dat is geen kosmetiek. `supabase functions deploy` zet standaard de
+> JWT-controle áán, en dat sloopt twee dingen tegelijk:
+>
+> * `ontvang-mail` is een webhook van Resend. Die stuurt geen inlog mee — hij
+>   ondertekent met Svix, en dat controleert de functie zelf. Mét JWT-controle
+>   krijgt Resend een 401 en komt er geen post meer binnen.
+> * `stuur-mail` moet één verzoek aannemen van iemand zonder account: de
+>   bevestiging van zijn eigen aanmelding. Ook daar zit de controle in de
+>   functie, en strenger dan een JWT-check — die mail gaat alleen uit als er
+>   bij dat adres werkelijk in het laatste kwartier een aanmelding binnenkwam,
+>   en één keer.
+>
+> `nodig-uit` wil de JWT juist wél: die kijkt wie de beller is en of hij
+> beheerder van dat bedrijf is. Vandaar twee scripts. `npm run functions`
+> doet ze allebei in de goede volgorde; rol nooit alles uit met één kaal
+> `supabase functions deploy`.
 
 Alle andere sjablonen eisen wél een geldige inlog, en waar het hoort ook de
 rol management.

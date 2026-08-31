@@ -78,6 +78,50 @@ export function controleLabel(bijlage: MailBijlage): { label: string; tone: stri
   return CONTROLE_LABELS[bijlage.controle]
 }
 
+export type DeelDuur = '1 hour' | '8 hours' | '24 hours' | '48 hours'
+
+export const DEEL_DUUR: Record<DeelDuur, string> = {
+  '1 hour':   'Een uur',
+  '8 hours':  'Acht uur',
+  '24 hours': 'Een dag',
+  '48 hours': 'Twee dagen',
+}
+
+/** Roept de serverfunctie aan en pakt de reden uit als het misgaat. */
+async function roepActie(body: Record<string, unknown>) {
+  if (!supabaseConfigured) {
+    return { ok: false, reden: 'Er is nog geen database ingesteld.' }
+  }
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return { ok: false, reden: 'Dit lukt alleen met verbinding.' }
+  }
+  try {
+    const { data, error } = await supabase().functions.invoke('postbus-actie', { body })
+    if (error) {
+      const detail = await leesFunctieFout(error)
+      return { ok: false, reden: detail ?? String(error.message ?? error) }
+    }
+    return (data ?? { ok: false, reden: 'Geen antwoord' }) as {
+      ok: boolean; url?: string; aantal?: number; gelukt?: number; reden?: string
+    }
+  } catch (e) {
+    return { ok: false, reden: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+async function leesFunctieFout(error: unknown): Promise<string | null> {
+  const context = (error as { context?: unknown })?.context
+  if (!context || typeof context !== 'object') return null
+  try {
+    const response = context as Response
+    if (typeof response.json !== 'function') return null
+    const body = await response.json()
+    return body?.reden ?? body?.error ?? null
+  } catch {
+    return null
+  }
+}
+
 export const postbus = {
   async setStatus(id: string, status: MailStatus, door?: Pick<User, 'id' | 'name'>) {
     const bericht = await db.mailbox.get(id)
@@ -133,6 +177,35 @@ export const postbus = {
       throw new Error(String(error?.message ?? 'De bijlage is niet op te halen.'))
     }
     return data.signedUrl
+  },
+
+  /**
+   * De bijlagen alsnog ophalen.
+   *
+   * Resend zet de inhoud van een bijlage niet in de webhook -- alleen de
+   * naam en het type. Het ophalen is een tweede stap, en die deden we een
+   * tijd lang niet. Alle post uit die periode heeft dus wel de namen van
+   * zijn bijlagen maar niets erachter. Hiermee haal je ze alsnog binnen,
+   * zonder de afzender te hoeven vragen het nog eens te sturen.
+   */
+  async haalBijlagenOpnieuw(berichtId: string): Promise<{
+    ok: boolean; aantal?: number; gelukt?: number; reden?: string
+  }> {
+    return roepActie({ actie: 'bijlagen', berichtId })
+  },
+
+  /**
+   * Een link waarmee je deze mail kunt laten zien.
+   *
+   * Voor wie geen toegang tot het dashboard heeft: de boekhouder, of een
+   * leverancier die volhoudt dat hij iets anders heeft gestuurd. De link
+   * vervalt vanzelf -- Resend staat hoogstens achtenveertig uur toe, en dat
+   * is ruim genoeg voor een gesprek.
+   */
+  async deel(berichtId: string, geldig: DeelDuur = '24 hours'): Promise<{
+    ok: boolean; url?: string; reden?: string
+  }> {
+    return roepActie({ actie: 'deel', berichtId, geldig })
   },
 
   /**

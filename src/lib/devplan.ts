@@ -180,22 +180,66 @@ export async function volgendeVraag(
   ticket: Pick<Ticket, 'title' | 'description' | 'kind' | 'fromPage'>,
   tot_nu_toe: GesprekBeurt[],
 ): Promise<string | null | undefined> {
-  if (!supabaseConfigured) return undefined
-  if (typeof navigator !== 'undefined' && !navigator.onLine) return undefined
+  if (!supabaseConfigured) {
+    laatsteReden = 'Er is geen database ingesteld.'
+    return undefined
+  }
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    laatsteReden = 'Geen verbinding.'
+    return undefined
+  }
 
   try {
     const { data, error } = await supabase().functions.invoke<{
       ok: boolean
       vraag?: string | null
       klaar?: boolean
+      reden?: string
     }>('melding-gesprek', {
       body: { doel: 'vraag', ticket, gesprek: tot_nu_toe },
     })
-    if (error || !data?.ok) return undefined
+
+    if (error) {
+      const msg = String(error.message ?? error)
+      laatsteReden = /not found|404/i.test(msg)
+        ? 'De functie melding-gesprek staat nog niet bij Supabase. ' +
+          'Rol hem uit met npm run functions.'
+        : msg
+      console.warn('[gesprek] ' + laatsteReden)
+      return undefined
+    }
+    if (!data?.ok) {
+      laatsteReden =
+        data?.reden === 'geen-sleutel'
+          ? 'ANTHROPIC_API_KEY staat niet ingesteld bij de functies.'
+          : data?.reden === 'geen-antwoord'
+            ? 'Het model gaf geen bruikbaar antwoord.'
+            : (data?.reden ?? 'Onbekende reden')
+      console.warn('[gesprek] ' + laatsteReden)
+      return undefined
+    }
+
+    laatsteReden = null
     return data.klaar ? null : (data.vraag ?? null)
-  } catch {
+  } catch (e) {
+    laatsteReden = e instanceof Error ? e.message : String(e)
+    console.warn('[gesprek] ' + laatsteReden)
     return undefined
   }
+}
+
+/**
+ * Waarom er niet is doorgevraagd.
+ *
+ * De terugval op de vaste vragen is met opzet stil voor de melder -- die
+ * hoeft niets te weten van sleutels en serverfuncties. Maar voor wie het
+ * moet repareren is "hij deed het niet" geen bruikbare mededeling, en zonder
+ * dit stond het nergens.
+ */
+let laatsteReden: string | null = null
+
+export function waaromGeenGesprek(): string | null {
+  return laatsteReden
 }
 
 /** Het gesprek als berichten bij de melding, zodat het niet los komt te staan. */

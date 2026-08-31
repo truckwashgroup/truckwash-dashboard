@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  ArrowRight, Check, Loader2, MessageCircleQuestion, SkipForward, Sparkles,
+  AlertTriangle, ArrowRight, Check, Loader2, MessageCircleQuestion,
+  SkipForward, Sparkles,
 } from 'lucide-react'
 import {
-  legGesprekVast, volgendeVraag, vragenVoor,
+  legGesprekVast, volgendeVraag, vragenVoor, waaromGeenGesprek,
   type GesprekBeurt, type Vraag,
 } from '../lib/devplan'
+import { usePerms } from '../store/useNav'
 import type { Ticket, User } from '../lib/types'
 import { toast } from '../store/useToasts'
 
@@ -42,6 +44,8 @@ export default function Doorvragen({
   const [bezig, setBezig] = useState(true)
   const [slim, setSlim] = useState(false)
   const [afgerond, setAfgerond] = useState(false)
+  const [reden, setReden] = useState<string | null>(null)
+  const perms = usePerms()
 
   /** De vaste lijst; alleen in gebruik als de server niet meedoet. */
   const lijst = useRef<Vraag[]>(vragenVoor(ticket.kind))
@@ -66,6 +70,8 @@ export default function Doorvragen({
         setHint(undefined)
         return
       }
+
+      setReden(waaromGeenGesprek())
 
       // Terugval. Vragen die de server al heeft gesteld slaan we over door
       // simpelweg verder te tellen -- de lijst is een ondergrens, geen script.
@@ -124,6 +130,18 @@ export default function Doorvragen({
         </span>
         {beurten.length > 0 && <span className="teller">{beurten.length} beantwoord</span>}
       </div>
+
+      {/*
+        * Alleen voor wie het kan repareren. De melder heeft niets aan een
+        * mededeling over sleutels -- maar zonder dit staat er nergens waarom
+        * er niet is doorgevraagd, en dan valt het pas op als iemand het mist.
+        */}
+      {!slim && reden && perms.can('dev.logs') && (
+        <div className="signup-note" style={{ margin: 0 }}>
+          <AlertTriangle size={16} />
+          <span>Er is niet doorgevraagd: {reden}</span>
+        </div>
+      )}
 
       {beurten.map((b, i) => (
         <div className="beurt" key={i}>

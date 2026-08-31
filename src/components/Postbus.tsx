@@ -2,13 +2,13 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   AlertTriangle, ArrowLeft, CheckCircle2, Code2, Eye, EyeOff, Inbox,
-  Loader2, Mail, MailOpen, Paperclip, Receipt, Search, Send, ShieldCheck,
-  ShieldX, Trash2,
+  Link2, Loader2, Mail, MailOpen, Paperclip, Receipt, RefreshCw, Search, Send,
+  Share2, ShieldCheck, ShieldX, Trash2,
 } from 'lucide-react'
 import { db } from '../lib/db'
 import {
-  bijbehorendeBon, controleLabel, filterPost, grootte, magOpenen, onbekeken,
-  postbus,
+  bijbehorendeBon, controleLabel, DEEL_DUUR, filterPost, grootte, magOpenen,
+  onbekeken, postbus, type DeelDuur,
 } from '../lib/postbus'
 import { MAIL_STATUS, type Expense, type MailBericht, type MailStatus } from '../lib/types'
 import { dateTime, money, relative } from '../lib/format'
@@ -204,6 +204,26 @@ function Bericht({
   const perms = usePerms()
   const [toonRuw, setToonRuw] = useState(false)
   const [kijkt, setKijkt] = useState<number | null>(null)
+  const [haalt, setHaalt] = useState(false)
+  const [deelt, setDeelt] = useState(false)
+  const [deelDuur, setDeelDuur] = useState<DeelDuur>('24 hours')
+  const [deelLink, setDeelLink] = useState<string | null>(null)
+  const [deelBezig, setDeelBezig] = useState(false)
+
+  /** De bijlagen alsnog binnenhalen bij Resend. */
+  async function bijlagenOpnieuw() {
+    setHaalt(true)
+    try {
+      const uit = await postbus.haalBijlagenOpnieuw(bericht.id)
+      if (!uit.ok) return toast.error(uit.reden ?? 'Ophalen lukte niet')
+      if (!uit.aantal) return toast.info('Resend kent geen bijlagen bij dit bericht')
+      toast.ok(uit.gelukt === uit.aantal
+        ? `${uit.gelukt} bijlage${uit.gelukt === 1 ? '' : 'n'} binnengehaald`
+        : `${uit.gelukt} van de ${uit.aantal} gelukt — kijk bij de rest wat er staat`)
+    } finally {
+      setHaalt(false)
+    }
+  }
 
   /*
    * Alle bijlagen van dit bericht gaan mee naar de kijker, ook de
@@ -308,6 +328,19 @@ function Bericht({
               </div>
             ))}
 
+            {perms.can('mail.read') && bericht.richting === 'in' && (
+              <button
+                className="btn ghost sm"
+                style={{ marginTop: 8 }}
+                disabled={haalt}
+                onClick={() => void bijlagenOpnieuw()}
+                title="Vraagt de bijlagen opnieuw op bij Resend"
+              >
+                {haalt ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
+                Bijlagen opnieuw ophalen
+              </button>
+            )}
+
             {bericht.attachments.some((b) => b.path && !b.controle) && (
               <div className="signup-note" style={{ marginTop: 8 }}>
                 <AlertTriangle size={16} />
@@ -354,12 +387,90 @@ function Bericht({
 
           <span style={{ flex: 1 }} />
 
+          {perms.can('mail.read') && (
+            <button className="btn ghost sm" onClick={() => { setDeelLink(null); setDeelt(true) }}>
+              <Share2 size={14} /> Delen
+            </button>
+          )}
+
           {perms.can('dev.logs') && bericht.raw && (
             <button className="btn ghost sm" onClick={() => setToonRuw((v) => !v)}>
               <Code2 size={14} /> {toonRuw ? 'Verberg' : 'Ruwe inhoud'}
             </button>
           )}
         </div>
+
+        <Modal
+          open={deelt}
+          title="Deze mail delen"
+          subtitle="Een link waarmee iemand zonder account hem kan bekijken"
+          onClose={() => setDeelt(false)}
+        >
+          <div className="signup-note">
+            <Link2 size={16} />
+            <span>
+              Wie de link heeft, ziet de hele mail met de bijlagen erbij. Er
+              komt geen inlog aan te pas — dus deel hem zoals je de factuur
+              zelf zou doorsturen, en niet ruimer. Hij vervalt vanzelf.
+            </span>
+          </div>
+
+          <Field label="Hoe lang blijft de link werken?">
+            <select
+              className="select"
+              value={deelDuur}
+              onChange={(e) => setDeelDuur(e.target.value as DeelDuur)}
+              disabled={!!deelLink}
+            >
+              {(Object.keys(DEEL_DUUR) as DeelDuur[]).map((d) => (
+                <option key={d} value={d}>{DEEL_DUUR[d]}</option>
+              ))}
+            </select>
+          </Field>
+
+          {deelLink && (
+            <Field label="De link" help="Vervalt na de gekozen tijd.">
+              <input className="input mono" value={deelLink} readOnly onFocus={(e) => e.target.select()} />
+            </Field>
+          )}
+
+          <div className="row end">
+            <button className="btn ghost" onClick={() => setDeelt(false)}>Sluiten</button>
+            {deelLink ? (
+              <button
+                className="btn primary"
+                onClick={() => {
+                  void navigator.clipboard.writeText(deelLink)
+                    .then(() => toast.ok('De link staat op je klembord'))
+                    .catch(() => toast.error('Kopiëren lukte niet'))
+                }}
+              >
+                <Code2 size={15} /> Kopieer de link
+              </button>
+            ) : (
+              <button
+                className="btn primary"
+                disabled={deelBezig}
+                onClick={async () => {
+                  setDeelBezig(true)
+                  try {
+                    const uit = await postbus.deel(bericht.id, deelDuur)
+                    if (!uit.ok || !uit.url) {
+                      toast.error(uit.reden ?? 'Delen lukte niet')
+                      return
+                    }
+                    setDeelLink(uit.url)
+                  } finally {
+                    setDeelBezig(false)
+                  }
+                }}
+              >
+                {deelBezig ? <Loader2 size={15} className="spin" /> : <Share2 size={15} />}
+                Maak de link
+              </button>
+            )}
+          </div>
+        </Modal>
 
         {toonRuw && bericht.raw && (
           <>

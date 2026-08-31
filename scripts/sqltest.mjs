@@ -130,7 +130,8 @@ await run(db, '0017_berichten_over_de_grens.sql draait', sqlFile('supabase/migra
 await run(db, '0018_klokken_gaat_via_de_kassa.sql draait', sqlFile('supabase/migrations/0018_klokken_gaat_via_de_kassa.sql'))
 await run(db, '0019_een_bericht_gelezen_melden.sql draait', sqlFile('supabase/migrations/0019_een_bericht_gelezen_melden.sql'))
 await run(db, '0020_van_melding_naar_plan.sql draait', sqlFile('supabase/migrations/0020_van_melding_naar_plan.sql'))
-await run(db, '0021_je_eigen_dossier_en_de_rondleiding.sql draait', sqlFile('supabase/migrations/0021_je_eigen_dossier_en_de_rondleiding.sql'))
+await run(db, '0021_je_eigen_dossier_en_de_rondleiding.sql draait', sqlFile('supabase/migrations/0021_je_eigen_dossier_en_de_rondleiding.sql'))
+await run(db, '0022_bijwerken_is_geen_versturen.sql draait', sqlFile('supabase/migrations/0022_bijwerken_is_geen_versturen.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -154,7 +155,8 @@ await run(db, '0017 nogmaals', sqlFile('supabase/migrations/0017_berichten_over_
 await run(db, '0018 nogmaals', sqlFile('supabase/migrations/0018_klokken_gaat_via_de_kassa.sql'))
 await run(db, '0019 nogmaals', sqlFile('supabase/migrations/0019_een_bericht_gelezen_melden.sql'))
 await run(db, '0020 nogmaals', sqlFile('supabase/migrations/0020_van_melding_naar_plan.sql'))
-await run(db, '0021 nogmaals', sqlFile('supabase/migrations/0021_je_eigen_dossier_en_de_rondleiding.sql'))
+await run(db, '0021 nogmaals', sqlFile('supabase/migrations/0021_je_eigen_dossier_en_de_rondleiding.sql'))
+await run(db, '0022 nogmaals', sqlFile('supabase/migrations/0022_bijwerken_is_geen_versturen.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
 const bedrijven = await db.query('select count(*)::int as n from public.companies')
@@ -1591,6 +1593,106 @@ check('en dat werkt ook echt',
 await db.exec(`
   update public.profiles set roles = array['employee']::text[], hourly_rate = 22
    where email = 'wasser@truckwash1group.nl';`)
+
+
+console.log('\n25. Bijwerken is geen aanmaken')
+
+/*
+ * De app stuurt een gewijzigde rij als geheel op, en de database bepaalt of
+ * dat nieuw is of een wijziging. Bij zo'n upsert kijkt Postgres naar de
+ * regel voor INSERT én die voor UPDATE. Zegt de eerste iets over wie de rij
+ * heeft gemaakt, dan strandt elke wijziging door iemand anders.
+ */
+
+// Een bon die per mail binnenkwam: geen indiener, want die komt van de postbus.
+await db.exec(`
+  insert into public.expenses
+    (id, location_id, expense_date, category, supplier, description,
+     amount_excl, vat_pct, status, submitted_by, source)
+  values ('exp_uitmail', 'loc_utr', 1, 'overig', 'CleanChem BV',
+          'Factuur per mail', 0, 21, 'open', '', 'mail');
+
+  alter table public.expenses force row level security;
+  grant select, insert, update, delete on all tables in schema public to authenticated;
+`)
+
+async function bedragVan(id) {
+  const r = await db.query(`select amount_excl, status from public.expenses where id = '${id}'`)
+  return r.rows[0]
+}
+
+/* --- dit ging mis --- */
+
+check('het management vult een bon uit de mail aan',
+  await magSchrijven(baas, `insert into public.expenses
+     (id, location_id, expense_date, category, supplier, description,
+      amount_excl, vat_pct, status, submitted_by, source)
+     values ('exp_uitmail', 'loc_utr', 1, 'overig', 'CleanChem BV',
+             'Factuur per mail', 248.50, 21, 'open', '', 'mail')
+     on conflict (id) do update set amount_excl = excluded.amount_excl;`))
+check('en dat bedrag staat er dan ook',
+  Number((await bedragVan('exp_uitmail')).amount_excl) === 248.50,
+  JSON.stringify(await bedragVan('exp_uitmail')))
+
+check('en hij kan hem goedkeuren',
+  await magSchrijven(baas,
+    `update public.expenses set status = 'goedgekeurd' where id = 'exp_uitmail';`))
+check('wat er ook echt gebeurt',
+  (await bedragVan('exp_uitmail')).status === 'goedgekeurd')
+
+/* --- maar een nieuwe bon blijft op naam van wie hem indient --- */
+
+check('een werknemer dient een bon op eigen naam in',
+  await magSchrijven(wasser, `insert into public.expenses
+     (id, location_id, expense_date, category, supplier, description,
+      amount_excl, vat_pct, status, submitted_by)
+     values ('exp_tom', 'loc_utr', 1, 'materiaal', 'Winkel', 'Handschoenen',
+             12.50, 21, 'open', '${wasserId}');`))
+
+check('maar niet op naam van een ander',
+  !(await magSchrijven(wasser, `insert into public.expenses
+     (id, location_id, expense_date, category, supplier, description,
+      amount_excl, vat_pct, status, submitted_by)
+     values ('exp_vals', 'loc_utr', 1, 'materiaal', 'Winkel', 'Namens de baas',
+             999, 21, 'open', '${baasId}');`)))
+
+check('en een klant komt er helemaal niet in',
+  !(await magSchrijven(klant, `insert into public.expenses
+     (id, location_id, expense_date, category, supplier, description,
+      amount_excl, vat_pct, status, submitted_by)
+     values ('exp_klant', 'loc_utr', 1, 'materiaal', 'Winkel', 'Zomaar',
+             50, 21, 'open', '${klantRow.id}');`)))
+
+/* --- een goedgekeurde bon is niet meer van de indiener --- */
+
+await db.exec(`update public.expenses set status = 'goedgekeurd' where id = 'exp_tom';`)
+await magSchrijven(wasser,
+  `update public.expenses set amount_excl = 500 where id = 'exp_tom';`)
+check('een goedgekeurde bon past de indiener niet meer aan',
+  Number((await bedragVan('exp_tom')).amount_excl) === 12.50)
+
+/* --- en dezelfde valstrik op de koppelingen --- */
+
+await db.exec(`
+  insert into public.employer_links
+    (id, werkgever_id, werkgever_naam, user_id, naam, email, status)
+  values ('wgl_upsert', 'wg_test', 'Transport Jansen BV', '${rickRow.id}',
+          'Rick Molenaar', 'rick@transportjansen.nl', 'wacht op akkoord');`)
+
+check('een chauffeur neemt zijn eigen koppelverzoek aan',
+  await magSchrijven(chauffeur, `insert into public.employer_links
+     (id, werkgever_id, werkgever_naam, user_id, naam, email, status)
+     values ('wgl_upsert', 'wg_test', 'Transport Jansen BV', '${rickRow.id}',
+             'Rick Molenaar', 'rick@transportjansen.nl', 'actief')
+     on conflict (id) do update set status = excluded.status;`))
+check('en dan staat hij op actief',
+  (await db.query(
+    `select status from public.employer_links where id = 'wgl_upsert'`)).rows[0].status === 'actief')
+
+check('maar hij maakt er zelf geen nieuwe aan',
+  !(await magSchrijven(chauffeur, `insert into public.employer_links
+     (id, werkgever_id, werkgever_naam, naam, email, status)
+     values ('wgl_zelf', 'wg_test', 'Transport Jansen BV', 'Ik', 'ik@x.nl', 'actief');`)))
 
 await db.close()
 

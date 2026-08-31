@@ -88,11 +88,45 @@ export function onCapturedError(fn: Sink) {
   sink = fn
 }
 
+/*
+ * Twee sloten op deze deur, en ze zijn allebei nodig.
+ *
+ * De opvanger schrijft wat hij vangt naar het logboek. Gaat dát schrijven mis
+ * -- bijvoorbeeld omdat de lokale database nog niet open is bij het opstarten
+ * -- dan is die mislukking zelf weer een fout, die hier opnieuw binnenkomt, en
+ * opnieuw, en opnieuw. De app draait dan rond in zichzelf en er verschijnt
+ * nooit iets op het scherm.
+ *
+ * Het eerste slot: terwijl we een fout doorgeven nemen we er geen aan.
+ * Het tweede: een bovengrens per minuut, voor het geval iets buiten ons om
+ * toch een lus maakt.
+ */
+let bezig = false
+let geteld = 0
+let vensterStart = 0
+const MAX_PER_MINUUT = 60
+
 function report(level: CapturedError['level'], message: string, stack?: string) {
   const schoon = message.trim().slice(0, 500)
   if (!schoon) return
-  trail.error(schoon.slice(0, 120))
-  sink?.({ level, message: schoon, stack: stack?.slice(0, 2000) })
+  if (bezig) return
+
+  const nu = Date.now()
+  if (nu - vensterStart > 60_000) {
+    vensterStart = nu
+    geteld = 0
+  }
+  if (++geteld > MAX_PER_MINUUT) return
+
+  bezig = true
+  try {
+    trail.error(schoon.slice(0, 120))
+    sink?.({ level, message: schoon, stack: stack?.slice(0, 2000) })
+  } catch {
+    // Een opvanger die zelf omvalt mag de app niet meenemen.
+  } finally {
+    bezig = false
+  }
 }
 
 /**

@@ -1259,5 +1259,89 @@ check('de aanmeldingen staan op de server',
 
 /* ==================================================================== */
 
+console.log('\n21. De wachtrij: volgorde en veerkracht')
+
+const { PUSH_ORDER } = await import('../src/lib/sync')
+const { EntityNames } = { EntityNames: [
+  'locations', 'users', 'companies', 'washJobs', 'inventory',
+  'stockMovements', 'expenses', 'timeEntries', 'shifts',
+  'notifications', 'courses', 'courseProgress',
+  'assets', 'faults', 'workOrders', 'maintenancePlans',
+  'tickets', 'ticketMessages', 'logEvents',
+  'signups', 'channels', 'chatMessages', 'channelReads', 'emailLog',
+] }
+
+check('elke tabel staat in de verstuurvolgorde',
+  EntityNames.every((e) => PUSH_ORDER.includes(e as never)),
+  EntityNames.filter((e) => !PUSH_ORDER.includes(e as never)).join(', '))
+check('en er staat niets dubbel in',
+  new Set(PUSH_ORDER).size === PUSH_ORDER.length)
+
+/** Waar staat deze tabel in de rij? */
+const rang = (e: string) => PUSH_ORDER.indexOf(e as never)
+
+check('kanalen gaan voor berichten', rang('channels') < rang('chatMessages'))
+check('kanalen gaan voor leestekens', rang('channels') < rang('channelReads'))
+check('meldingen gaan voor hun gesprekken', rang('tickets') < rang('ticketMessages'))
+check('installaties gaan voor storingen', rang('assets') < rang('faults'))
+check('storingen gaan voor werkbonnen', rang('faults') < rang('workOrders'))
+check('vestigingen gaan als eerste', rang('locations') === 0)
+check('dossiers gaan voor alles wat naar iemand verwijst',
+  rang('users') < rang('shifts') && rang('users') < rang('expenses'))
+
+/* --- de volgorde geldt ook als de wachtrij door elkaar staat --- */
+
+const { enqueue } = await import('../src/lib/sync')
+
+await db.outbox.clear()
+// Bewust omgekeerd in de wachtrij zetten: eerst het kind, dan de ouder.
+await enqueue('chatMessages', 'put', 'cm_volgorde', {
+  id: 'cm_volgorde', channelId: 'ch_volgorde', authorId: 'u_manager',
+  authorName: 'Ilse Bakker', body: 'Test', at: Date.now(), mentions: [],
+  updatedAt: Date.now(),
+})
+await enqueue('channels', 'put', 'ch_volgorde', {
+  id: 'ch_volgorde', slug: 'volgorde', name: 'Volgorde', kind: 'kanaal',
+  private: false, memberIds: ['u_manager'], createdBy: 'u_manager',
+  createdAt: Date.now(), archived: false, updatedAt: Date.now(),
+})
+
+await sync()
+check('allebei verstuurd, ondanks de omgekeerde volgorde',
+  useSync.getState().pending === 0, String(useSync.getState().pending))
+
+/* --- een record dat blijft weigeren blokkeert de rest niet --- */
+
+const { logs: logRepo2 } = await import('../src/lib/tickets')
+
+check('een fout in het logboek gooit niets terug',
+  (await logRepo2.record({
+    level: 'fout',
+    message: 'Zelftest: het logboek mag nooit omvallen',
+    appVersion: '9.9.9',
+  })) !== null)
+
+/* --- de opvanger mag geen kettingreactie maken --- */
+
+const { onCapturedError, installErrorCapture } = await import('../src/lib/trail')
+
+// De opvanger draait normaal alleen in de app; hier zetten we hem zelf aan.
+installErrorCapture()
+
+let rondes = 0
+onCapturedError((e) => {
+  rondes++
+  // Zoals een kapotte opslag zou doen: de opvanger valt zelf om.
+  if (rondes < 50) throw new Error('opvanger valt om: ' + e.message)
+})
+console.error('Zelftest: een fout die de opvanger laat struikelen')
+
+check('een opvanger die omvalt stopt na één ronde', rondes === 1, String(rondes))
+
+// De opvanger weer onschadelijk maken voor de rest van de test.
+onCapturedError(() => {})
+
+/* ==================================================================== */
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

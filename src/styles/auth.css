@@ -196,11 +196,32 @@
 
 .boot {
   position: fixed; inset: 0;
-  display: grid; place-items: center;
+  display: grid; place-items: center; align-content: center;
   background: var(--bg); color: var(--text-3);
   gap: 14px;
+  padding: 24px;
 }
 
 /* Logo op het inlog- en rolkeuzescherm */
 .auth-logo { flex-direction: column; align-items: flex-start; gap: 8px; }
 .role-logo { margin: 0 auto 18px; }
+
+.boot-traag {
+  max-width: 380px;
+  margin-top: 22px;
+  padding: 15px 17px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(245,181,68,.32);
+  background: rgba(245,181,68,.08);
+  color: #ffd894;
+  font-size: .85rem;
+  line-height: 1.55;
+  text-align: left;
+}
+.boot-traag svg { flex: none; margin-top: 2px; }
+.boot-traag p {
+  margin: 11px 0 0;
+  font-size: .76rem;
+  color: var(--text-3);
+  line-height: 1.5;
+}

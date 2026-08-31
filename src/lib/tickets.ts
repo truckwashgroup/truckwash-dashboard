@@ -245,6 +245,11 @@ function fingerprint(level: LogLevel, message: string, page?: string) {
 const MAX_LOG_ROWS = 500
 
 export const logs = {
+  /**
+   * Legt een fout vast. Gooit met opzet nooit iets terug: dit draait juist
+   * op het moment dat er al iets mis is, en een logboek dat zelf omvalt maakt
+   * dat alleen erger.
+   */
   async record(input: {
     level: LogLevel
     message: string
@@ -253,6 +258,29 @@ export const logs = {
     appVersion: string
     user?: Pick<User, 'id' | 'name' | 'locationId'>
   }) {
+    try {
+      return await schrijfLogregel(input)
+    } catch {
+      return undefined
+    }
+  },
+
+  async clear() {
+    const alle = await db.logEvents.toArray()
+    await db.logEvents.clear()
+    for (const l of alle) await enqueue('logEvents', 'delete', l.id, null)
+  },
+}
+
+async function schrijfLogregel(input: {
+  level: LogLevel
+  message: string
+  stack?: string
+  page?: string
+  appVersion: string
+  user?: Pick<User, 'id' | 'name' | 'locationId'>
+}) {
+  {
     const device = deviceInfo()
     const key = fingerprint(input.level, input.message, input.page)
     const id = 'lg_' + [...key].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 1e12, 7).toString(36)
@@ -286,13 +314,7 @@ export const logs = {
     }
 
     return event
-  },
-
-  async clear() {
-    const alle = await db.logEvents.toArray()
-    await db.logEvents.clear()
-    for (const l of alle) await enqueue('logEvents', 'delete', l.id, null)
-  },
+  }
 }
 
 /* ------------------------------------------------------------------ */

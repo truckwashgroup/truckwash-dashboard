@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { api, type PushChange } from './api'
 import { db, getMeta, setMeta } from './db'
-import type { EntityName, SyncOp, SyncState } from './types'
+import type { EntityName, OutboxRecord, SyncOp, SyncState } from './types'
 
 /* ------------------------------------------------------------------ *
  *  Offline-first sync-engine
@@ -136,12 +136,43 @@ export async function enqueue(
   void scheduleFlush()
 }
 
+/**
+ * De volgorde waarin tabellen naar de server gaan.
+ *
+ * Records verwijzen naar elkaar: een bericht hangt aan een kanaal, een
+ * werkbon aan een storing, een storing aan een installatie. Komt het kind
+ * eerder aan dan de ouder, dan weigert de server het -- en niet eens met een
+ * duidelijke melding. De beveiligingsregel wordt namelijk eerder beoordeeld
+ * dan de verwijzing, dus je krijgt te horen dat je ergens niet bij mag, over
+ * iets wat er nog niet is.
+ *
+ * Op de volgorde van de wachtrij kun je niet bouwen: die volgt de klok, en
+ * twee handelingen in dezelfde milliseconde staan in willekeurige volgorde.
+ * Daarom leggen we hem hier expliciet vast: ouders eerst.
+ */
+export const PUSH_ORDER: EntityName[] = [
+  'locations', 'companies', 'users',
+  'channels', 'courses', 'assets',
+  'washJobs', 'inventory', 'maintenancePlans', 'tickets',
+  'faults', 'shifts', 'expenses', 'timeEntries', 'stockMovements',
+  'workOrders', 'courseProgress', 'notifications',
+  'chatMessages', 'channelReads', 'ticketMessages', 'logEvents',
+  'signups', 'emailLog',
+]
+
+const RANG = new Map(PUSH_ORDER.map((e, i) => [e, i]))
+
 async function pushOutbox() {
   for (;;) {
     const batch = await db.outbox.orderBy('createdAt').limit(BATCH).toArray()
     if (!batch.length) return
 
-    const changes: PushChange[] = batch.map((r) => ({
+    // Ouders voor kinderen. Binnen een tabel blijft de volgorde van de
+    // wachtrij staan; sorteren in JavaScript is stabiel.
+    const gesorteerd = [...batch].sort(
+      (a, b) => (RANG.get(a.entity) ?? 99) - (RANG.get(b.entity) ?? 99))
+
+    const changes: PushChange[] = gesorteerd.map((r) => ({
       entity: r.entity,
       op: r.op,
       recordId: r.recordId,
@@ -152,19 +183,52 @@ async function pushOutbox() {
       await api.push(changes)
       await db.outbox.bulkDelete(batch.map((r) => r.id!))
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      // Tellers ophogen, en records die blijven falen apart zetten
-      await db.transaction('rw', db.outbox, async () => {
-        for (const r of batch) {
-          const tries = r.tries + 1
-          if (tries >= MAX_TRIES) await db.outbox.delete(r.id!)
-          else await db.outbox.update(r.id!, { tries, lastError: msg })
-        }
-      })
-      throw e
+      /*
+       * Eén record dat de server weigert mag niet de hele wachtrij
+       * blokkeren. Anders staat een verkeerd chatbericht het doorzetten van
+       * een rooster in de weg, en blijft dat weken hangen.
+       *
+       * Dus proberen we ze nu stuk voor stuk. Wat erdoor komt is weg; wat
+       * blijft weigeren krijgt een teller, en gaat er na acht pogingen uit
+       * met een regel in het logboek.
+       */
+      const mislukt = await pushPerStuk(gesorteerd)
+      await useSync.getState().refreshPending()
+      throw mislukt ?? e
     }
     await useSync.getState().refreshPending()
   }
+}
+
+/** Duwt elk record apart. Geeft de eerste fout terug, of null als alles lukte. */
+async function pushPerStuk(batch: OutboxRecord[]): Promise<Error | null> {
+  let eerste: Error | null = null
+
+  for (const r of batch) {
+    try {
+      await api.push([{
+        entity: r.entity, op: r.op, recordId: r.recordId, payload: r.payload,
+      }])
+      await db.outbox.delete(r.id!)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      eerste ??= e instanceof Error ? e : new Error(msg)
+
+      const tries = r.tries + 1
+      if (tries >= MAX_TRIES) {
+        await db.outbox.delete(r.id!)
+        // Zichtbaar maken dat er iets is weggegooid; anders verdwijnt een
+        // wijziging zonder dat iemand het merkt.
+        console.warn(
+          `[sync] ${r.entity}/${r.recordId} is na ${MAX_TRIES} pogingen ` +
+          `opgegeven en weggegooid. Laatste fout: ${msg}`)
+      } else {
+        await db.outbox.update(r.id!, { tries, lastError: msg })
+      }
+    }
+  }
+
+  return eerste
 }
 
 /* ------------------------------------------------------------------ *

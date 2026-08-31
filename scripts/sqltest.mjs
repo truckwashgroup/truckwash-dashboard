@@ -83,6 +83,7 @@ await run(db, '0004_locaties.sql draait', sqlFile('supabase/migrations/0004_loca
 await run(db, '0005_technische_dienst.sql draait', sqlFile('supabase/migrations/0005_technische_dienst.sql'))
 await run(db, '0006_meldingen_en_logboek.sql draait', sqlFile('supabase/migrations/0006_meldingen_en_logboek.sql'))
 await run(db, '0007_aanmelden_en_overleg.sql draait', sqlFile('supabase/migrations/0007_aanmelden_en_overleg.sql'))
+await run(db, '0008_rechten_in_het_overleg.sql draait', sqlFile('supabase/migrations/0008_rechten_in_het_overleg.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -93,6 +94,7 @@ await run(db, '0004 nogmaals', sqlFile('supabase/migrations/0004_locaties.sql'))
 await run(db, '0005 nogmaals', sqlFile('supabase/migrations/0005_technische_dienst.sql'))
 await run(db, '0006 nogmaals', sqlFile('supabase/migrations/0006_meldingen_en_logboek.sql'))
 await run(db, '0007 nogmaals', sqlFile('supabase/migrations/0007_aanmelden_en_overleg.sql'))
+await run(db, '0008 nogmaals', sqlFile('supabase/migrations/0008_rechten_in_het_overleg.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
 const bedrijven = await db.query('select count(*)::int as n from public.companies')
@@ -519,6 +521,73 @@ check('en niemand kan er zelf een regel in schrijven',
   !(await magSchrijven(baas, `insert into public.email_log (id, template, to_email, subject, at)
      values ('em_vals', 'bericht', 'iemand@example.com', 'Namens de baas', 2);`)))
 
+
+
+/* ================================================================== */
+
+console.log('\n11. Een kind zonder ouder: precies de fout die hij zag')
+
+/*
+ * Een bericht voor een kanaal dat de server nog niet kent geeft niet de
+ * melding die je verwacht. De beveiligingsregel wordt eerder beoordeeld dan
+ * de verwijzing, dus je hoort dat je ergens niet bij mag -- over iets wat er
+ * niet is. Dat spoor is levensgevaarlijk om te volgen, dus leggen we het hier
+ * vast.
+ */
+const foutmelding = await (async () => {
+  await asUser(db, voorman)
+  await db.exec('set role authenticated;')
+  try {
+    await db.exec(`insert into public.chat_messages (id, channel_id, author_id, author_name, body, at)
+      values ('cm_wees', 'ch_bestaat_niet', '${voormanRow.id}', 'Voorman', 'Hallo?', 9);`)
+    return null
+  } catch (e) {
+    return String(e.message ?? e)
+  } finally {
+    await db.exec('reset role;')
+  }
+})()
+
+check('een bericht zonder kanaal wordt geweigerd', foutmelding !== null)
+check('en wel met de melding over de beveiligingsregel',
+  (foutmelding ?? '').includes('row-level security'), String(foutmelding))
+
+console.log('\n12. Losse rechten tellen mee in het overleg')
+
+/*
+ * Iemand die het recht "alle vestigingen" met de hand toegekend krijgt, ziet
+ * in de app alle vestigingskanalen. De database hoort dat ook te vinden --
+ * anders zie je een kanaal staan en mag je er bij het versturen niet in.
+ */
+const kijker = '77777777-7777-7777-7777-777777777777'
+await db.exec(`
+  insert into auth.users (id, email) values ('${kijker}', 'kijker@truckwash1group.nl');
+  update public.profiles
+     set roles = array['employee']::text[], active = true, location_id = 'loc_utr'
+   where email = 'kijker@truckwash1group.nl';
+`)
+
+check('zonder het recht ziet hij Rotterdam niet',
+  (await countAs(kijker, "select count(*)::int as n from public.channels where id = 'ch_rtd'")) === 0)
+
+await db.exec(`
+  update public.profiles set grants = array['locations.all']::text[]
+   where email = 'kijker@truckwash1group.nl';`)
+
+check('met het losse recht wel',
+  (await countAs(kijker, "select count(*)::int as n from public.channels where id = 'ch_rtd'")) === 1)
+
+check('en dan mag hij er ook in praten',
+  await magSchrijven(kijker, `insert into public.chat_messages (id, channel_id, author_id, author_name, body, at)
+     values ('cm_kijker', 'ch_rtd', (select id from public.profiles where email = 'kijker@truckwash1group.nl'),
+             'Kijker', 'Hoi Rotterdam', 9);`))
+
+await db.exec(`
+  update public.profiles set revokes = array['locations.all']::text[]
+   where email = 'kijker@truckwash1group.nl';`)
+
+check('intrekken wint van toekennen',
+  (await countAs(kijker, "select count(*)::int as n from public.channels where id = 'ch_rtd'")) === 0)
 
 await db.close()
 

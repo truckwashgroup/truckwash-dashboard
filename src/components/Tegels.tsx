@@ -1,6 +1,6 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '../store/useAuth'
 import { dateFull } from '../lib/format'
@@ -16,6 +16,9 @@ import { dateFull } from '../lib/format'
  *  Daarom draagt elke tegel een cijfer dat leeft. Staat er niets open, dan
  *  zegt de tegel dat ook; dat is net zo goed informatie.
  * ------------------------------------------------------------------ */
+
+/** Wat er is weggeklikt, zodat het niet elke keer terugkomt. */
+const WEGGEKLIKT = 'tw.aandacht'
 
 export type TegelTint =
   'brand' | 'ok' | 'warn' | 'danger' | 'info' | 'paars' | 'oranje' | 'neutraal'
@@ -90,6 +93,32 @@ export function Start({
 
   const dringend = tegels.filter((t) => t.urgent)
 
+  /*
+   * De aandachtsbalk kun je wegklikken.
+   *
+   * Waarom: een balk die er altijd staat, staat er voor niemand. Wie hem
+   * drie dagen ziet met dezelfde inhoud leest hem niet meer, en dan werkt
+   * hij ook niet meer op de dag dat er iets nieuws in staat.
+   *
+   * Wat we onthouden is precies wát er stond. Komt er iets bij, dan
+   * verschijnt de balk weer -- want dan is het nieuws.
+   */
+  const vingerafdruk = dringend.map((t) => t.key).sort().join('|')
+  const [weggeklikt, setWeggeklikt] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(WEGGEKLIKT)
+    } catch {
+      return null
+    }
+  })
+
+  function wegklikken() {
+    try { localStorage.setItem(WEGGEKLIKT, vingerafdruk) } catch { /* privémodus */ }
+    setWeggeklikt(vingerafdruk)
+  }
+
+  const toonBalk = dringend.length > 0 && weggeklikt !== vingerafdruk
+
   return (
     <>
       <div className="start-head">
@@ -100,7 +129,7 @@ export function Start({
         {snel && <div className="row" style={{ gap: 7 }}>{snel}</div>}
       </div>
 
-      {dringend.length > 0 && (
+      {toonBalk && (
         <div className="start-attentie">
           <span>Vraagt aandacht:</span>
           {dringend.map((t) => (
@@ -109,6 +138,15 @@ export function Start({
               {t.stat !== undefined && <strong style={{ marginLeft: 4 }}>{t.stat}</strong>}
             </button>
           ))}
+          <span style={{ flex: 1 }} />
+          <button
+            className="btn ghost sm"
+            onClick={wegklikken}
+            title="Wegklikken tot er iets nieuws bij komt"
+            aria-label="Wegklikken"
+          >
+            <X size={14} />
+          </button>
         </div>
       )}
 

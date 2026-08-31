@@ -15,6 +15,7 @@ import PermissionEditor, { PermissionSummary } from '../../components/Permission
 import BerichtVersturen from '../../components/BerichtVersturen'
 import Dossier from '../../components/Dossier'
 import { OpenWijzigingen, WijzigingAanvragen } from '../../components/Wijzigingen'
+import NieuweMedewerker from '../../components/NieuweMedewerker'
 import SmartRosterPanel from '../../components/SmartRosterPanel'
 import { useAuth } from '../../store/useAuth'
 import { usePerms } from '../../store/useNav'
@@ -162,7 +163,11 @@ export default function Personeel({ days }: { days: number }) {
         )}
       </Card>
 
-      <AddPersonDialog open={adding} onClose={() => setAdding(false)} onCreated={setSelectedId} />
+      <NieuweMedewerker
+        open={adding}
+        onClose={() => setAdding(false)}
+        onKlaar={setSelectedId}
+      />
     </>
   )
 }
@@ -407,167 +412,6 @@ function Info({ label, value, icon }: { label: string; value: string; icon?: Rea
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</span>
       </div>
     </div>
-  )
-}
-
-/* ================================================================== *
- *  Medewerker toevoegen
- * ================================================================== */
-
-const EMPTY = {
-  name: '', email: '', personnelNumber: '', phone: '', function: '',
-  hourlyRate: '', contractHours: '38', startDate: dateInputValue(Date.now()),
-  notes: '', roles: ['employee', 'customer'] as Role[],
-}
-
-function AddPersonDialog({
-  open, onClose, onCreated,
-}: {
-  open: boolean
-  onClose: () => void
-  onCreated: (id: string) => void
-}) {
-  const [form, setForm] = useState({ ...EMPTY })
-  const [loc, setLoc] = useState<LocatieKeuze>({ manages: [], allLocations: false })
-  const existing = useLiveQuery(() => db.users.toArray(), [], [] as User[])
-
-  const set = (patch: Partial<typeof EMPTY>) => setForm({ ...form, ...patch })
-
-  /** Volgend vrij personeelsnummer voorstellen, bijv. TW-025. */
-  const suggested = useMemo(() => {
-    const nums = existing
-      .map((u) => u.personnelNumber?.match(/(\d+)\s*$/)?.[1])
-      .filter(Boolean)
-      .map(Number)
-    const next = (nums.length ? Math.max(...nums) : 0) + 1
-    return 'TW-' + String(next).padStart(3, '0')
-  }, [existing])
-
-  async function save() {
-    const email = form.email.trim().toLowerCase()
-    if (!form.name.trim()) return toast.error('Vul een naam in')
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return toast.error('Vul een geldig e-mailadres in')
-    if (existing.some((u) => u.email.toLowerCase() === email)) {
-      return toast.error('Er bestaat al een medewerker met dit e-mailadres')
-    }
-    if (form.roles.length === 0) return toast.error('Kies minimaal één rol')
-
-    const created = await userRepo.create({
-      name: form.name,
-      email,
-      roles: form.roles,
-      personnelNumber: form.personnelNumber.trim() || suggested,
-      phone: form.phone,
-      function: form.function,
-      hourlyRate: form.hourlyRate ? Number(form.hourlyRate.replace(',', '.')) : undefined,
-      contractHours: form.contractHours ? Number(form.contractHours.replace(',', '.')) : undefined,
-      startDate: form.startDate ? dayFromDateInput(form.startDate) : undefined,
-      notes: form.notes,
-    })
-
-    // De vestigingen zitten niet in users.create; die zetten we erachteraan.
-    if (created && (loc.locationId || loc.manages.length || loc.allLocations)) {
-      await userRepo.update(created.id, {
-        locationId: loc.locationId,
-        manages: loc.manages.length ? loc.manages : undefined,
-        allLocations: loc.allLocations || undefined,
-      })
-    }
-
-    toast.ok(`${form.name.trim()} toegevoegd`)
-    setForm({ ...EMPTY })
-    setLoc({ manages: [], allLocations: false })
-    onClose()
-    if (created) onCreated(created.id)
-  }
-
-  return (
-    <Modal
-      open={open}
-      title="Medewerker toevoegen"
-      subtitle="Het dossier staat er meteen. Diegene meldt zich daarna zelf aan met dit e-mailadres."
-      onClose={onClose}
-      width={620}
-    >
-      <div className="grid cols-2">
-        <Field label="Naam">
-          <input className="input" value={form.name} onChange={(e) => set({ name: e.target.value })} autoFocus />
-        </Field>
-        <Field label="Personeelsnummer" help={`Leeg laten geeft ${suggested}`}>
-          <input
-            className="input"
-            value={form.personnelNumber}
-            onChange={(e) => set({ personnelNumber: e.target.value })}
-            placeholder={suggested}
-          />
-        </Field>
-      </div>
-
-      <div className="grid cols-2">
-        <Field label="E-mailadres" help="Hierop wordt later het inlogaccount gekoppeld">
-          <input
-            className="input" type="email" value={form.email}
-            onChange={(e) => set({ email: e.target.value })}
-            placeholder="naam@truckwash1group.nl"
-          />
-        </Field>
-        <Field label="Telefoon">
-          <input className="input" value={form.phone} onChange={(e) => set({ phone: e.target.value })} placeholder="06-12345678" />
-        </Field>
-      </div>
-
-      <div className="grid cols-3">
-        <Field label="Functie">
-          <input className="input" value={form.function} onChange={(e) => set({ function: e.target.value })} placeholder="Wasmedewerker" />
-        </Field>
-        <Field label="Contracturen">
-          <input className="input" inputMode="decimal" value={form.contractHours} onChange={(e) => set({ contractHours: e.target.value })} />
-        </Field>
-        <Field label="Uurtarief (€)">
-          <input className="input" inputMode="decimal" value={form.hourlyRate} onChange={(e) => set({ hourlyRate: e.target.value })} placeholder="22" />
-        </Field>
-      </div>
-
-      <Field label="In dienst sinds">
-        <input className="input" type="date" value={form.startDate} onChange={(e) => set({ startDate: e.target.value })} />
-      </Field>
-
-      <LocatiesKiezer
-        waarde={loc}
-        onChange={setLoc}
-        toonLeiding={form.roles.includes('supervisor') || form.roles.includes('management')}
-      />
-
-      <Field label="Toegang tot welke dashboards">
-        <div className="row" style={{ gap: 6 }}>
-          {ALL_ROLES.map((role) => {
-            const on = form.roles.includes(role)
-            return (
-              <button
-                key={role}
-                type="button"
-                className={`btn sm ${on ? 'primary' : ''}`}
-                onClick={() => set({ roles: on ? form.roles.filter((r) => r !== role) : [...form.roles, role] })}
-              >
-                {role === 'management' && <ShieldCheck size={13} />}
-                {ROLE_LABELS[role]}
-              </button>
-            )
-          })}
-        </div>
-      </Field>
-
-      <Field label="Notitie (optioneel)">
-        <textarea className="textarea" value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
-      </Field>
-
-      <div className="row end">
-        <button className="btn ghost" onClick={onClose}>Annuleren</button>
-        <button className="btn primary" onClick={() => void save()}>
-          <UserPlus size={15} /> Toevoegen
-        </button>
-      </div>
-    </Modal>
   )
 }
 

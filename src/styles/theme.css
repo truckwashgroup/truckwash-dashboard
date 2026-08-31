@@ -2946,3 +2946,111 @@ table.data.matrix th { vertical-align: bottom; }
   font-size: .81rem; color: var(--text-2); line-height: 1.5; margin-top: 3px;
 }
 .agenda-regel .deelnemers { font-size: .73rem; color: var(--text-3); margin-top: 2px; }
+
+/* ------------------------------------------------------------------
+   De klant die nog nergens aan hangt
+   ------------------------------------------------------------------ */
+
+.klant-welkom {
+  display: flex; align-items: flex-start; gap: 16px;
+}
+.klant-welkom .ico {
+  width: 52px; height: 52px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 16px;
+  background: var(--tint-ok);
+  color: var(--ok);
+}
+.klant-welkom h2 { font-size: 1.2rem; margin-bottom: 6px; }
+.klant-welkom p {
+  margin: 0 0 8px;
+  font-size: .89rem; line-height: 1.6; color: var(--text-2);
+}
+.klant-welkom .klein { font-size: .8rem; color: var(--text-3); margin: 0; }
+
+.vestiging-lijst { display: grid; }
+
+.vestiging {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.vestiging:last-child { border-bottom: 0; }
+.vestiging .ico {
+  width: 32px; height: 32px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 10px;
+  background: var(--surface-3);
+  color: var(--text-3);
+}
+.vestiging .tekst { display: grid; gap: 1px; flex: 1; min-width: 0; }
+.vestiging .tekst strong { font-size: .88rem; }
+.vestiging .tekst span { font-size: .77rem; color: var(--text-3); }
+
+/* ------------------------------------------------------------------
+   Medewerker toevoegen, in stappen
+   ------------------------------------------------------------------ */
+
+.wizard-stappen {
+  display: flex; align-items: center; gap: 4px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.wizard-stap {
+  display: flex; align-items: center; gap: 8px;
+  flex: 1;
+  font-size: .8rem;
+  color: var(--text-3);
+}
+.wizard-stap .bol {
+  width: 24px; height: 24px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  font-size: .72rem; font-weight: 700;
+}
+.wizard-stap.nu { color: var(--text); font-weight: 650; }
+.wizard-stap.nu .bol {
+  background: var(--brand); border-color: var(--brand); color: var(--on-brand);
+}
+.wizard-stap.klaar { color: var(--text-2); }
+.wizard-stap.klaar .bol {
+  background: var(--tint-ok); border-color: var(--line-ok); color: var(--ok);
+}
+
+@media (max-width: 520px) {
+  .wizard-stap > span:last-child { display: none; }
+  .wizard-stap { flex: none; }
+}
+
+.papier-blok {
+  padding: 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+}
+.papier-blok .kop {
+  display: flex; align-items: center; gap: 9px;
+  margin-bottom: 11px;
+}
+.papier-blok .kop svg { color: var(--text-3); flex: none; }
+.papier-blok .kop strong { font-size: .9rem; }
+.papier-blok .kop .hint { font-size: .75rem; color: var(--text-3); }
+.papier-blok .field:last-child { margin-bottom: 0; }
+
+.papier-lijst { display: grid; gap: 5px; margin-top: 10px; }
+
+.papier {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 11px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.papier svg { color: var(--text-3); flex: none; }
+.papier .n { flex: 1; min-width: 0; font-size: .83rem; overflow: hidden; text-overflow: ellipsis; }
+.papier .s { font-size: .73rem; color: var(--text-3); }

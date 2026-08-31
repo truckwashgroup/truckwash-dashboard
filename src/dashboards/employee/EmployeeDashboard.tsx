@@ -89,11 +89,24 @@ export default function EmployeeDashboard() {
     const teDoen = verplicht.filter(
       (c) => !voortgang.some((p) => p.courseId === c.id && p.passed)).length
 
+    /*
+     * Een cursus die nog opengestaat is geen noodgeval. Dringend wordt het
+     * pas als er een datum overheen is: een toegewezen cursus waarvan de
+     * uiterste datum voorbij is, of een certificaat dat is verlopen.
+     *
+     * Anders staat de aandachtsbalk er permanent, en dan leest niemand hem
+     * meer op de dag dat er wél iets aan de hand is.
+     */
+    const nu = Date.now()
+    const teLaat = voortgang.filter((p) =>
+      (p.dueAt && p.dueAt < nu && !p.passed) ||
+      (p.passed && p.expiresAt && p.expiresAt < nu)).length
+
     // Wat er in het dossier op mijn handtekening wacht.
     const teTekenen = mijnDocs.filter(
       (d) => d.requiresSignature && !d.signedAt && !d.declinedAt).length
 
-    return { diensten, gewerkt, loopt, laag, openBonnen, afgekeurd, teDoen, teTekenen }
+    return { diensten, gewerkt, loopt, laag, openBonnen, afgekeurd, teDoen, teLaat, teTekenen }
   }, [shifts, entries, voorraad, bonnen, voortgang, mijnDocs, me])
 
   const items: NavItem[] = [
@@ -176,10 +189,13 @@ export default function EmployeeDashboard() {
       label: 'Opleiding',
       hint: 'Veiligheid, chemie en werkwijze',
       icon: GraduationCap,
-      tint: cijfers.teDoen ? 'oranje' : 'ok',
-      stat: cijfers.teDoen,
-      statLabel: cijfers.teDoen ? 'nog te doen' : 'alles behaald',
-      urgent: cijfers.teDoen > 0,
+      tint: cijfers.teLaat ? 'danger' : cijfers.teDoen ? 'oranje' : 'ok',
+      stat: cijfers.teLaat || cijfers.teDoen,
+      statLabel: cijfers.teLaat
+        ? cijfers.teLaat === 1 ? 'over de datum' : 'over de datum'
+        : cijfers.teDoen ? 'nog te doen' : 'alles behaald',
+      // Alleen wat over de datum is vraagt echt om aandacht.
+      urgent: cijfers.teLaat > 0,
       onClick: () => setPage('opleiding'),
     },
     {

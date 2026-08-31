@@ -9,6 +9,7 @@ import Plannen from './Plannen'
 import Historie from './Historie'
 import Facturen from './Facturen'
 import { useCompany } from './useCompany'
+import Welkom from './Welkom'
 import { Start, type Tegel } from '../../components/Tegels'
 import { db } from '../../lib/db'
 import { money } from '../../lib/format'
@@ -103,11 +104,11 @@ export default function CustomerDashboard() {
   return (
     <Shell
       roleLabel="Klant"
-      items={ITEMS}
+      items={company ? ITEMS : []}
       active={page}
       onNavigate={setPage}
-      title={TITLES[page]}
-      subtitle={company?.name}
+      title={company ? TITLES[page] : 'Welkom'}
+      subtitle={company?.name ?? 'Je account is nog niet aan een bedrijf gekoppeld'}
       actions={
         !locked && companies.length > 1 ? (
           <select
@@ -124,6 +125,13 @@ export default function CustomerDashboard() {
         ) : undefined
       }
     >
+      {/*
+        Een klant die net is toegelaten hangt nog nergens aan. Vroeger zag
+        hij dan overal lege schermen, alsof de app stuk was. Nu staat er wat
+        er aan de hand is, en kan hij zijn bedrijfsgegevens doorgeven.
+      */}
+      {!company ? <Welkom /> : <>
+
       {page === 'start' && (
         <Start
           tegels={tegels}
@@ -139,6 +147,7 @@ export default function CustomerDashboard() {
       {page === 'plannen' && <Plannen />}
       {page === 'historie' && <Historie />}
       {page === 'facturen' && <Facturen />}
+      </>}
     </Shell>
   )
 }

@@ -69,6 +69,7 @@ const SUPERVISOR: Permission[] = [
   'inventory.manage',
   'expenses.viewTeam',
   'staff.view',
+  'staff.request',
   'customers.view',
   'notify.send', 'notify.broadcast',
   'learning.assign',

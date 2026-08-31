@@ -51,7 +51,7 @@ export default function Shell({
   roleLabel, items, active, onNavigate, title, subtitle, actions, menu, children,
 }: Props) {
   const { user, clearRole, logout } = useAuth()
-  const { lastSyncAt, sync, syncing } = useSync()
+  const { lastSyncAt, sync, syncing, schemaAchter } = useSync()
   const version = useUpdates((s) => s.version)
   const openSearch = useNav((s) => s.openSearch)
   const goto = useNav((s) => s.goto)
@@ -264,6 +264,20 @@ export default function Shell({
 
           <SyncPill />
         </header>
+
+        {schemaAchter.length > 0 && perms.canAny('admin.settings', 'dev.logs') && (
+          <div className="schema-banner">
+            <AlertTriangle size={17} />
+            <span>
+              <strong>De database loopt achter op de app.</strong>{' '}
+              {schemaAchter.length === 1
+                ? `De tabel ${schemaAchter[0]} bestaat nog niet.`
+                : `Deze tabellen bestaan nog niet: ${schemaAchter.join(', ')}.`}{' '}
+              Draai supabase/setup.sql opnieuw. De rest blijft gewoon werken, en
+              wat er in de wachtrij staat blijft bewaard.
+            </span>
+          </div>
+        )}
 
         <motion.main
           className="content"

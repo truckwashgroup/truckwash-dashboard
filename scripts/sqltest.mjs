@@ -111,6 +111,8 @@ await run(db, '0009_personeelsdossier.sql draait', sqlFile('supabase/migrations/
 await run(db, '0010_leestekens_en_rooster.sql draait', sqlFile('supabase/migrations/0010_leestekens_en_rooster.sql'))
 await run(db, '0011_postbus.sql draait', sqlFile('supabase/migrations/0011_postbus.sql'))
 await run(db, '0012_kassa.sql draait', sqlFile('supabase/migrations/0012_kassa.sql'))
+await run(db, '0013_berichten_mogen_van_iedereen.sql draait', sqlFile('supabase/migrations/0013_berichten_mogen_van_iedereen.sql'))
+await run(db, '0012_kassa.sql draait', sqlFile('supabase/migrations/0012_kassa.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -125,6 +127,8 @@ await run(db, '0008 nogmaals', sqlFile('supabase/migrations/0008_rechten_in_het_
 await run(db, '0009 nogmaals', sqlFile('supabase/migrations/0009_personeelsdossier.sql'))
 await run(db, '0010 nogmaals', sqlFile('supabase/migrations/0010_leestekens_en_rooster.sql'))
 await run(db, '0011 nogmaals', sqlFile('supabase/migrations/0011_postbus.sql'))
+await run(db, '0012 nogmaals', sqlFile('supabase/migrations/0012_kassa.sql'))
+await run(db, '0013 nogmaals', sqlFile('supabase/migrations/0013_berichten_mogen_van_iedereen.sql'))
 await run(db, '0012 nogmaals', sqlFile('supabase/migrations/0012_kassa.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
@@ -967,6 +971,41 @@ check('hetzelfde bonnummer kan niet twee keer voorkomen',
   (await botst(`
      insert into public.pos_sales (id, register_code, receipt_no, location_id)
      values ('sale_dubbel', 'KAS-UTR-1', 'KAS-UTR-1-20260831-0001', 'loc_utr')`)) !== null)
+
+
+console.log('\n18. Een bericht aan één persoon mag van iedereen komen')
+
+/*
+ * Dit was kapot: de belletjeslade is het algemene seinsysteem geworden,
+ * maar de regel liet alleen een leidinggevende toe. Een wasser die een
+ * collega noemde in het overleg, een melding aan de ontwikkelaar, een
+ * storing vanaf de vloer -- allemaal geweigerd, en dat blokkeerde de hele
+ * wachtrij.
+ */
+check('een werknemer mag een collega een bericht sturen',
+  await magSchrijven(wasser, `insert into public.notifications
+     (id, to_user_id, kind, title, body, from_user_id, from_name, created_at)
+     values ('nt_p2p', '${voormanId}', 'info', 'Baan 2 ligt stil', '', '${wasserId}', 'Tom', 1);`))
+
+check('maar niet op andermans naam',
+  !(await magSchrijven(wasser, `insert into public.notifications
+     (id, to_user_id, kind, title, body, from_user_id, from_name, created_at)
+     values ('nt_vals', '${voormanId}', 'info', 'Namens de baas', '', '${voormanId}', 'Joris', 1);`)))
+
+check('en niet naar een hele groep',
+  !(await magSchrijven(wasser, `insert into public.notifications
+     (id, to_role, kind, title, body, from_user_id, from_name, created_at)
+     values ('nt_groep', 'employee', 'info', 'Allemaal luisteren', '', '${wasserId}', 'Tom', 1);`)))
+
+check('een leidinggevende mag dat wel',
+  await magSchrijven(voorman, `insert into public.notifications
+     (id, to_role, kind, title, body, from_user_id, from_name, created_at)
+     values ('nt_groep2', 'employee', 'info', 'Morgen extra drukte', '', '${voormanId}', 'Joris', 1);`))
+
+check('een klant komt er helemaal niet in',
+  !(await magSchrijven(klant, `insert into public.notifications
+     (id, to_user_id, kind, title, body, from_user_id, from_name, created_at)
+     values ('nt_klant', '${voormanId}', 'info', 'Hoi', '', '${klantRow.id}', 'Klant', 1);`)))
 
 await db.close()
 

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { api, type PushChange } from './api'
+import { OntbrekendeTabel, ontbrekendeTabellen } from './api/supabaseApi'
 import { db, getMeta, setMeta } from './db'
 import { logLive } from './trail'
 import type { EntityName, OutboxRecord, SyncOp, SyncState } from './types'
@@ -32,6 +33,11 @@ export function setSyncEnabled(v: boolean) {
 }
 
 interface SyncStore extends SyncState {
+  /**
+   * Tabellen die de server nog niet kent. Vult zich als er een versie
+   * uitkomt met een nieuwe tabel en het schema nog niet is bijgewerkt.
+   */
+  schemaAchter: string[]
   setOnline: (v: boolean) => void
   refreshPending: () => Promise<void>
   sync: (opts?: { silent?: boolean }) => Promise<void>
@@ -43,6 +49,7 @@ export const useSync = create<SyncStore>((set, get) => ({
   pending: 0,
   lastSyncAt: null,
   lastError: null,
+  schemaAchter: [],
 
   setOnline: (v) => set({ online: v }),
 
@@ -66,7 +73,11 @@ export const useSync = create<SyncStore>((set, get) => ({
       const { serverTime, opgehaald } = await pullChanges()
 
       await setMeta(LAST_SYNC, serverTime)
-      set({ lastSyncAt: serverTime, lastError: null })
+      set({
+        lastSyncAt: serverTime,
+        lastError: null,
+        schemaAchter: [...ontbrekendeTabellen],
+      })
 
       logLive('sync', `Ronde klaar — ${geduwd} verstuurd, ${opgehaald} opgehaald`, {
         duur: Date.now() - begin,
@@ -113,6 +124,7 @@ export async function ensureBackendMatches(): Promise<boolean> {
     db.signups.clear(), db.channels.clear(),
     db.chatMessages.clear(), db.channelReads.clear(), db.emailLog.clear(),
     db.personnelPrivate.clear(), db.documents.clear(), db.mailbox.clear(),
+    db.changeRequests.clear(),
     // Wijzigingen die voor een andere server bedoeld waren zijn onbruikbaar.
     db.outbox.clear(),
   ])
@@ -168,7 +180,7 @@ export const PUSH_ORDER: EntityName[] = [
   'faults', 'shifts', 'expenses', 'timeEntries', 'stockMovements',
   'workOrders', 'courseProgress', 'notifications',
   'chatMessages', 'channelReads', 'ticketMessages', 'logEvents',
-  'signups', 'emailLog', 'documents', 'mailbox',
+  'signups', 'emailLog', 'documents', 'mailbox', 'changeRequests',
 ]
 
 const RANG = new Map(PUSH_ORDER.map((e, i) => [e, i]))
@@ -227,6 +239,17 @@ async function pushPerStuk(batch: OutboxRecord[]): Promise<Error | null> {
       const msg = e instanceof Error ? e.message : String(e)
       eerste ??= e instanceof Error ? e : new Error(msg)
 
+      /*
+       * Een tabel die nog niet bestaat is geen slecht record maar een schema
+       * dat achterloopt. Zo'n wijziging blijft staan tot het schema klopt --
+       * hem na acht pogingen weggooien zou werk laten verdwijnen om een
+       * reden die niets met dat werk te maken heeft.
+       */
+      if (e instanceof OntbrekendeTabel) {
+        await db.outbox.update(r.id!, { lastError: msg })
+        continue
+      }
+
       const tries = r.tries + 1
       if (tries >= MAX_TRIES) {
         await db.outbox.delete(r.id!)
@@ -277,6 +300,7 @@ const TABLE_OF: Record<EntityName, () => any> = {
   personnelPrivate: () => db.personnelPrivate,
   documents: () => db.documents,
   mailbox: () => db.mailbox,
+  changeRequests: () => db.changeRequests,
 }
 
 async function pullChanges(): Promise<{ serverTime: number; opgehaald: number }> {

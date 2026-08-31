@@ -5,7 +5,7 @@ import type {
   InventoryItem, Location, Shift, StockMovement, TimeEntry, User, WashJob,
   Asset, Fault, MaintenancePlan, WorkOrder, Ticket, TicketMessage, LogEvent,
   Signup, Channel, ChatMessage, ChannelRead, EmailLog,
-  PersonnelPrivate, PersonnelDocument, MailBericht,
+  PersonnelPrivate, PersonnelDocument, MailBericht, DossierWijziging,
 } from '../types'
 import { SERVICES } from '../types'
 import { COURSES } from '../courses'
@@ -44,6 +44,7 @@ class MockServerDB extends Dexie {
   personnelPrivate!: Table<PersonnelPrivate, string>
   documents!: Table<PersonnelDocument, string>
   mailbox!: Table<MailBericht, string>
+  changeRequests!: Table<DossierWijziging, string>
 
   constructor() {
     super('truckwash-mock-server')
@@ -75,6 +76,7 @@ class MockServerDB extends Dexie {
       personnelPrivate: 'id, updatedAt',
       documents: 'id, userId, updatedAt',
       mailbox: 'id, updatedAt',
+      changeRequests: 'id, updatedAt',
     })
   }
 }
@@ -109,6 +111,7 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   personnelPrivate: () => server.personnelPrivate,
   documents: () => server.documents,
   mailbox: () => server.mailbox,
+  changeRequests: () => server.changeRequests,
 }
 
 /* ------------------------------------------------------------------ *

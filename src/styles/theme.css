@@ -2671,3 +2671,22 @@ table.data.matrix th { vertical-align: bottom; }
   cursor: pointer;
 }
 .bon-bijlage:hover:not(:disabled) { border-color: var(--brand); color: var(--text); }
+
+/* ------------------------------------------------------------------
+   Het schema loopt achter
+
+   Zichtbaar voor wie er iets aan kan doen. Vroeger merkte je hier
+   niets van: één ontbrekende tabel legde de hele synchronisatie plat,
+   zonder dat ergens stond waarom.
+   ------------------------------------------------------------------ */
+
+.schema-banner {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 11px 22px;
+  border-bottom: 1px solid var(--line-warn);
+  background: var(--tint-warn);
+  color: var(--text-warn);
+  font-size: .83rem; line-height: 1.5;
+  flex: none;
+}
+.schema-banner svg { flex: none; margin-top: 1px; color: var(--warn); }

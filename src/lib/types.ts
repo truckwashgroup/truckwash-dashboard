@@ -266,6 +266,8 @@ export type Permission =
   | 'signups.view' | 'signups.decide'
   /* postbus */
   | 'mail.read' | 'mail.send'
+  /* wijzigingen in het dossier */
+  | 'staff.request' | 'staff.approve'
   /* kassa */
   | 'pos.use' | 'pos.discount' | 'pos.refund' | 'pos.cash' | 'pos.manage'
   /* beheer */
@@ -354,6 +356,9 @@ export const PERMISSIONS: PermissionMeta[] = [
 
   { key: 'signups.view',      group: 'Aanmeldingen', label: 'Aanmeldingen zien',  hint: 'Zien wie zich via de app heeft aangemeld.' },
   { key: 'signups.decide',    group: 'Aanmeldingen', label: 'Aanmelding afhandelen', hint: 'Iemand toelaten als medewerker of klant, of afwijzen.', sensitive: true },
+
+  { key: 'staff.request',     group: 'Personeel',  label: 'Wijziging aanvragen',  hint: 'Een verandering in een dossier voorstellen; het management beslist.' },
+  { key: 'staff.approve',     group: 'Personeel',  label: 'Wijziging goedkeuren', hint: 'Voorgestelde wijzigingen doorvoeren of afwijzen.', sensitive: true },
 
   { key: 'mail.read',         group: 'Postbus',    label: 'Post lezen',           hint: 'Binnengekomen e-mail en wat er is verstuurd.', sensitive: true },
   { key: 'mail.send',         group: 'Postbus',    label: 'Post versturen',       hint: 'Zelf een mail opstellen naar een adres naar keuze.', sensitive: true },
@@ -1130,6 +1135,70 @@ export interface MailBericht {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Wijzigingen in een dossier
+ *
+ *  Een leidinggevende staat het dichtst bij zijn mensen en merkt als eerste
+ *  dat iemand meer uren gaat draaien of van functie verandert. Maar hij hoort
+ *  niet zelf in het dossier te schrijven: een uurloon dat verandert zonder
+ *  dat iemand het heeft goedgekeurd is geen administratie.
+ *
+ *  Dus stelt hij het voor, en het management drukt op akkoord. Wat er
+ *  precies verandert staat er per veld bij -- oude waarde naast nieuwe --
+ *  zodat je niet hoeft te raden wat je goedkeurt.
+ * ------------------------------------------------------------------ */
+
+export type WijzigingStatus = 'open' | 'goedgekeurd' | 'afgewezen' | 'ingetrokken'
+
+/** Welke velden via een verzoek te wijzigen zijn. */
+export type WijzigbaarVeld =
+  | 'function' | 'contractHours' | 'hourlyRate' | 'locationId'
+  | 'manages' | 'supervisorId' | 'endDate' | 'startDate' | 'roles'
+
+export const VELD_LABELS: Record<WijzigbaarVeld, string> = {
+  function: 'Functie',
+  contractHours: 'Contracturen per week',
+  hourlyRate: 'Uurtarief',
+  locationId: 'Vestiging',
+  manages: 'Geeft leiding op',
+  supervisorId: 'Valt onder',
+  endDate: 'Uit dienst per',
+  startDate: 'In dienst sinds',
+  roles: 'Toegang tot dashboards',
+}
+
+export interface WijzigingVeld {
+  veld: WijzigbaarVeld
+  /** Zoals het nu is; puur om naast het voorstel te tonen */
+  oud?: unknown
+  nieuw?: unknown
+}
+
+export interface DossierWijziging {
+  id: string
+  /** Wiens dossier */
+  userId: string
+  userName: string
+
+  velden: WijzigingVeld[]
+  /** Waarom; een verzoek zonder reden is niet te beoordelen */
+  reden: string
+  /** Per wanneer het in zou moeten gaan */
+  ingaandOp?: number
+
+  status: WijzigingStatus
+  aangevraagdDoor: string
+  aangevraagdDoorNaam: string
+  aangevraagdOp: number
+
+  besistDoor?: string
+  beslistDoorNaam?: string
+  beslistOp?: number
+  afwijzingReden?: string
+
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
  *  Sync
  * ------------------------------------------------------------------ */
 
@@ -1140,7 +1209,7 @@ export type EntityName =
   | 'assets' | 'faults' | 'workOrders' | 'maintenancePlans'
   | 'tickets' | 'ticketMessages' | 'logEvents'
   | 'signups' | 'channels' | 'chatMessages' | 'channelReads' | 'emailLog'
-  | 'personnelPrivate' | 'documents' | 'mailbox'
+  | 'personnelPrivate' | 'documents' | 'mailbox' | 'changeRequests'
 
 export type SyncOp = 'put' | 'delete'
 

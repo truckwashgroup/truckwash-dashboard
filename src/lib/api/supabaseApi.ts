@@ -115,6 +115,7 @@ const TABLES: Record<EntityName, string> = {
   personnelPrivate: 'personnel_private',
   documents: 'documents',
   mailbox: 'mailbox',
+  changeRequests: 'change_requests',
 }
 
 /** Kolommen waarvan de naam niet simpelweg de snake_case-variant is. */
@@ -159,6 +160,47 @@ export function fromRow(entity: EntityName, row: Record<string, unknown>) {
 
 function fail(context: string, error: { message: string } | null): never {
   throw new Error(`${context}: ${error?.message ?? 'onbekende fout'}`)
+}
+
+/**
+ * Bestaat deze tabel nog niet?
+ *
+ * Dat gebeurt zodra er een versie uitkomt met een nieuwe tabel en het
+ * schema nog niet is bijgewerkt. Vroeger liep de hele synchronisatie daarop
+ * stuk -- niet alleen die ene tabel, maar alles: roosters, bonnen, meldingen.
+ * Eén ontbrekende tabel legde de app plat.
+ *
+ * Nu slaan we hem over en zeggen we hardop wat eraan te doen valt.
+ */
+export function tabelOntbreekt(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false
+  // 42P01 komt van Postgres, PGRST205/PGRST106 van de laag ervoor.
+  if (['42P01', 'PGRST205', 'PGRST106'].includes(error.code ?? '')) return true
+  return /(relation|table).{0,40}(does not exist|not found)/i.test(error.message ?? '')
+}
+
+/** Geen rechten op een tabel is normaal: een klant ziet geen voorraad. */
+function geenRechten(error: { code?: string } | null): boolean {
+  return error?.code === 'PGRST301' || error?.code === '42501'
+}
+
+/** Welke tabellen ontbraken bij de laatste ronde. */
+export const ontbrekendeTabellen = new Set<string>()
+
+/**
+ * Een wijziging voor een tabel die nog niet bestaat.
+ *
+ * Apart soort fout, want dit is geen slecht record maar een schema dat
+ * achterloopt. Zo'n wijziging mag niet worden weggegooid na een paar
+ * mislukte pogingen -- hij hoort te blijven staan tot het schema klopt.
+ */
+export class OntbrekendeTabel extends Error {
+  constructor(readonly tabel: string) {
+    super(
+      `De tabel "${tabel}" bestaat nog niet in de database. ` +
+      'Draai supabase/setup.sql opnieuw; je wijziging blijft zolang in de wachtrij staan.',
+    )
+  }
 }
 
 export const supabaseApi: ApiAdapter = {
@@ -229,6 +271,7 @@ export const supabaseApi: ApiAdapter = {
       const deletes = list.filter((c) => c.op === 'delete').map((c) => c.recordId)
       if (deletes.length) {
         const { error } = await supabase().from(table).delete().in('id', deletes)
+        if (error && tabelOntbreekt(error)) throw new OntbrekendeTabel(table)
         if (error) fail(`verwijderen in ${table}`, error)
       }
 
@@ -237,6 +280,7 @@ export const supabaseApi: ApiAdapter = {
         .map((c) => toRow(entity, c.payload as Record<string, unknown>))
       if (upserts.length) {
         const { error } = await supabase().from(table).upsert(upserts, { onConflict: 'id' })
+        if (error && tabelOntbreekt(error)) throw new OntbrekendeTabel(table)
         if (error) fail(`opslaan in ${table}`, error)
       }
     }
@@ -255,10 +299,20 @@ export const supabaseApi: ApiAdapter = {
           .order('updated_at', { ascending: true })
           .limit(2000)
 
-        // Geen rechten op een tabel is normaal: een klant ziet geen voorraad.
-        if (error && (error.code === 'PGRST301' || error.code === '42501')) {
+        if (error && geenRechten(error)) {
           return [entity, [] as Record<string, unknown>[]] as const
         }
+        if (error && tabelOntbreekt(error)) {
+          if (!ontbrekendeTabellen.has(TABLES[entity])) {
+            ontbrekendeTabellen.add(TABLES[entity])
+            console.warn(
+              `[sync] De tabel "${TABLES[entity]}" bestaat nog niet in de database. ` +
+              'Draai supabase/setup.sql opnieuw. De rest van de app blijft werken.',
+            )
+          }
+          return [entity, [] as Record<string, unknown>[]] as const
+        }
+        ontbrekendeTabellen.delete(TABLES[entity])
         if (error) fail(`ophalen van ${TABLES[entity]}`, error)
         return [entity, (data ?? []).map((r) => fromRow(entity, r))] as const
       }),

@@ -2,7 +2,8 @@ import Dexie, { type Table } from 'dexie'
 import type {
   AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   CourseProgress, EmailLog, Expense, Fault, InventoryItem, Location, LogEvent,
-  MailBericht, MaintenancePlan, OutboxRecord, PersonnelDocument, PersonnelPrivate,
+  DossierWijziging, MailBericht, MaintenancePlan, OutboxRecord,
+  PersonnelDocument, PersonnelPrivate,
   Shift, Signup, StockMovement, Ticket,
   TicketMessage, TimeEntry, User, WashJob, WorkOrder,
 } from './types'
@@ -39,6 +40,7 @@ class TruckwashDB extends Dexie {
   personnelPrivate!: Table<PersonnelPrivate, string>
   documents!: Table<PersonnelDocument, string>
   mailbox!: Table<MailBericht, string>
+  changeRequests!: Table<DossierWijziging, string>
   outbox!: Table<OutboxRecord, number>
   meta!: Table<{ key: string; value: unknown }, string>
 
@@ -113,6 +115,11 @@ class TruckwashDB extends Dexie {
     // v9: de postbus
     this.version(9).stores({
       mailbox: 'id, richting, status, at, updatedAt',
+    })
+
+    // v10: wijzigingsverzoeken op een dossier
+    this.version(10).stores({
+      changeRequests: 'id, userId, status, aangevraagdOp, updatedAt',
     })
   }
 }

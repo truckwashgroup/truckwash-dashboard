@@ -30,3 +30,6 @@ Truckwash1-Dashboard-*.apk
 .env
 .env.local
 .env.*.local
+
+# Werkbestanden van de Supabase-CLI
+supabase/.temp/

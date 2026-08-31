@@ -1,0 +1,31 @@
+# Dit project wordt op Windows ontwikkeld en op Linux gebouwd. Twee dingen
+# gaan daarbij structureel mis als je ze niet vastlegt.
+
+# 1. Regeleindes van shell-scripts.
+#    Een script met Windows-regeleindes werkt op Linux niet: de shell leest
+#    de wagenterugloop als onderdeel van de naam van de interpreter en meldt
+#    "bad interpreter". Deze bestanden houden we dus op LF, ongeacht waar ze
+#    vandaan komen.
+*.sh          text eol=lf
+gradlew       text eol=lf
+
+# 2. Het uitvoerrecht.
+#    Windows kent dat niet, dus een bestand dat daar wordt aangeraakt komt
+#    zonder uitvoerrecht in git terecht. Op de bouwmachine loopt de bouw dan
+#    stuk met code 126: bestand gevonden, maar mag niet draaien.
+#    Het recht zelf staat in de index (100755); dit bestand houdt het gedrag
+#    eromheen voorspelbaar.
+gradlew.bat   text eol=crlf
+*.bat         text eol=crlf
+*.cmd         text eol=crlf
+
+# Binaire bestanden nergens aan zitten.
+*.png         binary
+*.jpg         binary
+*.webp        binary
+*.ico         binary
+*.icns        binary
+*.jar         binary
+*.keystore    binary
+*.apk         binary
+*.aab         binary

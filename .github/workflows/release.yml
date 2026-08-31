@@ -32,7 +32,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - id: v
         shell: bash
@@ -56,9 +56,9 @@ jobs:
     needs: check
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -91,14 +91,14 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
@@ -122,6 +122,12 @@ jobs:
 
       - name: Webapp bouwen en synchroniseren
         run: npm run build && npx cap sync android
+
+      # Het uitvoerrecht op gradlew overleeft een checkout vanaf Windows niet
+      # altijd. Zonder dit recht stopt de bouw met code 126: bestand gevonden,
+      # maar mag niet draaien.
+      - name: Gradle-wrapper uitvoerbaar maken
+        run: chmod +x android/gradlew
 
       - name: APK bouwen
         working-directory: android

@@ -32,6 +32,8 @@ export type MailTemplate =
   | 'aanmelding-afgewezen'
   /** Een melding uit de app, doorgestuurd naar het postvak */
   | 'bericht'
+  /** Een mail die iemand zelf opstelt */
+  | 'vrij'
 
 export interface MailRequest {
   template: MailTemplate
@@ -118,6 +120,22 @@ export async function mailAanmeldingBesluit(
     signupId,
     vars,
   })
+}
+
+/**
+ * Een mail die iemand zelf heeft opgesteld.
+ *
+ * Het enige geval waarin de app een adres meegeeft. Daarom loopt het ook
+ * alleen langs deze weg: de serverfunctie eist de rol management of
+ * ontwikkelaar, remt af, en legt elke verzending vast met de naam van wie
+ * hem verstuurde.
+ */
+export async function mailVrij(
+  email: string,
+  onderwerp: string,
+  tekst: string,
+): Promise<MailResult | null> {
+  return sendMail({ template: 'vrij', email, vars: { onderwerp, tekst } })
 }
 
 /** Een melding uit de app ook in het postvak laten belanden. */

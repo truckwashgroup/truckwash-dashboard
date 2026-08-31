@@ -109,6 +109,8 @@ await run(db, '0007_aanmelden_en_overleg.sql draait', sqlFile('supabase/migratio
 await run(db, '0008_rechten_in_het_overleg.sql draait', sqlFile('supabase/migrations/0008_rechten_in_het_overleg.sql'))
 await run(db, '0009_personeelsdossier.sql draait', sqlFile('supabase/migrations/0009_personeelsdossier.sql'))
 await run(db, '0010_leestekens_en_rooster.sql draait', sqlFile('supabase/migrations/0010_leestekens_en_rooster.sql'))
+await run(db, '0011_postbus.sql draait', sqlFile('supabase/migrations/0011_postbus.sql'))
+await run(db, '0012_kassa.sql draait', sqlFile('supabase/migrations/0012_kassa.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -122,6 +124,8 @@ await run(db, '0007 nogmaals', sqlFile('supabase/migrations/0007_aanmelden_en_ov
 await run(db, '0008 nogmaals', sqlFile('supabase/migrations/0008_rechten_in_het_overleg.sql'))
 await run(db, '0009 nogmaals', sqlFile('supabase/migrations/0009_personeelsdossier.sql'))
 await run(db, '0010 nogmaals', sqlFile('supabase/migrations/0010_leestekens_en_rooster.sql'))
+await run(db, '0011 nogmaals', sqlFile('supabase/migrations/0011_postbus.sql'))
+await run(db, '0012 nogmaals', sqlFile('supabase/migrations/0012_kassa.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
 const bedrijven = await db.query('select count(*)::int as n from public.companies')
@@ -757,6 +761,212 @@ await db.exec(`
 check('en verdwijnt met zijn kanaal',
   (await db.query("select count(*)::int as n from public.channel_reads where channel_id = 'ch_utr'"))
     .rows[0].n === 0)
+
+
+console.log('\n17. Postbus')
+
+await db.exec(`
+  insert into public.mailbox (id, richting, van, aan, onderwerp, tekst, at, provider_id)
+  values ('mb_1', 'in', 'leverancier@cleanchem.nl', 'bonnen@preview.truckwash.cloud',
+          'Factuur 2026-114', 'In de bijlage de factuur.', 1, 'resend_abc');
+
+  alter table public.mailbox force row level security;
+  grant select, insert, update, delete on all tables in schema public to authenticated;
+`)
+
+check('het management leest de post',
+  (await countAs(baas, 'select count(*)::int as n from public.mailbox')) === 1)
+check('een werknemer niet',
+  (await countAs(wasser, 'select count(*)::int as n from public.mailbox')) === 0)
+check('een leidinggevende ook niet',
+  (await countAs(voorman, 'select count(*)::int as n from public.mailbox')) === 0)
+
+check('het management mag de status bijwerken',
+  await magSchrijven(baas, "update public.mailbox set status = 'verwerkt' where id = 'mb_1';"))
+
+await magSchrijven(wasser, "update public.mailbox set status = 'genegeerd' where id = 'mb_1';")
+check('een werknemer krijgt de status niet omgezet',
+  (await db.query("select status from public.mailbox where id = 'mb_1'")).rows[0].status === 'verwerkt')
+
+/* Dezelfde webhook twee keer mag geen tweede bon opleveren. */
+const dubbel = await (async () => {
+  try {
+    await db.exec(`insert into public.mailbox (id, richting, van, aan, onderwerp, at, provider_id)
+      values ('mb_2', 'in', 'x@y.nl', 'bonnen@preview.truckwash.cloud', 'Nog eens', 2, 'resend_abc');`)
+    return false
+  } catch {
+    return true
+  }
+})()
+check('dezelfde mail komt er geen tweede keer in', dubbel)
+
+await db.exec(`
+  insert into public.expenses
+    (id, expense_date, category, supplier, description, amount_excl, status,
+     source, mailbox_id, attachment_path, attachment_name)
+  values ('exp_mail_1', 1, 'overig', 'CleanChem', 'Factuur 2026-114', 0, 'open',
+          'mail', 'mb_1', 'mb_1/1-factuur.pdf', 'factuur.pdf');
+  alter table public.expenses force row level security;
+`)
+check('een bon uit de mail staat klaar bij het management',
+  (await countAs(baas, "select count(*)::int as n from public.expenses where source = 'mail'")) === 1)
+check('een werknemer ziet die bon niet',
+  (await countAs(wasser, "select count(*)::int as n from public.expenses where source = 'mail'")) === 0)
+
+await db.exec(`
+  insert into storage.objects (bucket_id, name) values ('post', 'mb_1/1-factuur.pdf');
+`)
+check('de bijlage is voor het management',
+  (await countAs(baas, "select count(*)::int as n from storage.objects where bucket_id = 'post'")) === 1)
+check('en niet voor een werknemer',
+  (await countAs(wasser, "select count(*)::int as n from storage.objects where bucket_id = 'post'")) === 0)
+check('de postemmer staat niet open',
+  (await db.query("select public from storage.buckets where id = 'post'")).rows[0].public === false)
+
+console.log('\n18. Kassa: bonnen, codes en kaarten')
+
+/*
+ * De kassa hangt aan een vestiging. Zonder vestiging op het profiel valt
+ * in_my_locations() terug op "niets", dus die zetten we eerst -- net als in
+ * het echt, waar iedereen ergens werkt.
+ */
+await db.exec(`
+  insert into public.locations (id, code, name, kind, address, postcode, city, bays)
+  values ('loc_utr', 'TW-UTR', 'Utrecht', 'vestiging', 'Wasstraat 1', '3500 AA', 'Utrecht', 2),
+         ('loc_rtm', 'TW-RTM', 'Rotterdam', 'vestiging', 'Havenweg 9', '3000 BB', 'Rotterdam', 1)
+  on conflict (id) do nothing;
+
+  update public.profiles set location_id = 'loc_utr'
+   where email in ('wasser@truckwash1group.nl', 'voorman@truckwash1group.nl');
+
+  insert into public.pos_registers (id, location_id, code, name)
+  values ('reg_1', 'loc_utr', 'KAS-UTR-1', 'Balie Utrecht')
+  on conflict (id) do nothing;
+
+  insert into public.pos_products (id, location_id, code, name, price_incl, vat_pct, kind) values
+    ('prod_koffie', 'loc_utr', 'A001', 'Koffie',            2.50,  9, 'artikel'),
+    ('prod_buiten', 'loc_utr', 'W001', 'Buitenwas',        78.65, 21, 'wasbeurt'),
+    ('prod_kaart',  'loc_utr', 'K010', '10-badenkaart',   700.00, 21, 'strippenkaart'),
+    ('prod_rtm',    'loc_rtm', 'A001', 'Koffie Rotterdam',  2.50,  9, 'artikel')
+  on conflict (id) do nothing;
+
+  -- Een afgerekende bon op naam van Transport Jansen, en een contante.
+  insert into public.pos_sales
+    (id, register_id, register_code, location_id, receipt_no, seq, status,
+     operator_id, operator_name, customer_company_id, total_incl, total_excl,
+     vat_total, method, closed_at)
+  values
+    ('sale_jansen', 'reg_1', 'KAS-UTR-1', 'loc_utr', 'KAS-UTR-1-20260831-0001', 1,
+     'afgerekend', 'u_joris', 'Joris Peters', 'co_jansen', 78.65, 65.00, 13.65,
+     'op-rekening', 100),
+    ('sale_contant', 'reg_1', 'KAS-UTR-1', 'loc_utr', 'KAS-UTR-1-20260831-0002', 2,
+     'afgerekend', 'u_joris', 'Joris Peters', null, 2.50, 2.29, 0.21,
+     'contant', 200)
+  on conflict (id) do nothing;
+
+  insert into public.pos_sale_lines
+    (id, sale_id, line_no, product_id, name, qty, price_incl, vat_pct,
+     total_incl, total_excl, vat_amount)
+  values ('line_1', 'sale_jansen', 1, 'prod_buiten', 'Buitenwas', 1, 78.65, 21,
+          78.65, 65.00, 13.65)
+  on conflict (id) do nothing;
+
+  insert into public.pos_payments (id, sale_id, method, amount)
+  values ('pay_1', 'sale_jansen', 'op-rekening', 78.65)
+  on conflict (id) do nothing;
+
+  -- Een strippenkaart met tien beurten, waarvan drie gebruikt.
+  insert into public.pos_subscriptions
+    (id, location_id, company_id, code, kind, credits_total)
+  values ('sub_1', 'loc_utr', 'co_jansen', 'K-0001', 'strippenkaart', 10)
+  on conflict (id) do nothing;
+
+  insert into public.pos_subscription_uses (id, subscription_id, credits, user_id) values
+    ('use_1', 'sub_1', 1, 'u_joris'),
+    ('use_2', 'sub_1', 1, 'u_joris'),
+    ('use_3', 'sub_1', 1, 'u_joris')
+  on conflict (id) do nothing;
+
+  -- Een persoonlijke code voor de wasser (de afgeleide is hier nep).
+  insert into public.pos_pins (id, user_id, salt, hash)
+  select 'pin_' || id, id, 'zout', 'afgeleide' from public.profiles
+   where email = 'wasser@truckwash1group.nl'
+  on conflict (id) do nothing;
+
+  alter table public.pos_registers         force row level security;
+  alter table public.pos_products          force row level security;
+  alter table public.pos_sales             force row level security;
+  alter table public.pos_sale_lines        force row level security;
+  alter table public.pos_payments          force row level security;
+  alter table public.pos_subscriptions     force row level security;
+  alter table public.pos_subscription_uses force row level security;
+  alter table public.pos_pins              force row level security;
+  grant select, insert, update, delete on all tables in schema public to authenticated;
+`)
+
+check('werknemer ziet de artikelen van zijn eigen vestiging',
+  (await countAs(wasser, "select count(*)::int as n from public.pos_products where location_id = 'loc_utr'")) === 3)
+check('en niet die van een andere vestiging',
+  (await countAs(wasser, "select count(*)::int as n from public.pos_products where location_id = 'loc_rtm'")) === 0)
+check('een klant ziet de artikelen helemaal niet',
+  (await countAs(klant, 'select count(*)::int as n from public.pos_products')) === 0)
+
+check('werknemer ziet de bonnen van zijn vestiging',
+  (await countAs(wasser, 'select count(*)::int as n from public.pos_sales')) === 2)
+check('de klant ziet alleen zijn eigen bon',
+  (await countAs(klant, 'select count(*)::int as n from public.pos_sales')) === 1)
+check('en de regels van die bon',
+  (await countAs(klant, 'select count(*)::int as n from public.pos_sale_lines')) === 1)
+
+check('het saldo van de kaart is de kaart min wat ervan af is',
+  (await db.query(`
+     select (s.credits_total - coalesce(sum(u.credits), 0))::int as n
+       from public.pos_subscriptions s
+       left join public.pos_subscription_uses u on u.subscription_id = s.id
+      where s.id = 'sub_1' group by s.credits_total`)).rows[0].n === 7)
+
+check('een collega op dezelfde vestiging kan de code nakijken',
+  (await countAs(wasser, 'select count(*)::int as n from public.pos_pins')) === 1)
+check('een klant kan dat niet',
+  (await countAs(klant, 'select count(*)::int as n from public.pos_pins')) === 0)
+
+/*
+ * Het slot op de bon. Dit is het enige punt in het schema waar een op zich
+ * geldige wijziging alsnog geweigerd wordt, dus het is het waard om te
+ * bewijzen dat hij dichtzit -- en dat een creditbon er wel langs komt.
+ */
+async function botst(sql) {
+  try { await db.exec(sql); return null } catch (e) { return String(e.message ?? e) }
+}
+
+check('het bedrag op een afgerekende bon kan niet meer wijzigen',
+  (await botst("update public.pos_sales set total_incl = 1 where id = 'sale_contant'"))
+    ?.includes('creditbon') === true)
+check('een afgerekende bon kan niet verwijderd worden',
+  (await botst("delete from public.pos_sales where id = 'sale_contant'"))
+    ?.includes('creditbon') === true)
+check('een afgerekende bon kan niet terug naar open',
+  (await botst("update public.pos_sales set status = 'open' where id = 'sale_contant'")) !== null)
+check('de regels van een afgerekende bon liggen ook vast',
+  (await botst("update public.pos_sale_lines set qty = 9 where id = 'line_1'"))
+    ?.includes('vast') === true)
+check('een opmerking en het printvinkje mogen wel',
+  (await botst("update public.pos_sales set note = 'nagekeken', printed = true where id = 'sale_contant'")) === null)
+check('crediteren mag',
+  (await botst(`
+     insert into public.pos_sales
+       (id, register_id, register_code, location_id, receipt_no, seq, status,
+        operator_id, operator_name, total_incl, total_excl, vat_total, method,
+        credit_of, closed_at)
+     values ('sale_credit', 'reg_1', 'KAS-UTR-1', 'loc_utr',
+             'KAS-UTR-1-20260831-0003', 3, 'afgerekend', 'u_joris', 'Joris Peters',
+             -2.50, -2.29, -0.21, 'contant', 'sale_contant', 300);
+     update public.pos_sales set status = 'gecrediteerd' where id = 'sale_contant';`)) === null)
+
+check('hetzelfde bonnummer kan niet twee keer voorkomen',
+  (await botst(`
+     insert into public.pos_sales (id, register_code, receipt_no, location_id)
+     values ('sale_dubbel', 'KAS-UTR-1', 'KAS-UTR-1-20260831-0001', 'loc_utr')`)) !== null)
 
 await db.close()
 

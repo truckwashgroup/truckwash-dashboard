@@ -227,6 +227,12 @@ function PersonDetail({
           </div>
           {canEdit && (
             <div className="row" style={{ gap: 6 }}>
+              <button
+                className={`btn sm ${tab === 'dossier' ? 'primary' : ''}`}
+                onClick={() => setTab(tab === 'dossier' ? 'overzicht' : 'dossier')}
+              >
+                <FolderLock size={14} /> Dossier
+              </button>
               <button className="btn sm" onClick={() => setBerichten(true)}>
                 <Send size={14} /> Bericht
               </button>

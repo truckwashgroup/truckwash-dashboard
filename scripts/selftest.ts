@@ -71,7 +71,8 @@ const expCount = await db.expenses.count()
 check('gebruikers opgehaald', userCount > 40, `kreeg ${userCount}`)
 check('wasopdrachten opgehaald', jobCount > 400, `kreeg ${jobCount}`)
 check('voorraad opgehaald per vestiging', invCount === 19 * 8, `kreeg ${invCount}`)
-check('kostenposten opgehaald', expCount === 46, `kreeg ${expCount}`)
+// Drie ervan komen uit de postbus: een mail met bijlage levert een bon op.
+check('kostenposten opgehaald', expCount === 49, `kreeg ${expCount}`)
 check('geen sync-fout', useSync.getState().lastError === null, String(useSync.getState().lastError))
 check('wachtrij leeg', useSync.getState().pending === 0)
 
@@ -1536,6 +1537,78 @@ await setMeta(LAST_SYNC, 0)
 await sync()
 check('het dossier staat op de server',
   (await dossierRepo.get(dossierPersoon))?.bsn === '123456782')
+
+
+/* ==================================================================== */
+
+console.log('\n24. Postbus')
+
+const { filterPost, onbekeken, bijbehorendeBon, grootte, postbus: postbusRepo } =
+  await import('../src/lib/postbus')
+
+const post = await db.mailbox.toArray()
+check('post gesynchroniseerd', post.length === 4, String(post.length))
+check('twee berichten zijn nog niet bekeken', onbekeken(post) === 2, String(onbekeken(post)))
+
+const binnen = filterPost(post, { richting: 'in' })
+check('alles is binnengekomen post', binnen.length === 4)
+check('nieuwste bovenaan', binnen[0].at >= binnen[1].at)
+
+check('filteren op status werkt',
+  filterPost(post, { richting: 'in', status: 'nieuw' }).length === 2)
+check('zoeken op afzender werkt',
+  filterPost(post, { richting: 'in', zoek: 'cleanchem' }).length === 1)
+check('zoeken op onderwerp werkt',
+  filterPost(post, { richting: 'in', zoek: 'osmose' }).length === 1)
+check('zoeken in de tekst werkt',
+  filterPost(post, { richting: 'in', zoek: 'twaalf trekkers' }).length === 1)
+check('een zoekterm die nergens staat levert niets',
+  filterPost(post, { richting: 'in', zoek: 'zzzzz' }).length === 0)
+check('verstuurde post is er nog niet',
+  filterPost(post, { richting: 'uit' }).length === 0)
+
+/* --- de bon die eruit ontstond --- */
+
+const alleBonnen = await db.expenses.toArray()
+const uitMail = alleBonnen.filter((b) => b.source === 'mail')
+check('drie bonnen kwamen uit de mail', uitMail.length === 3, String(uitMail.length))
+check('het bedrag staat bewust op nul', uitMail.every((b) => b.amountExcl === 0))
+check('de bijlage hangt eraan vast', uitMail.every((b) => !!b.attachmentPath))
+
+const metBon = post.find((m) => m.expenseId)!
+check('het bericht wijst naar zijn bon',
+  bijbehorendeBon(metBon, alleBonnen)?.id === metBon.expenseId)
+check('een bericht zonder bon geeft niets terug',
+  bijbehorendeBon(post.find((m) => !m.expenseId)!, alleBonnen) === undefined)
+
+/* --- status bijwerken --- */
+
+await postbusRepo.markeerGelezen(metBon.id)
+check('openslaan zet nieuw op gelezen',
+  (await db.mailbox.get(metBon.id))?.status !== 'nieuw')
+
+const alGelezen = post.find((m) => m.status === 'verwerkt')!
+await postbusRepo.markeerGelezen(alGelezen.id)
+check('een afgehandeld bericht wordt niet teruggezet',
+  (await db.mailbox.get(alGelezen.id))?.status === 'verwerkt')
+
+await postbusRepo.setStatus(metBon.id, 'verwerkt', { id: 'u_manager', name: 'Ilse Bakker' })
+const postAfgehandeld = await db.mailbox.get(metBon.id)
+check('afhandelen legt vast wie het deed', postAfgehandeld?.handledByName === 'Ilse Bakker')
+check('en wanneer', (postAfgehandeld?.handledAt ?? 0) > 0)
+
+check('grootte leest prettig',
+  grootte(512) === '512 B' && grootte(84_000) === '82 kB' && grootte(3_000_000) === '2.9 MB',
+  `${grootte(512)} / ${grootte(84_000)} / ${grootte(3_000_000)}`)
+
+/* --- alles overleeft de rondgang --- */
+
+await sync()
+await db.mailbox.clear()
+await setMeta(LAST_SYNC, 0)
+await sync()
+check('de postbus staat op de server',
+  (await db.mailbox.get(metBon.id))?.status === 'verwerkt')
 
 /* ==================================================================== */
 

@@ -25,6 +25,7 @@ import { toast } from '../../store/useToasts'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
 import Post from './Post'
 import Meekijken from './Meekijken'
+import Postbus from '../../components/Postbus'
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
   tickets: { title: 'Meldingen', subtitle: 'Wat gebruikers tegenkomen' },
@@ -33,6 +34,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   post: { title: 'Post', subtitle: 'Wat de app via Resend heeft verstuurd' },
   meekijken: { title: 'Meekijken', subtitle: 'Alles wat er nu gebeurt, op volgorde' },
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
+  postbus: { title: 'Postbus', subtitle: 'Post die binnenkomt, en zelf mailen' },
 }
 
 export default function DeveloperDashboard() {
@@ -56,12 +58,17 @@ export default function DeveloperDashboard() {
       : []),
     { key: 'systeem', label: 'Systeem', icon: Server },
     { key: 'post', label: 'Post', icon: Mail },
+    ...(perms.can('mail.read')
+      ? [{ key: 'postbus', label: 'Postbus', icon: Inbox }]
+      : []),
     ...(perms.can('chat.use')
       ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
       : []),
   ]
 
-  useNavTarget(['tickets', 'logboek', 'meekijken', 'systeem', 'post', 'overleg'], (p) => setPage(p))
+  useNavTarget(
+  ['tickets', 'logboek', 'meekijken', 'systeem', 'post', 'postbus', 'overleg'],
+  (p) => setPage(p))
 
   const meta = TITLES[page] ?? TITLES.tickets
 
@@ -79,6 +86,7 @@ export default function DeveloperDashboard() {
       {page === 'systeem' && <Systeem tickets={alleTickets} logs={logs} />}
       {page === 'meekijken' && <Meekijken />}
       {page === 'post' && <Post />}
+      {page === 'postbus' && <Postbus />}
       {page === 'overleg' && <Overleg />}
     </Shell>
   )

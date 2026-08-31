@@ -323,6 +323,24 @@ function briefAfgewezen(naam: string, reden: string): Brief {
   }
 }
 
+/**
+ * Een mail die iemand zelf heeft opgesteld.
+ *
+ * Dit is het enige sjabloon waarbij de aanroeper het adres bepaalt. Dat is
+ * bewust smal gehouden: het mag alleen met de rol management of ontwikkelaar,
+ * er zit een stevige rem op, en elke verzending komt in het logboek te staan
+ * mét de naam van wie hem verstuurde.
+ */
+function briefVrij(onderwerp: string, tekst: string, van: string): Brief {
+  return {
+    onderwerp,
+    kop: onderwerp,
+    // Een lege regel scheidt alinea's, zoals iemand het intypt.
+    alineas: tekst.split(/\n{2,}/).slice(0, 25),
+    voet: `Verstuurd door ${van} vanuit het Truckwash1-dashboard.`,
+  }
+}
+
 function briefBericht(titel: string, tekst: string, van?: string): Brief {
   return {
     onderwerp: titel,
@@ -439,6 +457,43 @@ Deno.serve(async (req) => {
       : briefAfgewezen(naam, String(vars.reden ?? ''))
 
     const ok = await verstuur(aanmelding.email, brief, { template })
+    return json({ sent: ok ? 1 : 0 })
+  }
+
+  if (template === 'vrij') {
+    const magVersturen = beller.rollen.includes('management')
+      || beller.rollen.includes('developer')
+    if (!magVersturen) return json({ error: 'Geen rechten' }, 403)
+
+    const naar = String(body.email ?? '').trim().toLowerCase()
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(naar)) {
+      return json({ error: 'Geen geldig e-mailadres' }, 400)
+    }
+
+    const onderwerp = String(vars.onderwerp ?? '').trim().slice(0, 160)
+    const tekst = String(vars.tekst ?? '').trim().slice(0, 6000)
+    if (!onderwerp || !tekst) return json({ error: 'Onderwerp en tekst zijn nodig' }, 400)
+
+    // Twee remmen: niet te vaak naar hetzelfde adres, en niet te veel in
+    // totaal vanuit één account. De tweede vangt een fout in een lus af.
+    if (await teVaak(naar, 6)) return json({ sent: 0, skipped: 'te vaak naar dit adres' })
+
+    const { count: eigen } = await admin
+      .from('email_log')
+      .select('id', { count: 'exact', head: true })
+      .eq('template', 'vrij')
+      .eq('to_user_id', beller.profileId)
+      .gt('at', nu() - 3_600_000)
+    if ((eigen ?? 0) >= 40) {
+      return json({ sent: 0, skipped: 'te veel verstuurd dit uur' })
+    }
+
+    const ok = await verstuur(naar, briefVrij(onderwerp, tekst, beller.naam), {
+      template: 'vrij',
+      // Wie hem verstuurde, niet wie hem krijgt: bij een vrije mail is de
+      // ontvanger vaak iemand buiten het bedrijf.
+      toUserId: beller.profileId,
+    })
     return json({ sent: ok ? 1 : 0 })
   }
 

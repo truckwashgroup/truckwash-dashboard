@@ -191,6 +191,19 @@ export interface Expense {
   approvedByName?: string
   approvedAt?: number
   rejectReason?: string
+
+  /**
+   * Waar deze bon vandaan komt. Een bon die per mail binnenkwam wil je
+   * kunnen herkennen: die is niet door een collega ingetypt en de bijlage
+   * is het bewijs.
+   */
+  source?: 'app' | 'mail'
+  /** Het bericht in de postbus waar dit uit is ontstaan */
+  mailboxId?: string
+  /** Pad naar de bijlage in de emmer 'post' */
+  attachmentPath?: string
+  attachmentName?: string
+
   updatedAt: number
 }
 
@@ -251,6 +264,10 @@ export type Permission =
   | 'chat.use' | 'chat.manage' | 'chat.moderate'
   /* aanmeldingen */
   | 'signups.view' | 'signups.decide'
+  /* postbus */
+  | 'mail.read' | 'mail.send'
+  /* kassa */
+  | 'pos.use' | 'pos.discount' | 'pos.refund' | 'pos.cash' | 'pos.manage'
   /* beheer */
   | 'admin.settings' | 'admin.audit'
 
@@ -337,6 +354,15 @@ export const PERMISSIONS: PermissionMeta[] = [
 
   { key: 'signups.view',      group: 'Aanmeldingen', label: 'Aanmeldingen zien',  hint: 'Zien wie zich via de app heeft aangemeld.' },
   { key: 'signups.decide',    group: 'Aanmeldingen', label: 'Aanmelding afhandelen', hint: 'Iemand toelaten als medewerker of klant, of afwijzen.', sensitive: true },
+
+  { key: 'mail.read',         group: 'Postbus',    label: 'Post lezen',           hint: 'Binnengekomen e-mail en wat er is verstuurd.', sensitive: true },
+  { key: 'mail.send',         group: 'Postbus',    label: 'Post versturen',       hint: 'Zelf een mail opstellen naar een adres naar keuze.', sensitive: true },
+
+  { key: 'pos.use',           group: 'Kassa',      label: 'Kassa gebruiken',      hint: 'Afrekenen aan de kassa en de bon afdrukken.' },
+  { key: 'pos.discount',      group: 'Kassa',      label: 'Korting geven',        hint: 'Een regel of de hele bon afprijzen.' },
+  { key: 'pos.refund',        group: 'Kassa',      label: 'Bon crediteren',       hint: 'Een afgerekende bon terugdraaien met een creditbon.', sensitive: true },
+  { key: 'pos.cash',          group: 'Kassa',      label: 'Lade en dagafsluiting', hint: 'Kas openen, tellen, afstorten en de dag afsluiten.', sensitive: true },
+  { key: 'pos.manage',        group: 'Kassa',      label: 'Kassa beheren',        hint: "Artikelen, prijzen, kaarten, codes en de printerinstellingen.", sensitive: true },
 
   { key: 'admin.settings',    group: 'Beheer',     label: 'Instellingen',         hint: 'Tarieven, openingstijden en app-instellingen.', sensitive: true },
   { key: 'admin.audit',       group: 'Beheer',     label: 'Logboek',              hint: 'Zien wie wat heeft gewijzigd.', sensitive: true },
@@ -1040,6 +1066,70 @@ export interface PersonnelDocument {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Postbus
+ *
+ *  Post die binnenkomt op het adres van het dashboard, en post die eruit
+ *  gaat. Het ontvangen loopt via een webhook van Resend naar een
+ *  serverfunctie; die zet het bericht en de bijlagen weg.
+ *
+ *  Waarom dit bestaat: bonnen komen per mail binnen. Ze doorsturen, printen,
+ *  inscannen en opnieuw invoeren is drie keer werk voor één bedrag. Een mail
+ *  met een bijlage levert hier meteen een kostenpost op die alleen nog
+ *  goedgekeurd hoeft te worden.
+ * ------------------------------------------------------------------ */
+
+export type MailRichting = 'in' | 'uit'
+export type MailStatus = 'nieuw' | 'gelezen' | 'verwerkt' | 'genegeerd'
+
+export const MAIL_STATUS: Record<MailStatus, { label: string; tone: string }> = {
+  nieuw:      { label: 'Nieuw',      tone: 'warn' },
+  gelezen:    { label: 'Gelezen',    tone: 'info' },
+  verwerkt:   { label: 'Verwerkt',   tone: 'ok' },
+  genegeerd:  { label: 'Genegeerd',  tone: 'default' },
+}
+
+export interface MailBijlage {
+  naam: string
+  mime: string
+  size: number
+  /** Pad in de emmer 'post'. Nooit een openbaar adres. */
+  path: string
+}
+
+export interface MailBericht {
+  id: string
+  richting: MailRichting
+  /** Afzender, zoals de mailserver hem doorgaf */
+  van: string
+  vanNaam?: string
+  aan: string
+  onderwerp: string
+  /** Platte tekst. HTML wordt nooit als HTML getoond. */
+  tekst: string
+  /** Kwam er ook een HTML-versie mee? Alleen ter informatie. */
+  hadHtml: boolean
+  at: number
+  status: MailStatus
+
+  attachments: MailBijlage[]
+  /** De kostenpost die hieruit is ontstaan */
+  expenseId?: string
+
+  handledBy?: string
+  handledByName?: string
+  handledAt?: number
+
+  /** Het id bij Resend, om het daar terug te zoeken */
+  providerId?: string
+  /**
+   * Wat er precies binnenkwam, ingekort. Alleen voor de ontwikkelaar: als
+   * een bericht niet goed wordt herkend, staat hier waarom.
+   */
+  raw?: string
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
  *  Sync
  * ------------------------------------------------------------------ */
 
@@ -1050,7 +1140,7 @@ export type EntityName =
   | 'assets' | 'faults' | 'workOrders' | 'maintenancePlans'
   | 'tickets' | 'ticketMessages' | 'logEvents'
   | 'signups' | 'channels' | 'chatMessages' | 'channelReads' | 'emailLog'
-  | 'personnelPrivate' | 'documents'
+  | 'personnelPrivate' | 'documents' | 'mailbox'
 
 export type SyncOp = 'put' | 'delete'
 

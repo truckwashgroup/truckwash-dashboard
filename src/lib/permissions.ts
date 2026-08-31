@@ -28,6 +28,10 @@ const EMPLOYEE: Permission[] = [
   // Overleggen doet iedereen op de vloer; dat is de vervanger van de
   // groepsapp waar niemand grip op had.
   'chat.use',
+  // Afrekenen hoort bij het werk op de vloer: wie de wasbeurt doet, doet
+  // ook de balie. Korting geven, crediteren en de lade tellen niet -- daar
+  // moet iemand met verantwoordelijkheid bij staan.
+  'pos.use',
 ]
 
 const TECHNICIAN: Permission[] = [
@@ -48,6 +52,7 @@ const TECHNICIAN: Permission[] = [
 const DEVELOPER: Permission[] = [
   'locations.view', 'locations.all',
   'chat.use',
+  'mail.read', 'mail.send',
   'dev.report', 'dev.tickets', 'dev.respond', 'dev.logs',
   'admin.audit',
 ]
@@ -68,6 +73,7 @@ const SUPERVISOR: Permission[] = [
   'notify.send', 'notify.broadcast',
   'learning.assign',
   'chat.manage',
+  'pos.discount', 'pos.refund', 'pos.cash',
 ]
 
 const CUSTOMER: Permission[] = [

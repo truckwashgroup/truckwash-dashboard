@@ -3,7 +3,9 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
-import { Check, CheckCheck, Clock, Euro, Receipt, RotateCcw, X } from 'lucide-react'
+import {
+  Check, CheckCheck, Clock, Euro, Loader2, Mail, Paperclip, Receipt, RotateCcw, X,
+} from 'lucide-react'
 import { db } from '../../lib/db'
 import { expenses as expRepo } from '../../lib/repo'
 import type { Expense, WashJob } from '../../lib/types'
@@ -13,6 +15,7 @@ import { useAuth } from '../../store/useAuth'
 import { toast } from '../../store/useToasts'
 import { expensesByCategory, managementKpis, startOfDay } from '../../lib/analytics'
 import { PALETTE, gridStroke, hoverFill, tooltipStyle } from '../../lib/charts'
+import { postbus } from '../../lib/postbus'
 
 const DAY = 86_400_000
 
@@ -184,6 +187,15 @@ export default function Financieel({ days }: { days: number }) {
                           <div style={{ fontSize: '.72rem', color: 'var(--text-3)', textTransform: 'capitalize' }}>
                             {e.category}
                           </div>
+                          {e.source === 'mail' && (
+                            <div className="bon-uit-mail">
+                              <Mail size={12} /> Per mail binnengekomen
+                              {e.amountExcl === 0 && ' — bedrag nog invullen'}
+                            </div>
+                          )}
+                          {e.attachmentPath && (
+                            <Bijlage pad={e.attachmentPath} naam={e.attachmentName} />
+                          )}
                           {e.rejectReason && (
                             <div style={{ fontSize: '.73rem', color: 'var(--danger)' }}>
                               Reden: {e.rejectReason}
@@ -323,5 +335,36 @@ function PnlLine({ label, value, strong }: { label: string; value: number; stron
         {money(value)}
       </span>
     </div>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  De bijlage bij een bon die per mail binnenkwam
+ *
+ *  De link vervalt na een minuut. Een bon die je nu bekijkt en morgen weer
+ *  wilt zien vraag je opnieuw op; een adres dat blijft werken is een adres
+ *  dat kan uitlekken.
+ * ------------------------------------------------------------------ */
+
+function Bijlage({ pad, naam }: { pad: string; naam?: string }) {
+  const [bezig, setBezig] = useState(false)
+
+  async function openen() {
+    setBezig(true)
+    try {
+      const link = await postbus.openBijlage({ path: pad })
+      window.open(link, '_blank', 'noopener,noreferrer')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'De bijlage is niet op te halen')
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  return (
+    <button className="bon-bijlage" onClick={() => void openen()} disabled={bezig}>
+      {bezig ? <Loader2 size={12} className="spin" /> : <Paperclip size={12} />}
+      {naam ?? 'Bijlage'}
+    </button>
   )
 }

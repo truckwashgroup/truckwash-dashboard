@@ -5,7 +5,7 @@ import type {
   InventoryItem, Location, Shift, StockMovement, TimeEntry, User, WashJob,
   Asset, Fault, MaintenancePlan, WorkOrder, Ticket, TicketMessage, LogEvent,
   Signup, Channel, ChatMessage, ChannelRead, EmailLog,
-  PersonnelPrivate, PersonnelDocument,
+  PersonnelPrivate, PersonnelDocument, MailBericht,
 } from '../types'
 import { SERVICES } from '../types'
 import { COURSES } from '../courses'
@@ -43,6 +43,7 @@ class MockServerDB extends Dexie {
   emailLog!: Table<EmailLog, string>
   personnelPrivate!: Table<PersonnelPrivate, string>
   documents!: Table<PersonnelDocument, string>
+  mailbox!: Table<MailBericht, string>
 
   constructor() {
     super('truckwash-mock-server')
@@ -73,6 +74,7 @@ class MockServerDB extends Dexie {
       emailLog: 'id, updatedAt',
       personnelPrivate: 'id, updatedAt',
       documents: 'id, userId, updatedAt',
+      mailbox: 'id, updatedAt',
     })
   }
 }
@@ -106,6 +108,7 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   emailLog: () => server.emailLog,
   personnelPrivate: () => server.personnelPrivate,
   documents: () => server.documents,
+  mailbox: () => server.mailbox,
 }
 
 /* ------------------------------------------------------------------ *
@@ -1097,6 +1100,66 @@ async function seed() {
     updatedAt: t,
   }))
 
+  /* --- postbus --- */
+
+  const POST: [string, string, string, string, MailBericht['status'], number][] = [
+    ['CleanChem BV', 'facturen@cleanchem.nl', 'Factuur 2026-0114',
+     'Bijgaand de factuur voor de levering van deze week. Betaling binnen 30 dagen.', 'nieuw', 1],
+    ['Hoekstra Transport', 'wendy@hoekstratransport.nl', 'Aanvraag vast weekmoment',
+     'Wij rijden met twaalf trekkers en willen graag elke donderdagochtend terecht kunnen.', 'nieuw', 0],
+    ['Van Doorn Techniek', 'service@vandoorntechniek.nl', 'Onderhoudscontract osmose',
+     'Hierbij het voorstel voor het jaarcontract, zie bijlage.', 'gelezen', 1],
+    ['Eneco Zakelijk', 'noreply@eneco.nl', 'Jaarafrekening 2025',
+     'Uw jaarafrekening staat klaar.', 'verwerkt', 1],
+  ]
+
+  const mailbox: MailBericht[] = POST.map(([naam, adres, onderwerp, tekst, status, bijlagen], i) => ({
+    id: 'mb_' + i,
+    richting: 'in',
+    van: adres,
+    vanNaam: naam,
+    aan: 'bonnen@preview.truckwash.cloud',
+    onderwerp,
+    tekst,
+    hadHtml: i % 2 === 0,
+    at: t - (i + 1) * 7 * 3_600_000,
+    status,
+    attachments: bijlagen
+      ? [{
+          naam: onderwerp.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.pdf',
+          mime: 'application/pdf',
+          size: 84_000 + i * 12_000,
+          path: `mb_${i}/1-factuur.pdf`,
+        }]
+      : [],
+    expenseId: bijlagen ? 'exp_mail_' + i : undefined,
+    providerId: 'resend_' + i,
+    updatedAt: t,
+  }))
+
+  // De bonnen die uit die post zijn ontstaan, met het bedrag nog op nul.
+  for (const m of mailbox) {
+    if (!m.expenseId) continue
+    expenses.push({
+      id: m.expenseId,
+      locationId: 'loc_hk',
+      date: m.at,
+      category: 'overig',
+      supplier: m.vanNaam ?? m.van,
+      description: m.onderwerp,
+      amountExcl: 0,
+      vatPct: 21,
+      status: 'open',
+      submittedBy: '',
+      submittedByName: m.vanNaam ?? m.van,
+      source: 'mail',
+      mailboxId: m.id,
+      attachmentPath: m.attachments[0]?.path,
+      attachmentName: m.attachments[0]?.naam,
+      updatedAt: t,
+    })
+  }
+
   await server.transaction('rw', server.tables, async () => {
     await server.locations.bulkPut(locations)
     await server.companies.bulkPut(companies)
@@ -1122,6 +1185,7 @@ async function seed() {
     await server.chatMessages.bulkPut(chatMessages)
     await server.channelReads.bulkPut(channelReads)
     await server.emailLog.bulkPut(emailLog)
+    await server.mailbox.bulkPut(mailbox)
   })
 }
 

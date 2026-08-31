@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   CalendarRange, GraduationCap, Inbox, LayoutDashboard, LayoutGrid,
-  MessageSquare, Package, Receipt, Send, Settings, Users, Wrench,
+  Mail, MessageSquare, Package, Receipt, Send, Settings, Users, Wrench,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db } from '../../lib/db'
@@ -18,10 +18,13 @@ import Aanmeldingen from './Aanmeldingen'
 import OpleidingOverzicht from '../../components/OpleidingOverzicht'
 import BerichtVersturen from '../../components/BerichtVersturen'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
+import Postbus from '../../components/Postbus'
 import { Start, type Tegel, type TegelTint } from '../../components/Tegels'
 import { useNavTarget, usePerms } from '../../store/useNav'
 import { startOfDay } from '../../lib/analytics'
-import type { Expense, Fault, InventoryItem, Signup, User, WashJob } from '../../lib/types'
+import type {
+  Expense, Fault, InventoryItem, MailBericht, Signup, User, WashJob,
+} from '../../lib/types'
 
 const DAY = 86_400_000
 
@@ -42,10 +45,13 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   techniek: { title: 'Techniek', subtitle: 'Storingen, onderhoud en werkbonnen' },
   opleiding: { title: 'Opleiding', subtitle: 'Voortgang van iedereen' },
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
+  postbus: { title: 'Postbus', subtitle: 'Post die binnenkomt op het dashboard' },
   beheer: { title: 'Beheer', subtitle: 'Instellingen, rechten en gegevens' },
 }
 
-const ZONDER_PERIODE = ['start', 'planning', 'beheer', 'opleiding', 'aanmeldingen', 'overleg']
+const ZONDER_PERIODE = [
+  'start', 'planning', 'beheer', 'opleiding', 'aanmeldingen', 'overleg', 'postbus',
+]
 
 export default function ManagementDashboard() {
   const [page, setPage] = useState('start')
@@ -59,6 +65,7 @@ export default function ManagementDashboard() {
   const voorraad = useLiveQuery(() => db.inventory.toArray(), [], [] as InventoryItem[])
   const mensen = useLiveQuery(() => db.users.toArray(), [], [] as User[])
   const ongelezen = useOverlegTeller()
+  const post = useLiveQuery(() => db.mailbox.toArray(), [], [] as MailBericht[])
 
   const jobsVandaag = useLiveQuery(
     async () => {
@@ -81,7 +88,10 @@ export default function ManagementDashboard() {
       (u) => u.active && !u.authId && !u.roles.includes('customer')).length
     const gereed = jobsVandaag.filter((j) => j.status === 'gereed').length
 
+    const nieuwePost = post.filter((m) => m.richting === 'in' && m.status === 'nieuw').length
+
     return {
+      nieuwePost,
       openKosten: openKosten.length,
       openBedrag: openKosten.reduce((a, b) => a + b.amountExcl, 0),
       nieuweAanmeldingen,
@@ -92,7 +102,7 @@ export default function ManagementDashboard() {
       gereed,
       vandaag: jobsVandaag.length,
     }
-  }, [bonnen, aanmeldingen, storingen, voorraad, mensen, jobsVandaag])
+  }, [bonnen, aanmeldingen, storingen, voorraad, mensen, jobsVandaag, post])
 
   const items: NavItem[] = [
     { key: 'start', label: 'Start', icon: LayoutGrid },
@@ -108,6 +118,9 @@ export default function ManagementDashboard() {
     { key: 'opleiding', label: 'Opleiding', icon: GraduationCap },
     ...(perms.can('chat.use')
       ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
+      : []),
+    ...(perms.can('mail.read')
+      ? [{ key: 'postbus', label: 'Postbus', icon: Mail, badge: cijfers.nieuwePost || undefined }]
       : []),
     { key: 'beheer', label: 'Beheer', icon: Settings },
   ]
@@ -212,6 +225,17 @@ export default function ManagementDashboard() {
       urgent: ongelezen > 0,
       onClick: () => setPage('overleg'),
     }] : []),
+    ...(perms.can('mail.read') ? [{
+      key: 'postbus',
+      label: 'Postbus',
+      hint: 'Bonnen en post die binnenkomen per mail',
+      icon: Mail,
+      tint: (cijfers.nieuwePost ? 'oranje' : 'neutraal') as TegelTint,
+      stat: cijfers.nieuwePost,
+      statLabel: cijfers.nieuwePost === 1 ? 'nieuw bericht' : 'nieuwe berichten',
+      urgent: cijfers.nieuwePost > 0,
+      onClick: () => setPage('postbus'),
+    }] : []),
     {
       key: 'opleiding',
       label: 'Opleiding',
@@ -289,6 +313,7 @@ export default function ManagementDashboard() {
       {page === 'techniek' && <Techniek days={days} />}
       {page === 'opleiding' && <OpleidingOverzicht />}
       {page === 'overleg' && <Overleg />}
+      {page === 'postbus' && <Postbus />}
       {page === 'beheer' && <Beheer />}
 
       <BerichtVersturen open={messaging} onClose={() => setMessaging(false)} />

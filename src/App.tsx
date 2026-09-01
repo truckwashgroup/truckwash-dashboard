@@ -16,6 +16,9 @@ import CarwashAnimation from './components/CarwashAnimation'
 import RolePicker from './components/RolePicker'
 import Toasts from './components/Toasts'
 import Titelbalk from './components/Titelbalk'
+import AdministratieDashboard from './dashboards/administratie/AdministratieDashboard'
+import Welkomst from './components/Welkomst'
+import { welkomAfstrepen, welkomTeGaan } from './lib/welkom'
 import UpdateBanner from './components/UpdateBanner'
 import { useDeviceNotifications } from './components/NotificationCenter'
 import EmployeeDashboard from './dashboards/employee/EmployeeDashboard'
@@ -34,6 +37,7 @@ export default function App() {
 
   /** De wasstraat-animatie draait één keer per inlog. */
   const [washed, setWashed] = useState(false)
+  const [welkom, setWelkom] = useState(false)
 
   // Nieuwe berichten ook buiten de app laten zien
   useDeviceNotifications()
@@ -77,6 +81,17 @@ export default function App() {
     void initUpdates()
     void restore()
   }, [initUpdates, restore])
+
+  /*
+   * Staat er een welkom klaar? Dat is een vraag aan de lokale opslag, dus
+   * hij komt een tel later dan de rest van het scherm. Daarom staat het in
+   * een eigen effect en niet in de opbouw van de weergave.
+   */
+  useEffect(() => {
+    let levend = true
+    void welkomTeGaan(user).then((ja) => { if (levend) setWelkom(ja) })
+    return () => { levend = false }
+  }, [user])
 
   // opnieuw inloggen -> animatie opnieuw
   useEffect(() => {
@@ -165,6 +180,19 @@ export default function App() {
          * het mis.
          */
         <WachtwoordWijzigen />
+      ) : welkom ? (
+        /*
+         * Nieuw en net binnen. Dit komt in plaats van de wasstraat-animatie
+         * en niet erbovenop: twee filmpjes achter elkaar op je eerste dag is
+         * geen welkom meer maar een wachtrij.
+         */
+        <Welkomst
+          onKlaar={() => {
+            setWelkom(false)
+            setWashed(true)
+            void welkomAfstrepen(user)
+          }}
+        />
       ) : !washed ? (
         <AnimatePresence>
           <CarwashAnimation key="wash" onDone={() => setWashed(true)} userName={user.name} />
@@ -179,6 +207,8 @@ export default function App() {
         <TechnicianDashboard />
       ) : role === 'developer' ? (
         <DeveloperDashboard />
+      ) : role === 'administratie' ? (
+        <AdministratieDashboard />
       ) : role === 'employer' ? (
         <EmployerDashboard />
       ) : role === 'customer' ? (

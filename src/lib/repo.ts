@@ -159,6 +159,21 @@ export const expenses = {
     })
   },
 
+  /**
+   * Velden van een kostenpost bijwerken.
+   *
+   * Gebruikt om over te nemen wat er uit een factuur is gelezen. Het veld
+   * "gelezen" staat er met opzet niet bij: dat is het verslag van wat de
+   * app zag, en een verslag dat je kunt bijschaven is geen verslag. De
+   * database weigert het ook.
+   */
+  async update(id: string, patch: Partial<Expense>) {
+    const bestaand = await db.expenses.get(id)
+    if (!bestaand) return
+    const { gelezen: _weg, ...schoon } = patch
+    return put('expenses', db.expenses, { ...bestaand, ...schoon, id })
+  },
+
   async reopen(id: string) {
     const exp = await db.expenses.get(id)
     if (!exp) return

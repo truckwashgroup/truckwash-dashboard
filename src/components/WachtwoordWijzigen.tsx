@@ -5,6 +5,8 @@ import {
 } from 'lucide-react'
 import { supabase, supabaseConfigured } from '../lib/api/supabaseApi'
 import { users as userRepo } from '../lib/repo'
+import { setMeta } from '../lib/db'
+import { WELKOM_KLAAR } from '../lib/welkom'
 import { passwordProblem } from '../lib/signups'
 import { useAuth } from '../store/useAuth'
 import { toast } from '../store/useToasts'
@@ -54,6 +56,16 @@ export default function WachtwoordWijzigen() {
       }
 
       if (user) await userRepo.update(user.id, { mustChangePassword: false })
+
+      /*
+       * Dit is het enige moment waarop we zeker weten dat iemand nieuw is:
+       * uitgenodigd, binnengekomen met een tijdelijk wachtwoord en nu zijn
+       * eigen gekozen. Dat leggen we vast en houden we niet in het geheugen
+       * van dit scherm -- ververst hij halverwege, dan hoort het welkom er
+       * daarna nog te zijn.
+       */
+      if (user) await setMeta(WELKOM_KLAAR, user.id)
+
       await herlaadProfiel()
 
       toast.ok('Je wachtwoord is gewijzigd')

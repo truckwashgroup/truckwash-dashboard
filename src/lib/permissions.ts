@@ -97,6 +97,44 @@ const CUSTOMER: Permission[] = [
   // losse rechten, de database schermt de gegevens al af.
 ]
 
+/**
+ * De administratie.
+ *
+ * Alles wat op een beslissing wacht komt bij deze rol samen: kostenposten,
+ * urenwijzigingen, aanpassingen in een dossier en aanmeldingen. De rode
+ * draad is niet "geld" maar "iemand moet hier ja of nee zeggen".
+ *
+ * Wat er bewust níét bij zit: het rooster maken, de planning, de voorraad en
+ * de techniek. Dat is uitvoeren, en wie uitvoert hoort niet ook zijn eigen
+ * werk goed te keuren.
+ *
+ * Wel finance.view, want een kostenpost beoordelen zonder te zien wat er
+ * verder die maand is langsgekomen is stempelen, geen beoordelen.
+ */
+const ADMINISTRATIE: Permission[] = [
+  'admin.desk',
+
+  'expenses.viewTeam', 'expenses.approve', 'expenses.read', 'expenses.submit',
+  'finance.view', 'finance.export',
+
+  'hours.own', 'hours.viewTeam', 'hours.approve',
+  'roster.viewOwn', 'roster.viewTeam',
+
+  'staff.view', 'staff.edit', 'staff.pay',
+  'signups.view', 'signups.decide',
+
+  'customers.view', 'customers.manage',
+  'employer.view',
+
+  'locations.view', 'locations.all',
+  'mail.read', 'mail.send',
+  'agenda.view', 'agenda.edit',
+  'notify.send',
+  'chat.use',
+  'learning.take',
+  'dev.report',
+]
+
 const MANAGEMENT: Permission[] = PERMISSIONS.map((p) => p.key)
 
 export const ROLE_DEFAULTS: Record<Role, Permission[]> = {
@@ -106,6 +144,7 @@ export const ROLE_DEFAULTS: Record<Role, Permission[]> = {
   developer: DEVELOPER,
   employer: EMPLOYER,
   customer: CUSTOMER,
+  administratie: ADMINISTRATIE,
   management: MANAGEMENT,
 }
 

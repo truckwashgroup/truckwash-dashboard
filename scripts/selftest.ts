@@ -3581,6 +3581,196 @@ console.log('\n— de brug naar het venster —')
     main.includes('Menu.setApplicationMenu'))
 }
 
+/* ==================================================================== *
+ *  Een factuur die is voorgelezen
+ *
+ *  Het gevaarlijke aan dit stuk is niet dat het model iets mist -- dat zie
+ *  je -- maar dat het iets bijna goed heeft. Een bedrag exclusief btw dat
+ *  is teruggerekend uit een totaal met een aangenomen percentage ziet er
+ *  precies zo uit als een bedrag dat op de factuur stond. En dat wordt
+ *  goedgekeurd.
+ *
+ *  Dus: liever niets voorstellen dan iets aannemen.
+ * ==================================================================== */
+
+console.log('\n— een factuur die is voorgelezen —')
+
+{
+  const {
+    bedragExcl, btwPercentage, voorstellen, regelsKloppen, heeftIetsTeLezen,
+  } = await import('../src/lib/facturen')
+
+  const kaal = { gelezenOp: 1 }
+
+  /* --- het bedrag exclusief --- */
+
+  check('het subtotaal van de factuur telt',
+    bedragExcl({ ...kaal, subtotaalExcl: 120.5 }) === 120.5)
+  check('anders totaal min btw',
+    bedragExcl({ ...kaal, totaalIncl: 121, btwBedrag: 21 }) === 100)
+  check('een cent wordt netjes afgerond',
+    bedragExcl({ ...kaal, totaalIncl: 100.005, btwBedrag: 0 }) === 100.01)
+
+  check('alleen een totaal inclusief levert niets op',
+    bedragExcl({ ...kaal, totaalIncl: 121 }) === undefined)
+  check('en een lege lezing ook niet', bedragExcl(kaal) === undefined)
+
+  /* --- het percentage --- */
+
+  check('21 procent wordt herkend',
+    btwPercentage({ ...kaal, subtotaalExcl: 100, btwBedrag: 21 }) === 21)
+  check('9 procent ook',
+    btwPercentage({ ...kaal, subtotaalExcl: 200, btwBedrag: 18 }) === 9)
+  check('en 0 procent, bij verlegde btw',
+    btwPercentage({ ...kaal, subtotaalExcl: 100, btwBedrag: 0 }) === 0)
+
+  check('een afronding van een cent gaat er nog doorheen',
+    btwPercentage({ ...kaal, subtotaalExcl: 100, btwBedrag: 20.99 }) === 21)
+
+  /*
+   * Twee tarieven op één factuur geven een percentage dat nergens bestaat.
+   * Dan is één getal invullen gewoon fout, en stellen we niets voor.
+   */
+  check('een tarief dat niet bestaat levert niets op',
+    btwPercentage({ ...kaal, subtotaalExcl: 100, btwBedrag: 17.4 }) === undefined)
+  check('zonder btw-bedrag ook niet',
+    btwPercentage({ ...kaal, subtotaalExcl: 100 }) === undefined)
+  check('en delen door nul gebeurt niet',
+    btwPercentage({ ...kaal, subtotaalExcl: 0, btwBedrag: 21 }) === undefined)
+
+  /* --- tellen de regels op --- */
+
+  const metRegels = {
+    ...kaal,
+    subtotaalExcl: 100,
+    regels: [
+      { omschrijving: 'Ontvetter 20L', bedragExcl: 60 },
+      { omschrijving: 'Borstels', bedragExcl: 40 },
+    ],
+  }
+  check('kloppende regels worden gemeld als kloppend',
+    regelsKloppen(metRegels)?.klopt === true)
+
+  const scheef = { ...metRegels, subtotaalExcl: 112.5 }
+  check('en een verschil ook',
+    regelsKloppen(scheef)?.klopt === false)
+  check('met het verschil erbij',
+    Math.abs((regelsKloppen(scheef)?.verschil ?? 0) + 12.5) < 0.001)
+  check('zonder regels valt er niets te controleren',
+    regelsKloppen(kaal) === null)
+
+  /* --- wat er over te nemen valt --- */
+
+  const bon = {
+    id: 'e1', locationId: 'l1', date: 1000,
+    category: 'overig', supplier: '', description: '',
+    amountExcl: 0, vatPct: 21, status: 'open',
+    submittedBy: 'u1', submittedByName: 'Wim',
+    attachmentPath: 'post/x.pdf', updatedAt: 0,
+  } as never as Parameters<typeof voorstellen>[0]
+
+  const lezing = {
+    ...kaal,
+    leverancier: 'Chemtrans BV',
+    factuurnummer: 'F-2025-118',
+    datum: 2000,
+    subtotaalExcl: 100,
+    btwBedrag: 21,
+    totaalIncl: 121,
+    voorstelCategorie: 'materiaal' as const,
+  }
+
+  const uit = voorstellen(bon, lezing)
+  const veld = (naam: string) => uit.find((v) => v.veld === naam)
+
+  check('de leverancier wordt voorgesteld', veld('supplier')?.waarde === 'Chemtrans BV')
+  check('het bedrag exclusief ook', veld('amountExcl')?.waarde === 100)
+  check('de datum ook', veld('date')?.waarde === 2000)
+  check('de categorie ook', veld('category')?.waarde === 'Materiaal')
+  check('en het factuurnummer komt in de omschrijving',
+    String(veld('description')?.waarde ?? '').includes('F-2025-118'))
+
+  /*
+   * Het percentage stond al goed op de bon. Een voorstel dat niets verandert
+   * is een regel die je overslaat, en wie regels overslaat slaat er straks
+   * ook een over die er wel toe deed.
+   */
+  check('een percentage dat al klopt wordt niet voorgesteld',
+    veld('vatPct') === undefined)
+
+  const zelfde = voorstellen(
+    { ...bon, supplier: 'Chemtrans BV', amountExcl: 100, date: 2000,
+      category: 'materiaal', description: 'Factuur F-2025-118' } as never,
+    lezing)
+  check('een lezing die niets nieuws zegt levert geen enkel voorstel op',
+    zelfde.length === 0)
+
+  /* --- valt er iets te lezen --- */
+
+  check('een bon met een bijlage is te lezen', heeftIetsTeLezen(bon))
+  check('een bon uit de post ook',
+    heeftIetsTeLezen({ ...bon, attachmentPath: undefined, mailboxId: 'mb_1' } as never))
+  check('een bon zonder bijlage niet',
+    !heeftIetsTeLezen({ ...bon, attachmentPath: undefined } as never))
+}
+
+/* ==================================================================== *
+ *  De administratie
+ * ==================================================================== */
+
+console.log('\n— de administratie —')
+
+{
+  const { ROLE_DEFAULTS, effectivePermissions } = await import('../src/lib/permissions')
+  const { ROLE_LABELS, ROLE_ORDER } = await import('../src/lib/types')
+  const { RONDLEIDINGEN, moetZien, merk } = await import('../src/lib/rondleiding')
+
+  check('de rol bestaat', ROLE_LABELS.administratie === 'Administratie')
+  check('en staat in de volgorde', ROLE_ORDER.includes('administratie'))
+  check('en heeft een rondleiding', !!RONDLEIDINGEN.administratie)
+
+  const rechten = new Set(ROLE_DEFAULTS.administratie)
+
+  check('de administratie keurt kosten goed', rechten.has('expenses.approve'))
+  check('en mag de factuur laten lezen', rechten.has('expenses.read'))
+  check('en keurt uren goed', rechten.has('hours.approve'))
+  check('en handelt aanmeldingen af', rechten.has('signups.decide'))
+  check('en ziet de cijfers', rechten.has('finance.view'))
+
+  /*
+   * Beoordelen is iets anders dan uitvoeren. Wie het rooster maakt en de
+   * uren goedkeurt, keurt zijn eigen werk goed.
+   */
+  check('maar maakt geen rooster', !rechten.has('roster.edit'))
+  check('en plant geen wasbeurten', !rechten.has('planning.edit'))
+  check('en boekt geen voorraad af', !rechten.has('inventory.adjust'))
+  check('en deelt geen rechten uit', !rechten.has('staff.permissions'))
+  check('en komt niet bij het logboek', !rechten.has('dev.logs'))
+
+  /* --- de rondleiding wordt één keer getoond, per rol --- */
+
+  const iemand = {
+    id: 'u1', email: 'a@b.nl', password: '', name: 'Ada',
+    roles: ['administratie'], active: true, updatedAt: 0,
+    seenTours: [],
+  } as never as Parameters<typeof moetZien>[0]
+
+  check('een nieuwe administratiekracht krijgt de rondleiding',
+    moetZien(iemand, 'administratie'))
+  check('en daarna niet meer',
+    !moetZien({ ...(iemand as object), seenTours: [merk('administratie')] } as never,
+              'administratie'))
+
+  /* --- de rechten van de rol komen ook echt aan --- */
+
+  const echt = effectivePermissions(iemand)
+  check('de rechten van de rol gelden', echt.has('expenses.approve'))
+  check('en een ingetrokken recht telt niet mee',
+    !effectivePermissions(
+      { ...(iemand as object), revokes: ['expenses.approve'] } as never,
+    ).has('expenses.approve'))
+}
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

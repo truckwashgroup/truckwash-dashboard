@@ -146,6 +146,7 @@ await run(db, '0025_de_kluis_en_het_koppelen_van_een_kassa.sql draait', sqlFile(
 await run(db, '0026_de_vestigingen_beheren.sql draait', sqlFile('supabase/migrations/0026_de_vestigingen_beheren.sql'))
 await run(db, '0027_een_foto_bij_het_artikel.sql draait', sqlFile('supabase/migrations/0027_een_foto_bij_het_artikel.sql'))
 await run(db, '0028_een_kassa_is_geen_aanmelding.sql draait', sqlFile('supabase/migrations/0028_een_kassa_is_geen_aanmelding.sql'))
+await run(db, '0029_de_administratie.sql draait', sqlFile('supabase/migrations/0029_de_administratie.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -184,6 +185,7 @@ await run(db, '0024 nogmaals', sqlFile('supabase/migrations/0024_uren_en_kilomet
 await run(db, '0025 nogmaals', sqlFile('supabase/migrations/0025_de_kluis_en_het_koppelen_van_een_kassa.sql'))
 await run(db, '0027 nogmaals', sqlFile('supabase/migrations/0027_een_foto_bij_het_artikel.sql'))
 await run(db, '0028 nogmaals', sqlFile('supabase/migrations/0028_een_kassa_is_geen_aanmelding.sql'))
+await run(db, '0029 nogmaals', sqlFile('supabase/migrations/0029_de_administratie.sql'))
 await run(db, '0026 nogmaals', sqlFile('supabase/migrations/0026_de_vestigingen_beheren.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
@@ -2491,6 +2493,142 @@ check('is_device eraf halen mag, en dan mogen de rollen weer',
                 update public.profiles set roles = array['employee','supervisor']
                  where id = 'dev_proef';`)) === null)
 
+
+console.log('\n28. De administratie')
+
+/*
+ * Twee dingen die zonder deze migratie stil misgingen.
+ *
+ * Het recht expenses.approve bestond al in de app maar de database keek er
+ * niet naar: daar stond alleen is_management(). Je kon het dus uitdelen en
+ * er veranderde niets -- het gevaarlijkste soort recht.
+ *
+ * En het verslag van wat er uit een factuur is gelezen hoort niet met de
+ * hand bij te werken. Kan dat wel, dan is het geen verslag meer maar een
+ * bewering, en dan zegt "de app las 1.210,00" niets.
+ */
+
+await asServer(db)
+await db.exec(`
+  alter table public.expenses force row level security;
+  grant select, insert, update, delete on all tables in schema public to authenticated;
+
+  insert into public.expenses
+    (id, location_id, expense_date, category, supplier, description,
+     amount_excl, vat_pct, status, submitted_by, submitted_by_name)
+  values
+    ('exp_adm', 'loc_utr', 1000, 'materiaal', 'Chemtrans', 'Ontvetter',
+     100, 21, 'open', 'x', 'Wim')
+  on conflict (id) do nothing;
+`)
+
+/* --- de administratie is personeel --- */
+
+const admin = 'ada00000-0000-0000-0000-00000000ada0'
+await db.exec(`
+  insert into auth.users (id, email) values ('${admin}', 'admin@truckwash1group.nl')
+  on conflict (id) do nothing;
+  update public.profiles
+     set roles = array['administratie']::text[], active = true, all_locations = true,
+         grants = array['expenses.approve', 'hours.approve']::text[]
+   where email = 'admin@truckwash1group.nl';
+`)
+
+check('de administratie telt mee als personeel',
+  (await db.query(`
+     select public.is_staff() as ja
+       from (select set_config('test.uid', '${admin}', true)) _`)).rows[0].ja === true)
+
+await asServer(db)
+
+/* --- kosten beoordelen --- */
+
+check('wie kosten mag goedkeuren ziet ze ook',
+  (await countAs(admin, "select count(*)::int as n from public.expenses where id = 'exp_adm'")) === 1)
+
+check('en een wasser die hem niet indiende niet',
+  (await countAs(wasser, "select count(*)::int as n from public.expenses where id = 'exp_adm'")) === 0)
+
+check('de administratie keurt hem goed',
+  await magSchrijven(admin, `update public.expenses
+     set status = 'goedgekeurd', approved_by_name = 'Ada'
+   where id = 'exp_adm';`))
+
+check('en dat staat er dan ook',
+  (await db.query(
+    "select status from public.expenses where id = 'exp_adm'")).rows[0].status === 'goedgekeurd')
+
+await magSchrijven(wasser, `update public.expenses
+   set status = 'afgekeurd' where id = 'exp_adm';`)
+check('een wasser krijgt hem niet afgekeurd',
+  (await db.query(
+    "select status from public.expenses where id = 'exp_adm'")).rows[0].status === 'goedgekeurd')
+
+/* --- het verslag blijft een verslag --- */
+
+await db.exec(`
+  update public.expenses
+     set gelezen = '{"leverancier":"Chemtrans BV","totaalIncl":121}'::jsonb
+   where id = 'exp_adm';
+`)
+
+check('de server schrijft de lezing weg',
+  (await db.query(
+    "select gelezen->>'leverancier' as l from public.expenses where id = 'exp_adm'"))
+    .rows[0].l === 'Chemtrans BV')
+
+await magSchrijven(admin, `update public.expenses
+   set gelezen = '{"leverancier":"Iets anders","totaalIncl":9999}'::jsonb
+ where id = 'exp_adm';`)
+check('maar uit de app is hij niet te wijzigen',
+  (await db.query(
+    "select gelezen->>'leverancier' as l from public.expenses where id = 'exp_adm'"))
+    .rows[0].l === 'Chemtrans BV')
+
+await magSchrijven(admin, `update public.expenses
+   set gelezen = null where id = 'exp_adm';`)
+check('en niet weg te halen',
+  (await db.query(
+    "select gelezen is not null as er from public.expenses where id = 'exp_adm'"))
+    .rows[0].er === true)
+
+check('terwijl gewoon bijwerken wél gewoon werkt',
+  await magSchrijven(admin, `update public.expenses
+     set description = 'Ontvetter 20L' where id = 'exp_adm';`))
+check('en dat komt er ook in te staan',
+  (await db.query(
+    "select description as d from public.expenses where id = 'exp_adm'")).rows[0].d
+    === 'Ontvetter 20L')
+
+/* --- urenwijzigingen --- */
+
+await asServer(db)
+await db.exec(`
+  alter table public.hour_requests force row level security;
+
+  insert into public.hour_requests
+    (id, user_id, user_name, van, tot, toelichting, status, aangevraagd_op)
+  values ('hr_adm', 'x', 'Wim', 1000, 2000, 'Vergeten te klokken', 'nieuw', 1000)
+  on conflict (id) do nothing;
+`)
+
+check('de administratie ziet de urenverzoeken',
+  (await countAs(admin, "select count(*)::int as n from public.hour_requests where id = 'hr_adm'")) === 1)
+
+check('en beslist erover',
+  await magSchrijven(admin, `update public.hour_requests
+     set status = 'goedgekeurd' where id = 'hr_adm';`))
+
+/*
+ * Dit is het stuk dat je zonder controle mist. De regel liet de wijziging
+ * door, maar de trigger op die tabel keek alleen naar is_lead() en zette de
+ * beslissing terug. Opslaan lukte, er veranderde niets, en er kwam geen
+ * foutmelding.
+ */
+check('en de wacht op die tabel zet dat niet terug',
+  (await db.query(
+    "select status from public.hour_requests where id = 'hr_adm'")).rows[0].status
+    === 'goedgekeurd')
 
 await db.close()
 

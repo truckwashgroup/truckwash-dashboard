@@ -4181,3 +4181,98 @@ table.data.matrix th { vertical-align: bottom; }
  */
 :root.eigen-titelbalk { --safe-top: 34px; }
 :root.eigen-titelbalk .boot { padding-top: 34px; }
+
+/* ================================================================== *
+ *  Kostenposten en wat er uit de factuur is gelezen
+ * ================================================================== */
+
+.kosten-open {
+  padding: 0; border: 0; background: none;
+  color: inherit; font: inherit; text-align: left;
+  cursor: pointer;
+  border-bottom: 1px dotted var(--line);
+}
+.kosten-open:hover { color: var(--brand); border-bottom-color: var(--brand); }
+
+.kosten-categorie { font-size: .72rem; color: var(--text-3); text-transform: capitalize; }
+.kosten-reden { font-size: .73rem; color: var(--danger); }
+.kosten-gelezen {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-top: 2px;
+  font-size: .72rem; color: var(--info, #7aa2ff);
+}
+
+.lezing {
+  margin-top: 4px;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.lezing-kop {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 12px;
+  font-size: .78rem; color: var(--text-3);
+}
+
+/*
+ * Waar het model niet uit kwam. Dit staat bovenaan en niet onderin: wie
+ * scrollt om te zien of er twijfel was, scrollt op een gegeven moment niet
+ * meer.
+ */
+.lezing-twijfel {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-warn, var(--line));
+  border-radius: var(--radius-sm);
+  background: var(--tint-warn-weak, var(--surface));
+}
+.lezing-twijfel .kop {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 6px;
+  font-size: .8rem; font-weight: 650; color: var(--warn);
+}
+.lezing-twijfel ul { margin: 0; padding-left: 18px; }
+.lezing-twijfel li { font-size: .8rem; color: var(--text-2); margin: 3px 0; }
+
+.lezing-velden {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px 14px;
+}
+.lezing-veld { display: grid; gap: 1px; }
+.lezing-veld .l {
+  font-size: .68rem; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--text-3);
+}
+.lezing-veld .w { font-size: .86rem; }
+
+.lezing-overnemen {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+.lezing-overnemen .kop {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 8px;
+  font-size: .82rem; font-weight: 650;
+}
+.lezing-overnemen ul { margin: 0 0 10px; padding: 0; list-style: none; }
+.lezing-overnemen li {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line-soft);
+  font-size: .83rem;
+}
+.lezing-overnemen li .l { width: 150px; color: var(--text-3); flex: none; }
+.lezing-overnemen li .was {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+.lezing-overnemen li .wordt { flex: 1; font-weight: 600; }
+
+@media (max-width: 620px) {
+  .lezing-overnemen li { flex-wrap: wrap; }
+  .lezing-overnemen li .l { width: 100%; }
+}

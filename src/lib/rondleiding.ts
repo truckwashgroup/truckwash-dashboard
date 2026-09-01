@@ -645,6 +645,92 @@ const ONTWIKKELAAR: Rondleiding = {
   ],
 }
 
+const ADMINISTRATIE: Rondleiding = {
+  rol: 'administratie',
+  versie: 1,
+  naam: 'Administratie',
+  schermen: [
+    {
+      id: 'welkom',
+      titel: 'Alles wat op je wacht, op één plek',
+      tekst:
+        'Kostenposten, urenwijzigingen, aanpassingen in een dossier en ' +
+        'aanmeldingen stonden vroeger in vier verschillende schermen. Wie ' +
+        'vier lijsten moet openen om te weten of hij klaar is, denkt op een ' +
+        'gegeven moment dat hij klaar is. Hier staan ze bij elkaar.',
+      tint: 'brand',
+      icoon: 'ClipboardCheck',
+    },
+    {
+      id: 'lezen',
+      titel: 'De factuur wordt voorgelezen',
+      tekst:
+        'Zit er een PDF of een foto bij een kostenpost, dan haalt de app er ' +
+        'de leverancier, het factuurnummer, de regels en de bedragen uit. Je ' +
+        'krijgt het als voorstel te zien, naast de factuur zelf.',
+      tint: 'info',
+      icoon: 'ScanText',
+    },
+    {
+      id: 'voorstel',
+      titel: 'Een voorstel is geen invoer',
+      tekst:
+        'Wat eruit komt gaat nergens heen tot jij op overnemen drukt. Het ' +
+        'staat ook apart opgeslagen van wat je goedkeurt, zodat je later kunt ' +
+        'zien wat de app voorstelde en wat een mens ervan maakte. Waar het ' +
+        'model twijfelde, staat dat er met zoveel woorden bij.',
+      tint: 'warn',
+      icoon: 'AlertTriangle',
+    },
+    {
+      id: 'grens',
+      titel: 'Beoordelen is iets anders dan uitvoeren',
+      tekst:
+        'Je keurt uren goed, maar je maakt geen rooster. Je keurt bonnen ' +
+        'goed, maar je boekt geen voorraad af. Dat is met opzet: wie ' +
+        'uitvoert hoort niet ook zijn eigen werk af te tekenen.',
+      tint: 'ok',
+      icoon: 'ShieldCheck',
+    },
+  ],
+  aanwijzers: [
+    {
+      id: 'nav-tedoen',
+      doel: 'nav-tedoen',
+      titel: 'Te doen',
+      tekst: 'Alles wat op een beslissing wacht, nieuwste eerst.',
+    },
+    {
+      id: 'nav-kosten',
+      doel: 'nav-kosten',
+      titel: 'Kostenposten',
+      tekst: 'Goedkeuren, afkeuren, en de factuur laten uitlezen.',
+      recht: 'expenses.approve',
+    },
+    {
+      id: 'nav-uren',
+      doel: 'nav-uren',
+      titel: 'Urenwijzigingen',
+      tekst: 'Wie niet op tijd geklokt heeft, vraagt hier een correctie aan.',
+      recht: 'hours.approve',
+    },
+    {
+      id: 'nav-dossiers',
+      doel: 'nav-dossiers',
+      titel: 'Dossierwijzigingen',
+      tekst: 'Een gewijzigd rekeningnummer of adres wil je niet zomaar overnemen.',
+      recht: 'staff.view',
+    },
+    {
+      id: 'nav-aanmeldingen',
+      doel: 'nav-aanmeldingen',
+      titel: 'Aanmeldingen',
+      tekst: 'Wie zich via de app heeft gemeld, en of die erin mag.',
+      recht: 'signups.decide',
+    },
+  ],
+}
+
 export const RONDLEIDINGEN: Record<Role, Rondleiding> = {
   employee: WERKNEMER,
   supervisor: LEIDINGGEVENDE,
@@ -652,6 +738,7 @@ export const RONDLEIDINGEN: Record<Role, Rondleiding> = {
   customer: KLANT,
   employer: WERKGEVER,
   management: MANAGEMENT,
+  administratie: ADMINISTRATIE,
   developer: ONTWIKKELAAR,
 }
 

@@ -18,8 +18,11 @@ import type { User } from './types'
 export interface Uitkomst {
   ok: boolean
   soort?: 'nieuw account' | 'gekoppeld' | 'uitgeschreven' | 'teruggezet' | 'gewist'
+         | 'alleen hier gewist'
   reden?: string
   mailVerstuurd?: boolean
+  /** De code van de server, als die er was. 404 = dit dossier staat er niet. */
+  status?: number
 }
 
 async function roep(body: Record<string, unknown>): Promise<Uitkomst> {
@@ -33,7 +36,11 @@ async function roep(body: Record<string, unknown>): Promise<Uitkomst> {
     const { data, error } = await supabase().functions.invoke<Uitkomst>('medewerker', { body })
     if (error) {
       const detail = await leesFout(error)
-      return { ok: false, reden: detail ?? String(error.message ?? error) }
+      return {
+        ok: false,
+        reden: detail?.reden ?? String(error.message ?? error),
+        status: detail?.status,
+      }
     }
     return data ?? { ok: false, reden: 'Geen antwoord van de server.' }
   } catch (e) {
@@ -41,17 +48,44 @@ async function roep(body: Record<string, unknown>): Promise<Uitkomst> {
   }
 }
 
-async function leesFout(error: unknown): Promise<string | null> {
+async function leesFout(
+  error: unknown,
+): Promise<{ reden: string | null; status?: number } | null> {
   const context = (error as { context?: unknown })?.context
   if (!context || typeof context !== 'object') return null
   try {
     const response = context as Response
-    if (typeof response.json !== 'function') return null
+    const status = typeof response.status === 'number' ? response.status : undefined
+    if (typeof response.json !== 'function') return { reden: null, status }
     const body = await response.json()
-    return body?.reden ?? body?.error ?? null
+    return { reden: body?.reden ?? body?.error ?? null, status }
   } catch {
     return null
   }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Iemand die alleen op dit apparaat staat
+ *
+ *  Er is een tijd geweest dat een nieuw dossier de server niet haalde. De
+ *  app stuurde een veld mee dat daar niet bestond, de server weigerde de
+ *  hele rij, en na acht pogingen werd hij uit de wachtrij gegooid. Wat je
+ *  overhoudt is iemand die in jouw lijst staat en verder nergens.
+ *
+ *  Die kon je niet meer weg krijgen. Wissen gaat via de server, en die zei
+ *  "dossier niet gevonden" -- volkomen terecht, en volkomen onbruikbaar.
+ *
+ *  Dus: staat hij daar niet, dan is hier weghalen precies wat er moet
+ *  gebeuren. Er is niets om mee te synchroniseren.
+ * ------------------------------------------------------------------ */
+
+async function alleenHierWeg(userId: string) {
+  await db.users.delete(userId)
+  await db.personnelPrivate.delete(userId)
+
+  // Ook uit de wachtrij, anders probeert hij het straks alsnog.
+  const wachtend = await db.outbox.where('recordId').equals(userId).primaryKeys()
+  if (wachtend.length) await db.outbox.bulkDelete(wachtend)
 }
 
 export const personeel = {
@@ -65,8 +99,24 @@ export const personeel = {
    * maar zijn uren, wasbeurten en getekende contracten blijven staan. Dat
    * moet ook: loonadministratie en contracten bewaar je zeven jaar.
    */
-  uitschrijven: (userId: string, reden: string) =>
-    roep({ actie: 'uitschrijven', userId, reden }),
+  async uitschrijven(userId: string, reden: string): Promise<Uitkomst> {
+    const uit = await roep({ actie: 'uitschrijven', userId, reden })
+    if (uit.ok || uit.status !== 404) return uit
+
+    /*
+     * Uitschrijven bewaart wat er is. Staat er niets, dan valt er ook niets
+     * te bewaren -- en dan is uitschrijven het verkeerde gereedschap. Dat
+     * zeggen we, in plaats van hier stilletjes iets anders te doen.
+     */
+    const persoon = await db.users.get(userId)
+    return {
+      ok: false,
+      status: 404,
+      reden: `${persoon?.name ?? 'Dit dossier'} staat niet op de server; hij is ` +
+             'daar nooit aangekomen. Er valt dus niets uit te schrijven. ' +
+             'Gebruik "wissen" om hem van dit apparaat te halen.',
+    }
+  },
 
   terugzetten: (userId: string) => roep({ actie: 'terugzetten', userId }),
 
@@ -77,7 +127,24 @@ export const personeel = {
    * bewaarplicht voorbij is. De reden blijft staan nadat de persoon weg is
    * -- anders kan later niemand meer nagaan dat het is gebeurd.
    */
-  wissen: (userId: string, reden: string) => roep({ actie: 'wissen', userId, reden }),
+  async wissen(userId: string, reden: string): Promise<Uitkomst> {
+    const uit = await roep({ actie: 'wissen', userId, reden })
+    if (uit.ok || uit.status !== 404) return uit
+
+    /*
+     * De server kent dit dossier niet. Dat is geen fout maar een antwoord:
+     * hij is daar nooit aangekomen. Weghalen wat hier staat is dan precies
+     * wat er gevraagd werd, en het enige dat er nog te doen valt.
+     */
+    const persoon = await db.users.get(userId)
+    await alleenHierWeg(userId)
+    return {
+      ok: true,
+      soort: 'alleen hier gewist',
+      reden: `${persoon?.name ?? 'Dit dossier'} stond alleen op dit apparaat en is ` +
+             'nooit op de server aangekomen. Nu is hij ook hier weg.',
+    }
+  },
 }
 
 /* ------------------------------------------------------------------ *

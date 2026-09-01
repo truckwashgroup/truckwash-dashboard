@@ -4,7 +4,7 @@
 
 export type Role =
   | 'employee' | 'supervisor' | 'technician' | 'customer' | 'management'
-  | 'developer' | 'employer'
+  | 'developer' | 'employer' | 'administratie'
 
 export const ROLE_LABELS: Record<Role, string> = {
   employee: 'Werknemer',
@@ -14,10 +14,12 @@ export const ROLE_LABELS: Record<Role, string> = {
   management: 'Management',
   developer: 'Ontwikkelaar',
   employer: 'Werkgever',
+  administratie: 'Administratie',
 }
 
 export const ROLE_ORDER: Role[] =
-  ['employee', 'supervisor', 'technician', 'customer', 'employer', 'management', 'developer']
+  ['employee', 'supervisor', 'technician', 'customer', 'employer',
+   'administratie', 'management', 'developer']
 
 export interface User {
   id: string
@@ -318,7 +320,65 @@ export interface Expense {
   attachmentPath?: string
   attachmentName?: string
 
+  /**
+   * Wat er uit de factuur is gelezen.
+   *
+   * Staat los van de velden erboven, en dat is met opzet. Wat de AI eruit
+   * haalt is een voorstel; wat er in supplier, amountExcl en vatPct staat is
+   * wat een mens heeft goedgekeurd. Zou het in dezelfde velden landen, dan
+   * kon je achteraf niet meer zien wie wat had ingevuld.
+   */
+  gelezen?: FactuurLezing
+
   updatedAt: number
+}
+
+/** Eén regel van een factuur, zoals hij op het papier staat. */
+export interface FactuurRegel {
+  omschrijving: string
+  aantal?: number
+  eenheid?: string
+  stukprijs?: number
+  btwPct?: number
+  bedragExcl?: number
+}
+
+/**
+ * Wat er uit een factuur of bon is gehaald.
+ *
+ * De twijfel staat er met opzet bij. Een bedrag dat het model half heeft
+ * geraden is gevaarlijker dan een leeg veld: dat laatste vul je in, het
+ * eerste keur je goed.
+ */
+export interface FactuurLezing {
+  /** Wat voor stuk dit is; een pakbon heeft geen bedragen en dat is geen fout. */
+  soort?: 'factuur' | 'bon' | 'pakbon' | 'aanmaning' | 'onbekend'
+  leverancier?: string
+  factuurnummer?: string
+  /** Epoch ms. */
+  datum?: number
+  vervaldatum?: number
+  iban?: string
+  betalingskenmerk?: string
+  btwNummer?: string
+  kvk?: string
+
+  regels?: FactuurRegel[]
+  subtotaalExcl?: number
+  btwBedrag?: number
+  totaalIncl?: number
+  valuta?: string
+
+  /** Waar het model zelf niet uit kwam. Leesbare zinnen, geen codes. */
+  twijfel?: string[]
+  /** Wat er is voorgesteld voor de velden van de kostenpost. */
+  voorstelCategorie?: Expense['category']
+
+  gelezenOp: number
+  gelezenDoor?: string
+  model?: string
+  /** Het bestand waar dit uit komt, zodat je het naast elkaar kunt leggen. */
+  bestand?: string
 }
 
 export interface TimeEntry {
@@ -355,6 +415,7 @@ export type Permission =
   | 'inventory.view' | 'inventory.adjust' | 'inventory.manage'
   /* kosten */
   | 'expenses.submit' | 'expenses.viewTeam' | 'expenses.approve'
+  | 'expenses.read' | 'admin.desk'
   /* personeel */
   | 'staff.view' | 'staff.create' | 'staff.edit' | 'staff.permissions' | 'staff.pay'
   /* klanten */
@@ -431,6 +492,8 @@ export const PERMISSIONS: PermissionMeta[] = [
   { key: 'expenses.submit',   group: 'Kosten',     label: 'Bon indienen',         hint: 'Zelf kosten ter goedkeuring aanbieden.' },
   { key: 'expenses.viewTeam', group: 'Kosten',     label: 'Bonnen van het team',  hint: 'Zien wat het team heeft ingediend.' },
   { key: 'expenses.approve',  group: 'Kosten',     label: 'Bonnen goedkeuren',    hint: 'Kosten accorderen of afkeuren.', sensitive: true },
+  { key: 'expenses.read',     group: 'Kosten',     label: 'Factuur laten lezen',  hint: 'De bijlage door de AI laten uitlezen: bedragen, regels en betaalgegevens.' },
+  { key: 'admin.desk',        group: 'Kosten',     label: 'Administratie',        hint: 'Het administratiedashboard: alles wat op een beslissing wacht bij elkaar.', sensitive: true },
 
   { key: 'staff.view',        group: 'Personeel',  label: 'Personeel zien',       hint: 'De medewerkerslijst en dossiers bekijken.' },
   { key: 'staff.create',      group: 'Personeel',  label: 'Medewerker toevoegen', hint: 'Nieuwe personeelsdossiers aanmaken.' },

@@ -255,3 +255,97 @@
   color: var(--text-3);
   line-height: 1.5;
 }
+
+/* ================================================================== *
+ *  Welkom
+ *
+ *  Eén keer, voor wie net zijn eigen wachtwoord heeft gekozen.
+ * ================================================================== */
+
+.welkom {
+  position: fixed; inset: 0; z-index: 120;
+  display: grid; place-items: center;
+  padding: 28px 20px calc(28px + var(--safe-bottom));
+  padding-top: calc(28px + var(--safe-top));
+  background: var(--bg);
+  overflow: hidden;
+}
+
+/* De eigen vestiging, ver weggedraaid. Herkenning, geen decor. */
+.welkom-achtergrond {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  filter: blur(22px) saturate(.8);
+  transform: scale(1.1);
+}
+
+.welkom-gloed {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(900px 560px at 20% 0%, rgba(248,192,16,.16), transparent 62%),
+    radial-gradient(760px 480px at 100% 100%, rgba(88,182,245,.10), transparent 60%),
+    linear-gradient(180deg, rgba(7,12,22,.55), rgba(7,12,22,.86));
+}
+
+.welkom-kaart {
+  position: relative;
+  width: min(520px, 100%);
+  padding: 26px 26px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, var(--surface), var(--bg-2));
+  box-shadow: var(--shadow);
+}
+
+.welkom-kop { margin-bottom: 20px; }
+
+/* Een vaste hoogte, anders springt de kaart bij elke stap. */
+.welkom-stap { min-height: 186px; }
+
+.welkom-icoon {
+  display: grid; place-items: center;
+  width: 54px; height: 54px;
+  margin-bottom: 16px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+}
+
+.welkom-stap h2 {
+  margin: 0 0 8px;
+  font-size: 1.42rem;
+  letter-spacing: -.02em;
+}
+.welkom-stap p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: .92rem;
+  line-height: 1.55;
+}
+
+.welkom-voet {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.welkom-bolletjes { display: flex; gap: 6px; }
+.welkom-bolletjes button {
+  width: 7px; height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line);
+  cursor: pointer;
+  transition: width .2s ease, background .2s ease;
+}
+.welkom-bolletjes button.gehad { background: var(--text-3); }
+.welkom-bolletjes button.nu { width: 20px; background: var(--brand); }
+
+@media (max-width: 560px) {
+  .welkom-kaart { padding: 20px 18px 16px; }
+  .welkom-stap { min-height: 210px; }
+  .welkom-stap h2 { font-size: 1.24rem; }
+}

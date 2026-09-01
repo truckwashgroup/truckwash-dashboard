@@ -208,7 +208,13 @@ export default function PersoonBeheer({
                 const uit = await personeel.wissen(person.id, reden)
                 if (!uit.ok) return toast.error(uit.reden ?? 'Wissen lukte niet')
                 setWissen(false)
-                toast.info(`${person.name} is gewist`)
+                /*
+                 * Stond hij alleen op dit apparaat, dan is er iets anders
+                 * gebeurd dan je dacht, en dan hoor je dat te lezen -- niet
+                 * dezelfde bevestiging als bij een gewone verwijdering.
+                 */
+                if (uit.soort === 'alleen hier gewist') toast.warn(uit.reden ?? '')
+                else toast.info(`${person.name} is gewist`)
                 onWeg()
               } finally { setBezig(false) }
             }}

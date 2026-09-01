@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 import {
-  ArrowRight, BarChart3, Briefcase, Building2, ClipboardList, Code2, HardHat,
+  ArrowRight, BarChart3, Briefcase, Building2, ClipboardList, Code2, FileCheck, HardHat,
   LogOut, ShieldCheck, Wrench,
 } from 'lucide-react'
 import { useAuth } from '../store/useAuth'
@@ -37,6 +37,12 @@ const CARDS: Record<Role, {
     text: 'Meldingen uit de app afhandelen, het logboek doorspitten en zien wat gebruikers deden voordat er iets misging.',
     icon: Code2,
     cls: 'dev',
+  },
+  administratie: {
+    title: 'Administratie',
+    text: 'Alles wat op een beslissing wacht: kostenposten met de factuur erbij, urenwijzigingen, dossieraanpassingen en aanmeldingen.',
+    icon: FileCheck,
+    cls: 'admin',
   },
   customer: {
     title: 'Klanten',

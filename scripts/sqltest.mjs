@@ -145,6 +145,7 @@ await run(db, '0024_uren_en_kilometers.sql draait', sqlFile('supabase/migrations
 await run(db, '0025_de_kluis_en_het_koppelen_van_een_kassa.sql draait', sqlFile('supabase/migrations/0025_de_kluis_en_het_koppelen_van_een_kassa.sql'))
 await run(db, '0026_de_vestigingen_beheren.sql draait', sqlFile('supabase/migrations/0026_de_vestigingen_beheren.sql'))
 await run(db, '0027_een_foto_bij_het_artikel.sql draait', sqlFile('supabase/migrations/0027_een_foto_bij_het_artikel.sql'))
+await run(db, '0028_een_kassa_is_geen_aanmelding.sql draait', sqlFile('supabase/migrations/0028_een_kassa_is_geen_aanmelding.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -182,6 +183,7 @@ await run(db, '0023 nogmaals', sqlFile('supabase/migrations/0023_uitnodigen_en_u
 await run(db, '0024 nogmaals', sqlFile('supabase/migrations/0024_uren_en_kilometers.sql'))
 await run(db, '0025 nogmaals', sqlFile('supabase/migrations/0025_de_kluis_en_het_koppelen_van_een_kassa.sql'))
 await run(db, '0027 nogmaals', sqlFile('supabase/migrations/0027_een_foto_bij_het_artikel.sql'))
+await run(db, '0028 nogmaals', sqlFile('supabase/migrations/0028_een_kassa_is_geen_aanmelding.sql'))
 await run(db, '0026 nogmaals', sqlFile('supabase/migrations/0026_de_vestigingen_beheren.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
@@ -2351,6 +2353,144 @@ check('en die is openbaar leesbaar, anders dan de dossiers',
 check('terwijl de dossiers dat juist niet zijn',
   (await db.query(`select public from storage.buckets where id = 'dossiers'`))
     .rows[0].public === false)
+
+
+console.log('\n27. Een kassa is geen aanmelding')
+
+/*
+ * Dit ging in het echt mis, en zichtbaar: de eerste gekoppelde kassa stond
+ * daarna in het dashboard onder Aanmeldingen, met een seintje aan het
+ * management erbij. Een apparaat dat het kantoor zelf heeft aangezet, hoort
+ * niet in een lijst met dingen waarover iemand moet beslissen.
+ */
+
+await asServer(db)
+
+// Zo maakt kassa-koppelen zijn account aan: met een vlaggetje in de metagegevens.
+await db.exec(`
+  insert into auth.users (id, email, raw_user_meta_data)
+  values ('aaaaaaaa-0000-0000-0000-000000000001',
+          'kassa.kas-utr-1@apparaat.truckwash1group.nl',
+          '{"kassa":"KAS-UTR-1","apparaat":true}'::jsonb);
+`)
+
+check('een kassa-account levert geen aanmelding op',
+  (await db.query(
+    `select count(*)::int as n from public.signups
+      where email = 'kassa.kas-utr-1@apparaat.truckwash1group.nl'`)).rows[0].n === 0)
+
+check('en geen seintje aan het management',
+  (await db.query(
+    `select count(*)::int as n from public.notifications
+      where title like 'Nieuwe aanmelding%' and body like '%apparaat.truckwash1group.nl%'`
+  )).rows[0].n === 0)
+
+check('en ook geen dossier: dat zet de serverfunctie zelf',
+  (await db.query(
+    `select count(*)::int as n from public.profiles
+      where email = 'kassa.kas-utr-1@apparaat.truckwash1group.nl'`)).rows[0].n === 0)
+
+/* ---- en het opruimen van wat er al lag ----
+ *
+ * De kassa's die vóór deze migratie gekoppeld zijn, staan als aanmelding in de
+ * lijst. Herkennen gaat via het vlaggetje op het inlogaccount en niet via
+ * is_device op het dossier: dat laatste komt er pas op als kassa-koppelen
+ * klaar is, en juist bij een kassa die halverwege bleef steken is dat niet
+ * gebeurd. Precies die gevallen moeten opgeruimd worden.
+ */
+
+await db.exec(`
+  insert into auth.users (id, email, raw_user_meta_data)
+  values ('aaaaaaaa-0000-0000-0000-000000000003',
+          'kassa.kas-rtm-1@apparaat.truckwash1group.nl',
+          '{"kassa":"KAS-RTM-1","apparaat":true}'::jsonb);
+
+  -- Zoals de oude trigger het zou hebben neergelegd: dossier zonder is_device,
+  -- een aanmelding, en een seintje.
+  insert into public.profiles (id, auth_id, email, name, roles, active)
+  values ('u_oud', 'aaaaaaaa-0000-0000-0000-000000000003',
+          'kassa.kas-rtm-1@apparaat.truckwash1group.nl', 'kassa.kas-rtm-1',
+          array[]::text[], false);
+  insert into public.signups (id, name, email, kind, status, created_at, auth_id, profile_id)
+  values ('sg_oud', 'kassa.kas-rtm-1', 'kassa.kas-rtm-1@apparaat.truckwash1group.nl',
+          'werknemer', 'nieuw', 1, 'aaaaaaaa-0000-0000-0000-000000000003', 'u_oud');
+  insert into public.notifications (id, to_role, kind, title, body, created_at, link)
+  values ('nt_sg_oud', 'management', 'taak', 'Nieuwe aanmelding: kassa.kas-rtm-1',
+          'meldt zich aan', 1, 'aanmeldingen');
+`)
+
+check('de aanmelding van een kassa die er al stond wordt gezien',
+  (await db.query(
+    `select public.is_apparaataccount('aaaaaaaa-0000-0000-0000-000000000003') as n`
+  )).rows[0].n === true)
+
+// De migratie nog een keer: het opruimen zit erin.
+await run(db, '0028 ruimt op',
+  sqlFile('supabase/migrations/0028_een_kassa_is_geen_aanmelding.sql'))
+
+check('en die aanmelding is weg',
+  (await db.query("select count(*)::int as n from public.signups where id = 'sg_oud'"))
+    .rows[0].n === 0)
+check('met het seintje erbij',
+  (await db.query("select count(*)::int as n from public.notifications where id = 'nt_sg_oud'"))
+    .rows[0].n === 0)
+
+/* ---- en een mens moet nog wél een aanmelding worden ---- */
+
+await db.exec(`
+  insert into auth.users (id, email, raw_user_meta_data)
+  values ('aaaaaaaa-0000-0000-0000-000000000002', 'nieuw@voorbeeld.nl',
+          '{"name":"Nieuwe Sollicitant"}'::jsonb);
+`)
+
+check('een mens die zich meldt wordt nog steeds een aanmelding',
+  (await db.query(
+    `select count(*)::int as n from public.signups where email = 'nieuw@voorbeeld.nl'`
+  )).rows[0].n === 1)
+check('met een dossier op inactief',
+  (await db.query(
+    `select active from public.profiles where email = 'nieuw@voorbeeld.nl'`
+  )).rows[0].active === false)
+check('en met een seintje aan het management',
+  (await db.query(
+    `select count(*)::int as n from public.notifications
+      where title = 'Nieuwe aanmelding: Nieuwe Sollicitant'`)).rows[0].n === 1)
+
+/* ---- een apparaat blijft een apparaat ---- */
+
+await db.exec(`
+  insert into public.profiles (id, auth_id, email, name, roles, active, location_id, is_device)
+  values ('dev_proef', 'aaaaaaaa-0000-0000-0000-000000000001',
+          'kassa.kas-utr-1@apparaat.truckwash1group.nl', 'Kassa KAS-UTR-1',
+          array['employee'], true, 'loc_utr', true);
+`)
+
+check('een kassa-account krijgt geen extra rollen',
+  (await botst(`update public.profiles
+                   set roles = array['employee','management']
+                 where id = 'dev_proef'`))?.includes('houdt de rol employee') === true)
+
+check('en geen leiding over vestigingen',
+  (await botst(`update public.profiles set manages = array['loc_rtm']
+                 where id = 'dev_proef'`))?.includes('geen leiding') === true)
+
+check('en niet alle vestigingen',
+  (await botst(`update public.profiles set all_locations = true
+                 where id = 'dev_proef'`))?.includes('één vestiging') === true)
+
+check('maar een naam of vestiging bijwerken mag wel',
+  (await botst(`update public.profiles set name = 'Kassa balie', location_id = 'loc_rtm'
+                 where id = 'dev_proef'`)) === null)
+
+/*
+ * En de weg terug staat open. Blijkt een dossier tóch van een mens, dan moet
+ * het te herstellen zijn -- eerst is_device eraf, dan de rollen.
+ */
+check('is_device eraf halen mag, en dan mogen de rollen weer',
+  (await botst(`update public.profiles set is_device = false where id = 'dev_proef';
+                update public.profiles set roles = array['employee','supervisor']
+                 where id = 'dev_proef';`)) === null)
+
 
 await db.close()
 

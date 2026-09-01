@@ -335,22 +335,35 @@ async function koppel(req: Request): Promise<Response> {
 
   const { data: bestaandProfiel } = await admin
     .from('profiles')
-    .select('id, is_device')
+    .select('id, email, is_device')
     .eq('auth_id', authId)
     .maybeSingle()
 
   /*
-   * Eén rem. Hoort dit inlogaccount bij een mens, dan houden we op: dan zouden
-   * we het dossier van een collega omzetten in een kassa. Dat kan alleen als
-   * iemand een medewerker heeft aangemaakt op het adres dat wij voor apparaten
-   * gebruiken, maar juist dat soort ding gaat een keer gebeuren.
+   * Eén rem, en hij kijkt naar het e-mailadres en niet naar is_device.
+   *
+   * Dat was eerst wél is_device, en dat was fout. Bij een nieuw inlogaccount
+   * draait handle_new_user(), en die legt een dossier neer zonder is_device --
+   * plus een aanmelding, want voor die trigger is elk nieuw account een mens
+   * die zich meldt. De rem sloeg dus aan op het dossier dat er net door onze
+   * eigen aanmaak was gekomen, en de kassa kreeg te horen dat zijn account bij
+   * een medewerker hoorde. (De trigger stapt vanaf migratie 0028 uit bij een
+   * apparaat, maar deze functie moet ook werken op een database waar die
+   * migratie nog niet gedraaid is.)
+   *
+   * Het adres is de goede maat: alleen deze functie maakt accounts op het
+   * apparaatdomein. Staat er een ánder adres bij dit inlogaccount, dan is er
+   * iets aan de hand dat wij niet horen op te lossen.
    */
-  if (bestaandProfiel && bestaandProfiel.is_device === false) {
+  const zelfdeAdres =
+    (bestaandProfiel?.email ?? '').trim().toLowerCase() === email.toLowerCase()
+
+  if (bestaandProfiel && !zelfdeAdres) {
     return json({
       ok: false,
-      reden: `Het inlogaccount ${email} hoort bij een medewerker en niet bij een ` +
-             'apparaat. Laat dat dossier in het dashboard nakijken; deze kassa ' +
-             'kan er niet op gekoppeld worden.',
+      reden: `Aan dit inlogaccount hangt het dossier van ${bestaandProfiel.email} ` +
+             'en dat is geen apparaat. Laat dat in het dashboard nakijken; deze ' +
+             'kassa kan er niet op gekoppeld worden.',
     }, 409)
   }
 
@@ -370,6 +383,23 @@ async function koppel(req: Request): Promise<Response> {
   if (profielFout) {
     return json({ ok: false, reden: legUit('dossier', profielFout.message) }, 500)
   }
+
+  /*
+   * De aanmelding weghalen die bij het aanmaken van het account is ontstaan.
+   *
+   * Een kassa is geen sollicitant. Stond hij in de lijst met aanmeldingen, dan
+   * moet het management een beslissing nemen over een apparaat dat het zelf
+   * heeft aangezet -- en een lijst met dingen die niemand hoeft te beoordelen
+   * is een lijst die je op een gegeven moment niet meer opent.
+   *
+   * Vanaf migratie 0028 komt die aanmelding er niet meer, maar dit blijft
+   * staan: voor de kassa's die er vóór die migratie doorheen zijn gegaan, en
+   * voor een database waar die migratie nog niet gedraaid is. Twee keer
+   * opruimen kan geen kwaad; één keer vergeten wel.
+   */
+  const zonderStreepjes = String(authId).replace(/-/g, '')
+  await admin.from('notifications').delete().eq('id', `nt_sg_${zonderStreepjes}`)
+  await admin.from('signups').delete().eq('auth_id', authId)
 
   /* ---- het apparaat in de lijst ---- */
 

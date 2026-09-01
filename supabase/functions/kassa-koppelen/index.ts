@@ -136,11 +136,20 @@ async function koppel(req: Request): Promise<Response> {
     return json({ ok: false, reden: 'De database antwoordde niet: ' + paarFout.message }, 500)
   }
   if (!paar) {
+    /*
+     * 422 en niet 404, en dat is geen willekeur.
+     *
+     * 404 is wat het platform zelf teruggeeft als een functie niet uitgerold
+     * is. Gebruikten wij dat ook voor "die code ken ik niet", dan zijn die twee
+     * gevallen aan de statuscode niet te onderscheiden -- en dan vertelt de
+     * kassa iemand dat de code fout is terwijl er niets op de server staat, of
+     * omgekeerd. Dat is precies één keer gebeurd.
+     */
     return json({
       ok: false,
       reden: 'Deze code kent de database niet. Let op de streepjes: die mag je ' +
              'weglaten, maar een letter O is een nul en een I is een 1 niet.',
-    }, 404)
+    }, 422)
   }
   if (paar.used_at) {
     return json({

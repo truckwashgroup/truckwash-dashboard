@@ -2983,6 +2983,133 @@ console.log('\n— uren en kilometers —')
   check('de ritten ook', (await db.trips.get(rit.id))?.km === 12.4)
 }
 
+/* ==================================================================== *
+ *  Een pasje uitlezen
+ *
+ *  De leesmotor zelf valt hier niet te testen -- die heeft een plaatje en
+ *  een browser nodig. Wat wél te testen is, is het deel dat bepaalt wat er
+ *  uit die brij aan tekst wordt overgenomen. En dat is precies het deel dat
+ *  stil fout kan gaan: een getal dat toevallig op een BSN lijkt, of een
+ *  regel die voor een MRZ wordt aangezien.
+ * ==================================================================== */
+
+console.log('\n— pasjes uitlezen —')
+
+{
+  const {
+    vindMrzRegels, vindBsn, vindIban, vindNaamOpPas,
+    voorstellenUitId, voorstellenUitPas,
+  } = await import('../src/lib/scannen')
+  const { leesMrz, bsnGeldig } = await import('../src/lib/identiteit')
+
+  /* --- de twee regels onderaan een paspoort --- */
+
+  const paspoort = [
+    'KONINKRIJK DER NEDERLANDEN',
+    'Paspoort / Passport',
+    'P<NLDDE<BRUIJN<<WILLEM<JAN<<<<<<<<<<<<<<<<<<',
+    'SPECI20142NLD6503101M2403096999999990<<<<<84',
+  ].join('\n')
+
+  const regels = vindMrzRegels(paspoort)
+  check('de twee regels worden uit de rest gevist',
+    regels.split('\n').length === 2)
+  check('en de kop blijft eruit', !regels.includes('KONINKRIJK'))
+  check('ze zijn ook echt te lezen', !!leesMrz(regels))
+
+  const gelezen = leesMrz(regels)!
+  check('met de naam erin', gelezen.volledigeNaam.toLowerCase().includes('bruijn'))
+
+  /*
+   * Een ID-kaart heeft drie regels van dertig in plaats van twee van
+   * vierenveertig. Dat onderscheid moet blijven staan, anders wordt een
+   * ID-kaart als een half paspoort gelezen.
+   */
+  const idKaart = [
+    'NEDERLANDSE IDENTITEITSKAART',
+    'IDNLDSPECI20142<<<<<<<<<<<<<<<',
+    '6503101M2403096NLD<<<<<<<<<<<8',
+    'DE<BRUIJN<<WILLEM<JAN<<<<<<<<<',
+  ].join('\n')
+  check('een ID-kaart levert drie regels op',
+    vindMrzRegels(idKaart).split('\n').length === 3)
+
+  check('zonder herkenbare regels komt er niets uit',
+    vindMrzRegels('Gewoon wat tekst\nzonder pasje erin') === '')
+  check('en één losse regel is niet genoeg',
+    vindMrzRegels('P<NLDDE<BRUIJN<<WILLEM<JAN<<<<<<<<<<<<<<<<<<') === '')
+
+  /* --- het burgerservicenummer --- */
+
+  /* Een geldig BSN om mee te werken; de elfproef moet erop kloppen. */
+  const echt = '123456782'
+  check('het testnummer klopt met de elfproef', bsnGeldig(echt))
+
+  check('een BSN wordt uit de tekst gehaald',
+    vindBsn(`Burgerservicenummer ${echt} / BSN`) === echt)
+  check('ook met spaties erin', vindBsn(`BSN ${echt.slice(0, 4)} ${echt.slice(4)}`) === echt)
+
+  /*
+   * Dit is waar het om gaat. Op een pasje staan meer getallen van negen
+   * cijfers -- documentnummers, datums achter elkaar. Alleen wat door de
+   * elfproef komt telt.
+   */
+  check('een getal dat niet door de elfproef komt telt niet',
+    vindBsn('Documentnummer 111111111 en verder niets') === undefined)
+  check('een documentnummer met letters ook niet',
+    vindBsn('SPECI2014 2 NLD') === undefined)
+  check('en zonder cijfers komt er niets uit', vindBsn('Alleen maar tekst') === undefined)
+
+  /* --- het rekeningnummer --- */
+
+  const iban = 'NL91ABNA0417164300'
+  check('een IBAN wordt gevonden', vindIban(`Rekening ${iban}`) === iban)
+  check('ook met spaties zoals op een pas',
+    vindIban('NL91 ABNA 0417 1643 00') === iban)
+  check('ook tussen andere tekst',
+    vindIban(`PASNR 1234\n${iban}\nVALID THRU 12/28`) === iban)
+
+  /*
+   * En hier hetzelfde: een pasnummer of een reeks die er toevallig uitziet
+   * als een IBAN mag er niet doorheen. De mod-97 houdt dat tegen.
+   */
+  check('een nummer dat niet door de mod-97 komt telt niet',
+    vindIban('NL00BANK0000000000') === undefined)
+  check('en een gewone reeks cijfers evenmin',
+    vindIban('1234567890123456') === undefined)
+
+  /* --- de naam op de pas --- */
+
+  const pastekst = 'MAESTRO\nNL91 ABNA 0417 1643 00\nW J DE BRUIJN\nVALID THRU 12/28'
+  check('de naam op de pas wordt herkend',
+    vindNaamOpPas(pastekst) === 'W J DE BRUIJN')
+  check('en het merk niet', vindNaamOpPas(pastekst) !== 'MAESTRO')
+  check('VALID THRU telt ook niet mee',
+    (vindNaamOpPas(pastekst) ?? '').includes('VALID') === false)
+
+  /* --- wat er wordt voorgesteld --- */
+
+  const voorstellen = voorstellenUitId({
+    mrz: gelezen, bsn: echt, tekst: '', gemist: [],
+  })
+  check('er komen voorstellen uit een scan', voorstellen.length >= 3)
+  check('het BSN zit erbij', voorstellen.some((v) => v.veld === 'bsn'))
+  check('met de mededeling dat de elfproef klopt',
+    voorstellen.find((v) => v.veld === 'bsn')?.gecontroleerd === 'elfproef klopt')
+  check('en de geboortedatum is nagerekend',
+    (voorstellen.find((v) => v.veld === 'geboortedatum')?.gecontroleerd ?? '')
+      .includes('controlecijfer'))
+
+  const leeg = voorstellenUitId({ tekst: '', gemist: ['alles'] })
+  check('een mislukte scan stelt niets voor', leeg.length === 0)
+
+  const pasVoorstel = voorstellenUitPas({ iban, naam: 'W J DE BRUIJN', tekst: '', gemist: [] })
+  check('een pas levert het rekeningnummer op',
+    pasVoorstel.some((v) => v.veld === 'iban'))
+  check('met de mod-97 erbij',
+    pasVoorstel.find((v) => v.veld === 'iban')?.gecontroleerd === 'mod-97 klopt')
+}
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

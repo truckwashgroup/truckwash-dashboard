@@ -1,13 +1,18 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, FileSignature,
+  AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, CreditCard,
+  FileSignature,
   FileText, Fingerprint, Loader2, ScanLine, Send, ShieldCheck, Upload,
   UserPlus, UserSearch, X,
 } from 'lucide-react'
 import { db } from '../lib/db'
 import { users as userRepo } from '../lib/repo'
 import { mogelijkDubbel, personeel } from '../lib/personeel'
+import {
+  scanBankpas, scanIdentiteitsbewijs, voorstellenUitId, voorstellenUitPas,
+  type IdScan, type PasScan,
+} from '../lib/scannen'
 import { documenten, dossier as dossierRepo, DossierFout, MAX_BESTAND, TOEGESTAAN } from '../lib/dossier'
 import {
   bsnFormatteer, bsnProbleem, ibanFormatteer, ibanProbleem, leesMrz,
@@ -40,12 +45,22 @@ import { toast } from '../store/useToasts'
  *  kwam toepassen.
  * ------------------------------------------------------------------ */
 
-type Stap = 'wie' | 'waar' | 'papieren' | 'klaar'
+type Stap = 'papieren' | 'wie' | 'waar' | 'klaar'
 
+/*
+ * Papieren eerst.
+ *
+ * Dat was andersom, en dat is precies verkeerd om: je zit met het paspoort en
+ * het contract in je hand, en je typt over wat er op staat. Terwijl die twee
+ * documenten bijna alles bevatten wat dit formulier vraagt -- naam,
+ * geboortedatum, BSN, ingangsdatum, uren, salaris, functie.
+ *
+ * Dus nu: scannen, en dan kijken of het klopt.
+ */
 const STAPPEN: { key: Stap; label: string }[] = [
+  { key: 'papieren', label: 'Papieren' },
   { key: 'wie', label: 'Wie' },
   { key: 'waar', label: 'Waar en wat' },
-  { key: 'papieren', label: 'Papieren' },
 ]
 
 interface Papier {
@@ -66,7 +81,7 @@ export default function NieuweMedewerker({
   const me = useAuth((s) => s.user)!
   const bestaand = useLiveQuery(() => db.users.toArray(), [], [] as User[])
 
-  const [stap, setStap] = useState<Stap>('wie')
+  const [stap, setStap] = useState<Stap>('papieren')
   const [gemaaktId, setGemaaktId] = useState<string | null>(null)
   const [uitgenodigd, setUitgenodigd] = useState(false)
   const [bezig, setBezig] = useState(false)
@@ -97,6 +112,18 @@ export default function NieuweMedewerker({
   const [overnemen, setOvernemen] = useState<Set<string>>(new Set())
   const [lezen, setLezen] = useState(false)
 
+  /* ----------------------- uit de scan ------------------------- */
+  const [idScan, setIdScan] = useState<IdScan | null>(null)
+  const [pasScan, setPasScan] = useState<PasScan | null>(null)
+  const [scanBezig, setScanBezig] = useState<'id' | 'pas' | null>(null)
+  const [scanStand, setScanStand] = useState('')
+
+  const [geboortedatum, setGeboortedatum] = useState('')
+  const [geboorteplaats, setGeboorteplaats] = useState('')
+  const [nationaliteit, setNationaliteit] = useState('')
+  const [docNummer, setDocNummer] = useState('')
+  const [docVerloopt, setDocVerloopt] = useState('')
+
   const voorstel = useMemo(() => {
     const nums = bestaand
       .map((u) => u.personnelNumber?.match(/(\d+)\s*$/)?.[1])
@@ -109,17 +136,24 @@ export default function NieuweMedewerker({
   const ibanFout = ibanProbleem(iban)
 
   function alles(): void {
-    setStap('wie'); setNaam(''); setEmail(''); setTelefoon(''); setNummer('')
+    setStap('papieren'); setNaam(''); setEmail(''); setTelefoon(''); setNummer('')
     setFunctie(''); setRollen(['employee'])
     setLoc({ manages: [], allLocations: false }); setUren('38'); setTarief('')
     setInDienst(dateInputValue(Date.now())); setBsn(''); setIban('')
     setPapieren([]); setMrz(null); setMrzTekst(''); setContract(null)
     setContractFout(null); setOvernemen(new Set())
+    setIdScan(null); setPasScan(null); setScanBezig(null); setScanStand('')
+    setGeboortedatum(''); setGeboorteplaats(''); setNationaliteit('')
+    setDocNummer(''); setDocVerloopt(''); setGemaaktId(null); setUitgenodigd(false)
   }
 
   /* ------------------------- verdergaan ------------------------- */
 
   function volgende() {
+    if (stap === 'papieren') {
+      // Overslaan mag: niet iedereen heeft zijn papieren bij de hand.
+      return setStap('wie')
+    }
     if (stap === 'wie') {
       if (naam.trim().split(/\s+/).length < 2) return toast.error('Vul voor- en achternaam in')
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email.trim())) {
@@ -130,11 +164,6 @@ export default function NieuweMedewerker({
       }
       if (rollen.length === 0) return toast.error('Kies minimaal één rol')
       return setStap('waar')
-    }
-    if (stap === 'waar') {
-      if (bsnFout) return toast.error(bsnFout)
-      if (ibanFout) return toast.error(ibanFout)
-      return setStap('papieren')
     }
   }
 
@@ -207,6 +236,71 @@ export default function NieuweMedewerker({
 
   /* --------------------------- opslaan -------------------------- */
 
+  /**
+   * Een identiteitsbewijs inlezen.
+   *
+   * Op het toestel; er gaat geen foto naar buiten. Wat eruit komt is een
+   * voorstel -- het BSN moet door de elfproef en de MRZ door zijn eigen
+   * controlecijfers voordat het hier terechtkomt, en daarna kijk jij er nog
+   * naar. Een verkeerd overgenomen BSN is erger dan een leeg veld.
+   */
+  async function scanId(bestand: File) {
+    voegPapierToe(bestand, 'identiteitsbewijs')
+    setScanBezig('id')
+    setScanStand('Motor klaarzetten…')
+    try {
+      const scan = await scanIdentiteitsbewijs(bestand, (v) =>
+        setScanStand(`${v.stap}… ${Math.round(v.deel * 100)}%`))
+      setIdScan(scan)
+
+      const m = scan.mrz
+      if (m) {
+        setMrz(m)
+        if (m.volledigeNaam && !naam.trim()) setNaam(m.volledigeNaam)
+        if (m.geboortedatum) setGeboortedatum(dateInputValue(m.geboortedatum))
+        if (m.nationaliteit) setNationaliteit(m.nationaliteit)
+        if (m.documentNumber) setDocNummer(m.documentNumber)
+        if (m.vervaldatum) setDocVerloopt(dateInputValue(m.vervaldatum))
+      }
+      if (scan.bsn) setBsn(scan.bsn)
+
+      if (!m && !scan.bsn) {
+        toast.info('Er viel niets te lezen — typ de twee regels onderaan over')
+      } else {
+        toast.ok(`${voorstellenUitId(scan).length} gegevens overgenomen`)
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Lezen lukte niet')
+    } finally {
+      setScanBezig(null)
+      setScanStand('')
+    }
+  }
+
+  /** Een bankpas inlezen: het rekeningnummer, en verder niets. */
+  async function scanPas(bestand: File) {
+    setScanBezig('pas')
+    setScanStand('Motor klaarzetten…')
+    try {
+      const scan = await scanBankpas(bestand, (v) =>
+        setScanStand(`${v.stap}… ${Math.round(v.deel * 100)}%`))
+      setPasScan(scan)
+
+      if (scan.iban) {
+        setIban(scan.iban)
+        toast.ok('Rekeningnummer overgenomen')
+      } else {
+        toast.info('Geen geldig rekeningnummer gevonden — typ het over')
+      }
+      if (scan.naam && !naam.trim()) setNaam(scan.naam)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Lezen lukte niet')
+    } finally {
+      setScanBezig(null)
+      setScanStand('')
+    }
+  }
+
   /** De uitnodiging versturen zodra het dossier er staat. */
   async function nodigUit() {
     if (!gemaaktId) return
@@ -257,11 +351,17 @@ export default function NieuweMedewerker({
         bsn: bsn.replace(/\D/g, '') || undefined,
         iban: iban.replace(/\s+/g, '').toUpperCase() || undefined,
         hourlyRate: tarief ? Number(tarief.replace(',', '.')) : undefined,
-        birthDate: mrz?.geboortedatum,
-        nationality: mrz?.nationaliteit || undefined,
+        /*
+         * Wat er in het scherm staat gaat voor op wat de scan zei -- daar
+         * heeft iemand naar gekeken en het eventueel bijgesteld. De scan is
+         * een voorstel, niet de uitkomst.
+         */
+        birthDate: geboortedatum ? dayFromDateInput(geboortedatum) : mrz?.geboortedatum,
+        birthPlace: geboorteplaats.trim() || undefined,
+        nationality: nationaliteit.trim() || mrz?.nationaliteit || undefined,
         documentType: mrz ? (mrz.soort === 'paspoort' ? 'paspoort' : 'id-kaart') : undefined,
-        documentNumber: mrz?.documentNumber || undefined,
-        documentExpires: mrz?.vervaldatum,
+        documentNumber: docNummer.trim() || mrz?.documentNumber || undefined,
+        documentExpires: docVerloopt ? dayFromDateInput(docVerloopt) : mrz?.vervaldatum,
         documentVerified: mrz?.betrouwbaar ?? false,
       })
 
@@ -445,6 +545,44 @@ export default function NieuweMedewerker({
 
       {/* =========================== WAAR ============================ */}
 
+      {stap === 'wie' && (geboortedatum || nationaliteit || docNummer) && (
+        <div className="uit-scan">
+          <div className="kop"><ScanLine size={15} /> Overgenomen van het document</div>
+          <div className="grid cols-2">
+            <Field label="Geboortedatum">
+              <input
+                className="input"
+                type="date"
+                value={geboortedatum}
+                onChange={(e) => setGeboortedatum(e.target.value)}
+              />
+            </Field>
+            <Field label="Geboorteplaats" help="Staat niet op het document; zelf invullen.">
+              <input
+                className="input"
+                value={geboorteplaats}
+                onChange={(e) => setGeboorteplaats(e.target.value)}
+                placeholder="Bijv. Utrecht"
+              />
+            </Field>
+          </div>
+          <div className="grid cols-3">
+            <Field label="Nationaliteit">
+              <input className="input" value={nationaliteit}
+                onChange={(e) => setNationaliteit(e.target.value)} />
+            </Field>
+            <Field label="Documentnummer">
+              <input className="input mono" value={docNummer}
+                onChange={(e) => setDocNummer(e.target.value)} />
+            </Field>
+            <Field label="Geldig tot">
+              <input className="input" type="date" value={docVerloopt}
+                onChange={(e) => setDocVerloopt(e.target.value)} />
+            </Field>
+          </div>
+        </div>
+      )}
+
       {stap === 'waar' && (
         <>
           <LocatiesKiezer
@@ -523,6 +661,55 @@ export default function NieuweMedewerker({
             </span>
           </div>
 
+          {/* ---- bankpas ---- */}
+
+          <div className="papier-blok">
+            <div className="kop">
+              <CreditCard size={17} />
+              <strong>Bankpas</strong>
+              {iban && <Badge tone="ok"><Check size={11} /> {iban}</Badge>}
+              <span className="hint">Alleen het rekeningnummer; de foto bewaren we niet</span>
+            </div>
+
+            <input
+              className="input"
+              type="file"
+              accept="image/*"
+              disabled={scanBezig !== null}
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) void scanPas(f)
+              }}
+            />
+
+            {scanBezig === 'pas' && (
+              <div className="scan-bezig">
+                <Loader2 size={15} className="spin" />
+                <span>{scanStand || 'Bezig met lezen…'}</span>
+              </div>
+            )}
+
+            {pasScan && (
+              <div className={`mrz-uitkomst ${pasScan.iban ? 'goed' : 'twijfel'}`}>
+                <div className="kop">
+                  {pasScan.iban
+                    ? <><ShieldCheck size={16} /> Rekeningnummer klopt met de mod-97</>
+                    : <><AlertTriangle size={16} /> Geen geldig rekeningnummer gevonden</>}
+                </div>
+                {voorstellenUitPas(pasScan).map((v) => (
+                  <div className="person-field" key={v.veld}>
+                    <div className="label">{v.label}</div>
+                    <div className="value">{v.waarde}</div>
+                  </div>
+                ))}
+                <div className="voet">
+                  De pas zelf wordt niet opgeslagen — alleen het nummer. Een
+                  foto van een bankpas hoort niet in een personeelsdossier.
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* ---- identiteitsbewijs ---- */}
 
           <div className="papier-blok">
@@ -538,14 +725,54 @@ export default function NieuweMedewerker({
               className="input"
               type="file"
               accept={TOEGESTAAN.join(',')}
+              disabled={scanBezig !== null}
               onChange={(e) => {
                 const f = e.target.files?.[0]
-                if (f) voegPapierToe(f, 'identiteitsbewijs')
+                if (!f) return
+                // Een foto lezen we uit; een PDF alleen bewaren.
+                if (f.type.startsWith('image/')) void scanId(f)
+                else voegPapierToe(f, 'identiteitsbewijs')
               }}
             />
 
+            {scanBezig === 'id' && (
+              <div className="scan-bezig">
+                <Loader2 size={15} className="spin" />
+                <span>{scanStand || 'Bezig met lezen…'}</span>
+              </div>
+            )}
+
+            {idScan && (
+              <div className={`mrz-uitkomst ${idScan.gemist.length === 0 ? 'goed' : 'twijfel'}`}>
+                <div className="kop">
+                  {idScan.gemist.length === 0
+                    ? <><ShieldCheck size={16} /> Alles gevonden en nagerekend</>
+                    : <><AlertTriangle size={16} /> Niet gevonden: {idScan.gemist.join(', ')}</>}
+                </div>
+                {voorstellenUitId(idScan).length > 0 && (
+                  <div className="person-fields">
+                    {voorstellenUitId(idScan).map((v) => (
+                      <div className="person-field" key={v.veld}>
+                        <div className="label">{v.label}</div>
+                        <div className="value">
+                          {v.waarde}
+                          {v.gecontroleerd && (
+                            <span className="gecontroleerd"> · {v.gecontroleerd}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="voet">
+                  Nagekeken kun je alles nog wijzigen bij de volgende stap. Wat
+                  hier staat is overgenomen, niet vastgesteld.
+                </div>
+              </div>
+            )}
+
             <Field
-              label="De twee regels onderaan overtypen (optioneel)"
+              label="Lukte het lezen niet? Typ de twee regels onderaan over"
               help="Naam, geboortedatum, documentnummer en vervaldatum worden dan gecontroleerd overgenomen. Het BSN staat er niet in."
             >
               <textarea
@@ -796,15 +1023,15 @@ export default function NieuweMedewerker({
             className="btn ghost"
             onClick={() => {
               if (stap === 'waar') setStap('wie')
-              else if (stap === 'papieren') setStap('waar')
+              else if (stap === 'wie') setStap('papieren')
               else { alles(); onClose() }
             }}
             disabled={bezig}
           >
-            {stap === 'wie' ? 'Annuleren' : <><ArrowLeft size={15} /> Terug</>}
+            {stap === 'papieren' ? 'Annuleren' : <><ArrowLeft size={15} /> Terug</>}
           </button>
 
-          {stap === 'papieren' ? (
+          {stap === 'waar' ? (
             <button className="btn primary" onClick={() => void opslaan()} disabled={bezig}>
               {bezig ? <Loader2 size={15} className="spin" /> : <UserPlus size={15} />}
               {bezig ? voortgang || 'Bezig…' : 'Aanmaken'}

@@ -1,7 +1,7 @@
 {
   "name": "truckwash-dashboard",
   "productName": "Truckwash1 Dashboard",
-  "version": "1.17.0",
+  "version": "1.18.0",
   "description": "Truckwash1 Group - offline-first dashboard voor werknemers, klanten en management",
   "author": {
     "name": "Truckwash1 Group",
@@ -53,6 +53,7 @@
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.1.1",
     "recharts": "^2.15.0",
+    "tesseract.js": "^7.0.0",
     "zustand": "^5.0.2"
   },
   "devDependencies": {

@@ -3696,3 +3696,40 @@ table.data.matrix th { vertical-align: bottom; }
   font-size: .77rem; color: var(--text-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* ---------------------- Scannen bij het aanmaken ------------------ */
+
+.scan-bezig {
+  display: flex; align-items: center; gap: 9px;
+  padding: 10px 12px;
+  margin-top: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  font-size: .82rem; color: var(--text-2);
+}
+.scan-bezig svg { color: var(--brand); flex: none; }
+
+.mrz-uitkomst .voet {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line-soft);
+  font-size: .75rem; color: var(--text-3); line-height: 1.55;
+}
+.mrz-uitkomst .gecontroleerd { font-size: .72rem; color: var(--ok); }
+
+.uit-scan {
+  padding: 14px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line-ok);
+  border-radius: var(--radius);
+  background: var(--tint-ok);
+}
+.uit-scan > .kop {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 11px;
+  font-size: .78rem; font-weight: 600;
+  letter-spacing: .04em; text-transform: uppercase;
+  color: var(--text-2);
+}
+.uit-scan > .kop svg { color: var(--ok); }

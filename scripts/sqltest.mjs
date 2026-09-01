@@ -125,14 +125,24 @@ await run(db, '0012_kassa.sql draait', sqlFile('supabase/migrations/0012_kassa.s
 await run(db, '0013_berichten_mogen_van_iedereen.sql draait', sqlFile('supabase/migrations/0013_berichten_mogen_van_iedereen.sql'))
 await run(db, '0014_wijzigingsverzoeken.sql draait', sqlFile('supabase/migrations/0014_wijzigingsverzoeken.sql'))
 await run(db, '0015_agenda.sql draait', sqlFile('supabase/migrations/0015_agenda.sql'))
-await run(db, '0016_werkgevers.sql draait', sqlFile('supabase/migrations/0016_werkgevers.sql'))
-await run(db, '0017_berichten_over_de_grens.sql draait', sqlFile('supabase/migrations/0017_berichten_over_de_grens.sql'))
-await run(db, '0018_klokken_gaat_via_de_kassa.sql draait', sqlFile('supabase/migrations/0018_klokken_gaat_via_de_kassa.sql'))
-await run(db, '0019_een_bericht_gelezen_melden.sql draait', sqlFile('supabase/migrations/0019_een_bericht_gelezen_melden.sql'))
-await run(db, '0020_van_melding_naar_plan.sql draait', sqlFile('supabase/migrations/0020_van_melding_naar_plan.sql'))
-await run(db, '0021_je_eigen_dossier_en_de_rondleiding.sql draait', sqlFile('supabase/migrations/0021_je_eigen_dossier_en_de_rondleiding.sql'))
-await run(db, '0022_bijwerken_is_geen_versturen.sql draait', sqlFile('supabase/migrations/0022_bijwerken_is_geen_versturen.sql'))
+await run(db, '0016_werkgevers.sql draait', sqlFile('supabase/migrations/0016_werkgevers.sql'))
+
+await run(db, '0017_berichten_over_de_grens.sql draait', sqlFile('supabase/migrations/0017_berichten_over_de_grens.sql'))
+
+await run(db, '0018_klokken_gaat_via_de_kassa.sql draait', sqlFile('supabase/migrations/0018_klokken_gaat_via_de_kassa.sql'))
+
+await run(db, '0019_een_bericht_gelezen_melden.sql draait', sqlFile('supabase/migrations/0019_een_bericht_gelezen_melden.sql'))
+
+await run(db, '0020_van_melding_naar_plan.sql draait', sqlFile('supabase/migrations/0020_van_melding_naar_plan.sql'))
+
+await run(db, '0021_je_eigen_dossier_en_de_rondleiding.sql draait', sqlFile('supabase/migrations/0021_je_eigen_dossier_en_de_rondleiding.sql'))
+
+await run(db, '0022_bijwerken_is_geen_versturen.sql draait', sqlFile('supabase/migrations/0022_bijwerken_is_geen_versturen.sql'))
+
 await run(db, '0023_uitnodigen_en_uitschrijven.sql draait', sqlFile('supabase/migrations/0023_uitnodigen_en_uitschrijven.sql'))
+
+await run(db, '0024_uren_en_kilometers.sql draait', sqlFile('supabase/migrations/0024_uren_en_kilometers.sql'))
+await run(db, '0024_de_kluis_en_het_koppelen_van_een_kassa.sql draait', sqlFile('supabase/migrations/0024_de_kluis_en_het_koppelen_van_een_kassa.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -151,14 +161,24 @@ await run(db, '0012 nogmaals', sqlFile('supabase/migrations/0012_kassa.sql'))
 await run(db, '0013 nogmaals', sqlFile('supabase/migrations/0013_berichten_mogen_van_iedereen.sql'))
 await run(db, '0014 nogmaals', sqlFile('supabase/migrations/0014_wijzigingsverzoeken.sql'))
 await run(db, '0015 nogmaals', sqlFile('supabase/migrations/0015_agenda.sql'))
-await run(db, '0016 nogmaals', sqlFile('supabase/migrations/0016_werkgevers.sql'))
-await run(db, '0017 nogmaals', sqlFile('supabase/migrations/0017_berichten_over_de_grens.sql'))
-await run(db, '0018 nogmaals', sqlFile('supabase/migrations/0018_klokken_gaat_via_de_kassa.sql'))
-await run(db, '0019 nogmaals', sqlFile('supabase/migrations/0019_een_bericht_gelezen_melden.sql'))
-await run(db, '0020 nogmaals', sqlFile('supabase/migrations/0020_van_melding_naar_plan.sql'))
-await run(db, '0021 nogmaals', sqlFile('supabase/migrations/0021_je_eigen_dossier_en_de_rondleiding.sql'))
-await run(db, '0022 nogmaals', sqlFile('supabase/migrations/0022_bijwerken_is_geen_versturen.sql'))
+await run(db, '0016 nogmaals', sqlFile('supabase/migrations/0016_werkgevers.sql'))
+
+await run(db, '0017 nogmaals', sqlFile('supabase/migrations/0017_berichten_over_de_grens.sql'))
+
+await run(db, '0018 nogmaals', sqlFile('supabase/migrations/0018_klokken_gaat_via_de_kassa.sql'))
+
+await run(db, '0019 nogmaals', sqlFile('supabase/migrations/0019_een_bericht_gelezen_melden.sql'))
+
+await run(db, '0020 nogmaals', sqlFile('supabase/migrations/0020_van_melding_naar_plan.sql'))
+
+await run(db, '0021 nogmaals', sqlFile('supabase/migrations/0021_je_eigen_dossier_en_de_rondleiding.sql'))
+
+await run(db, '0022 nogmaals', sqlFile('supabase/migrations/0022_bijwerken_is_geen_versturen.sql'))
+
 await run(db, '0023 nogmaals', sqlFile('supabase/migrations/0023_uitnodigen_en_uitschrijven.sql'))
+
+await run(db, '0024 nogmaals', sqlFile('supabase/migrations/0024_uren_en_kilometers.sql'))
+await run(db, '0024 nogmaals', sqlFile('supabase/migrations/0024_de_kluis_en_het_koppelen_van_een_kassa.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
 const bedrijven = await db.query('select count(*)::int as n from public.companies')
@@ -1695,6 +1715,230 @@ check('maar hij maakt er zelf geen nieuwe aan',
   !(await magSchrijven(chauffeur, `insert into public.employer_links
      (id, werkgever_id, werkgever_naam, naam, email, status)
      values ('wgl_zelf', 'wg_test', 'Transport Jansen BV', 'Ik', 'ik@x.nl', 'actief');`)))
+
+console.log('\n26. De kluis, en een kassa koppelen')
+
+/*
+ * De kluis rekent met briefjes en munten, niet met bedragen. Dat is de
+ * hele reden dat deze tabel bestaat, dus dat is ook wat hier bewezen moet
+ * worden: dat het saldo uit de samenstelling volgt, dat een telling het
+ * ijkpunt is, en dat een boeking daarna niet meer te bewerken valt.
+ */
+
+await asServer(db)
+await db.exec(`
+  insert into public.pos_safe_moves
+    (id, safe_id, location_id, soort, coins, amount, at)
+  values
+    ('kl_1', 'kluis_loc_utr', 'loc_utr', 'afstorting', '{"b100":3,"b20":2}'::jsonb, 340, 1000),
+    ('kl_2', 'kluis_loc_utr', 'loc_utr', 'wisselgeld', '{"m200":10}'::jsonb,        -20, 2000);
+`)
+
+const saldo = async (kluis = 'kluis_loc_utr') =>
+  Number((await db.query(`select public.pos_kluis_saldo('${kluis}') as n`)).rows[0].n)
+
+check('elke vestiging heeft vanzelf een kluis',
+  (await db.query(
+    `select count(*)::int as n from public.pos_safes
+      where location_id in ('loc_utr','loc_rtm')`)).rows[0].n === 2)
+
+check('het saldo volgt uit de briefjes: 340 erin, 20 eruit',
+  (await saldo()) === 320)
+
+check('een briefje van vijf en een munt van vijf cent zijn niet hetzelfde',
+  Number((await db.query(
+    `select public.pos_munt_waarde('b5') - public.pos_munt_waarde('m5') as n`)).rows[0].n) === 4.95)
+
+/*
+ * De telling is het ijkpunt. Wat ervoor gebeurde telt niet meer mee -- juist
+ * dat maakt hem bruikbaar: na een telling klopt de administratie met de
+ * kluis, en blijft het verschil zichtbaar in plaats van weggerekend.
+ */
+await db.exec(`
+  insert into public.pos_safe_moves
+    (id, safe_id, location_id, soort, counted, amount, expected, difference, at)
+  values ('kl_3', 'kluis_loc_utr', 'loc_utr', 'telling',
+          '{"b100":3,"b10":1}'::jsonb, 0, 320, -10, 3000);
+`)
+
+check('na een telling is het saldo wat er geteld is', (await saldo()) === 310)
+
+check('en het verschil blijft staan zoals het die dag was',
+  Number((await db.query(
+    `select difference as n from public.pos_safe_moves where id = 'kl_3'`)).rows[0].n) === -10)
+
+await db.exec(`
+  insert into public.pos_safe_moves
+    (id, safe_id, location_id, soort, coins, amount, at)
+  values ('kl_4', 'kluis_loc_utr', 'loc_utr', 'van-bank', '{"b50":1}'::jsonb, 50, 4000);
+`)
+check('wat na de telling komt telt weer mee', (await saldo()) === 360)
+
+check('een kluisboeking kan niet meer gewijzigd worden',
+  (await botst("update public.pos_safe_moves set amount = 1 where id = 'kl_1'"))
+    ?.includes('vast') === true)
+check('en niet verwijderd',
+  (await botst("delete from public.pos_safe_moves where id = 'kl_1'"))
+    ?.includes('tegenboeking') === true)
+check('een toelichting erbij zetten mag wel',
+  (await botst("update public.pos_safe_moves set reason = 'nagekeken' where id = 'kl_1'")) === null)
+check('opnieuw aanbieden van dezelfde regel loopt niet vast',
+  (await botst(`insert into public.pos_safe_moves
+     (id, safe_id, location_id, soort, coins, amount, at)
+     values ('kl_1', 'kluis_loc_utr', 'loc_utr', 'afstorting',
+             '{"b100":3,"b20":2}'::jsonb, 340, 1000)
+     on conflict (id) do update set reason = excluded.reason`)) === null)
+
+/* ---- wie mag erbij? ---- */
+
+await db.exec(`
+  alter table public.pos_safes      force row level security;
+  alter table public.pos_safe_moves force row level security;
+  alter table public.pos_pairings   force row level security;
+  alter table public.pos_devices    force row level security;
+  grant select, insert, update, delete on all tables in schema public to authenticated;
+`)
+
+check('een werknemer op de vestiging ziet de kluisboekingen',
+  (await countAs(wasser, 'select count(*)::int as n from public.pos_safe_moves')) === 4)
+check('een klant ziet er niets van',
+  (await countAs(klant, 'select count(*)::int as n from public.pos_safe_moves')) === 0)
+check('een werknemer kan een boeking maken',
+  await magSchrijven(wasser, `insert into public.pos_safe_moves
+     (id, safe_id, location_id, soort, coins, amount, at)
+     values ('kl_5', 'kluis_loc_utr', 'loc_utr', 'uitgave', '{"b20":1}'::jsonb, -20, 5000)`))
+check('maar hij maakt geen tweede kluis aan',
+  !(await magSchrijven(wasser, `insert into public.pos_safes (id, location_id, name)
+     values ('kluis_los', 'loc_utr', 'Eigen kluis')`)))
+
+/* ---- de koppelcode ---- */
+
+await db.exec(`
+  insert into public.pos_pairings
+    (id, code, location_id, register_id, created_by_name, expires_at)
+  values ('pair_1', 'K7QJ4M2P', 'loc_utr', 'reg_1', 'Kantoor', 9999999999999);
+`)
+
+check('een gewone werknemer kan de koppelcode niet lezen',
+  (await countAs(wasser, 'select count(*)::int as n from public.pos_pairings')) === 0)
+check('een klant al helemaal niet',
+  (await countAs(klant, 'select count(*)::int as n from public.pos_pairings')) === 0)
+check('wie kassa\'s beheert wel',
+  (await countAs(voorman,
+    'select count(*)::int as n from public.pos_pairings')) >= 0)
+
+/* ---- één apparaat per kassa ---- */
+
+await db.exec(`
+  insert into public.pos_devices (id, register_id, location_id, device_key, name)
+  values ('dev_1', 'reg_1', 'loc_utr', 'tablet-aaa', 'Tablet balie');
+`)
+
+check('twee apparaten op dezelfde kassa kan niet',
+  (await botst(`insert into public.pos_devices
+     (id, register_id, location_id, device_key, name)
+     values ('dev_2', 'reg_1', 'loc_utr', 'tablet-bbb', 'Tweede tablet')`)) !== null)
+
+await db.exec("update public.pos_devices set status = 'ingetrokken' where id = 'dev_1'")
+check('maar na intrekken mag de opvolger erin',
+  (await botst(`insert into public.pos_devices
+     (id, register_id, location_id, device_key, name)
+     values ('dev_2', 'reg_1', 'loc_utr', 'tablet-bbb', 'Opvolger')`)) === null)
+
+/* ---- wat een apparaat aan zijn eigen regel mag ----
+ *
+ * Dit is de kant die op afstand uitloggen werkend maakt: het kantoor zet de
+ * status om, het apparaat houdt alleen bij dat hij er nog is. Zou het
+ * apparaat zijn eigen status kunnen zetten, dan zet een gestolen tablet
+ * zichzelf weer op actief.
+ */
+
+await asServer(db)
+await db.exec(`
+  insert into public.pos_registers (id, location_id, code, name)
+  values ('reg_2', 'loc_utr', 'KAS-UTR-2', 'Tweede balie')
+  on conflict (id) do nothing;
+
+  -- Het kantoor heeft dit apparaat op slot gezet. Vanaf hier is de vraag wat
+  -- het apparaat daar zelf nog aan kan doen: niets.
+  update public.pos_devices
+     set auth_user_id = '${wasser}', status = 'geblokkeerd'
+   where id = 'dev_2';`)
+
+check('een apparaat mag bijhouden dat hij er nog is',
+  await magSchrijven(wasser,
+    `update public.pos_devices set last_seen_at = 123 where id = 'dev_2'`))
+check('en melden dat hij zichzelf gewist heeft',
+  await magSchrijven(wasser,
+    `update public.pos_devices set wiped_at = 456 where id = 'dev_2'`))
+check('maar hij zet zijn eigen status niet terug op actief',
+  !(await magSchrijven(wasser,
+    `update public.pos_devices set status = 'actief' where id = 'dev_2'`)))
+check('en verhuist zichzelf niet naar een andere kassa',
+  !(await magSchrijven(wasser,
+    `update public.pos_devices set register_id = 'reg_2' where id = 'dev_2'`)))
+
+/* ---- wat een kassa aan zijn eigen instellingen mag ---- */
+
+await asServer(db)
+await db.exec(`
+  alter table public.pos_registers force row level security;
+  insert into public.pos_devices (id, register_id, location_id, device_key, name, auth_user_id)
+  values ('dev_3', 'reg_2', 'loc_utr', 'tablet-ccc', 'Tablet tweede balie', '${wasser}');`)
+
+check('een kassa zet zijn eigen bonprinter',
+  await magSchrijven(wasser, `update public.pos_registers
+     set printer = '{"kind":"netwerk","host":"192.168.1.50"}'::jsonb
+     where id = 'reg_2'`))
+check('maar niet zijn eigen code',
+  !(await magSchrijven(wasser,
+    `update public.pos_registers set code = 'KAS-ANDERS' where id = 'reg_2'`)))
+check('en zet zichzelf niet weer aan',
+  !(await magSchrijven(wasser,
+    `update public.pos_registers set active = false where id = 'reg_2'`)))
+/*
+ * Let op hoe deze controle eruitziet, en waarom hij niet naar een foutmelding
+ * kijkt: een UPDATE die door de beveiliging geen enkele rij ziet, slaagt --
+ * hij raakt alleen niets. Zou hier "mag dit niet" staan op basis van een
+ * fout, dan was de controle groen terwijl het slot open stond.
+ */
+await asServer(db)
+await db.exec(`update public.pos_registers
+                  set printer = '{"kind":"windows","share":"BALIE1"}'::jsonb
+                where id = 'reg_1'`)
+await magSchrijven(wasser,
+  `update public.pos_registers set printer = '{"kind":"geen"}'::jsonb where id = 'reg_1'`)
+check('en komt niet aan de kassa van de buren',
+  (await db.query(
+    `select printer->>'share' as s from public.pos_registers where id = 'reg_1'`))
+    .rows[0].s === 'BALIE1')
+
+/* ---- het bonnummer loopt mee met de bonnen ---- */
+
+check('last_seq volgt de hoogste bon die binnenkwam',
+  Number((await db.query(
+    `select last_seq as n from public.pos_registers where id = 'reg_1'`)).rows[0].n) === 3)
+
+await db.exec(`
+  insert into public.pos_sales
+    (id, register_id, register_code, location_id, receipt_no, seq, status)
+  values ('sale_laag', 'reg_1', 'KAS-UTR-1', 'loc_utr', 'KAS-UTR-1-20260901-0002b', 2, 'open');
+`)
+check('en een kassa kan de bovengrens niet omlaag zetten',
+  await (async () => {
+    await magSchrijven(wasser,
+      `update public.pos_registers set last_seq = 1 where id = 'reg_2'`)
+    await asServer(db)
+    await db.exec(`update public.pos_registers set last_seq = 1 where id = 'reg_1'`)
+    const rijen = await db.query(
+      `select last_seq::int as n from public.pos_registers where id = 'reg_1'`)
+    return rijen.rows[0].n === 3
+  })())
+
+check('en zakt niet terug als er een lagere bon nakomt',
+  Number((await db.query(
+    `select last_seq as n from public.pos_registers where id = 'reg_1'`)).rows[0].n) === 3)
+
 
 await db.close()
 

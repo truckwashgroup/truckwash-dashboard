@@ -21,6 +21,7 @@ import { Start, type Tegel, type TegelTint } from '../../components/Tegels'
 import { useAuth } from '../../store/useAuth'
 import { usePerms, useNavTarget } from '../../store/useNav'
 import { timeEntries as timeRepo } from '../../lib/repo'
+import Urenverzoeken from '../../components/Urenverzoeken'
 import { toast } from '../../store/useToasts'
 import { shiftsOnDay, shiftHours, shiftRange, weekStart } from '../../lib/roster'
 import { startOfDay } from '../../lib/analytics'
@@ -495,9 +496,9 @@ function TeamRooster({ team }: { team: User[] }) {
 function TeamUren({ team }: { team: User[] }) {
   const [days, setDays] = useState(7)
   const entries = useLiveQuery(() => db.timeEntries.toArray(), [], [] as TimeEntry[])
+  const teamIds = useMemo(() => new Set(team.map((u) => u.id)), [team])
 
   const from = startOfDay(Date.now() - (days - 1) * DAY)
-  const teamIds = new Set(team.map((u) => u.id))
 
   const rows = useMemo(
     () => team.map((u) => {
@@ -521,6 +522,12 @@ function TeamUren({ team }: { team: User[] }) {
 
   return (
     <>
+      {/*
+        * Bovenaan, want dit is wat er op jou wacht. De urenstaat zelf kun je
+        * altijd nog bekijken; een verzoek dat blijft liggen kost iemand geld.
+        */}
+      <div className="mb"><Urenverzoeken teamIds={teamIds} /></div>
+
       <div className="grid cols-3" style={{ marginBottom: 16 }}>
         <Stat label={`Totaal (${days} dagen)`} value={duration(totaal * 60000)} icon={<Timer size={17} />} />
         <Stat label="Nu ingeklokt" value={rows.filter((r) => r.loopt).length} icon={<Clock size={17} />} tone="ok" />

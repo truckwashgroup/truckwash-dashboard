@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   CalendarCheck, CalendarDays, CalendarRange, FolderLock, GraduationCap,
-  LayoutGrid, MessageSquare, Package, Receipt, Timer,
+  LayoutGrid, MessageSquare, Package, Receipt, Timer, Wallet,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db } from '../../lib/db'
@@ -19,6 +19,7 @@ import Dossier from '../../components/Dossier'
 import Koppelverzoek from '../../components/Koppelverzoek'
 import Agenda from '../../components/Agenda'
 import { Start, type Tegel } from '../../components/Tegels'
+import MijnZaken from './MijnZaken'
 import { useNavTarget, usePerms } from '../../store/useNav'
 import { useAuth } from '../../store/useAuth'
 import { COURSES } from '../../lib/courses'
@@ -35,7 +36,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   rooster: { title: 'Mijn rooster', subtitle: 'Wanneer je bent ingeroosterd' },
   uren: { title: 'Mijn uren', subtitle: 'Tijdregistratie' },
   materiaal: { title: 'Materiaal', subtitle: 'Voorraad en verbruik' },
-  kosten: { title: 'Kosten', subtitle: 'Bonnen indienen ter goedkeuring' },
+  kosten: { title: 'Mijn zaken', subtitle: 'Loonstroken, uren, kilometers en bonnen' },
   opleiding: { title: 'Opleiding', subtitle: 'Cursussen en certificaten' },
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken met collega’s' },
   dossier: { title: 'Mijn dossier', subtitle: 'Je gegevens, contracten en documenten' },
@@ -116,7 +117,7 @@ export default function EmployeeDashboard() {
     { key: 'rooster', label: 'Rooster', icon: CalendarDays },
     { key: 'uren', label: 'Mijn uren', icon: Timer },
     { key: 'materiaal', label: 'Materiaal', icon: Package },
-    { key: 'kosten', label: 'Kosten', icon: Receipt },
+    { key: 'kosten', label: 'Mijn zaken', icon: Wallet },
     { key: 'opleiding', label: 'Opleiding', icon: GraduationCap },
     { key: 'dossier', label: 'Mijn dossier', icon: FolderLock, badge: cijfers.teTekenen || undefined },
     ...(perms.can('agenda.view')
@@ -165,9 +166,9 @@ export default function EmployeeDashboard() {
     },
     {
       key: 'kosten',
-      label: 'Kosten',
-      hint: 'Bonnen indienen en volgen',
-      icon: Receipt,
+      label: 'Mijn zaken',
+      hint: 'Loonstroken, uren, kilometers en bonnen',
+      icon: Wallet,
       tint: cijfers.afgekeurd ? 'danger' : 'neutraal',
       stat: cijfers.afgekeurd || cijfers.openBonnen,
       statLabel: cijfers.afgekeurd ? 'afgekeurd' : 'wacht op akkoord',
@@ -242,7 +243,7 @@ export default function EmployeeDashboard() {
       {page === 'rooster' && <MijnRooster />}
       {page === 'uren' && <Uren />}
       {page === 'materiaal' && <Materiaal />}
-      {page === 'kosten' && <KostenIndienen />}
+      {page === 'kosten' && <MijnZaken bonnen={<KostenIndienen />} />}
       {page === 'opleiding' && <Opleiding />}
       {page === 'dossier' && <Dossier person={me} />}
       {page === 'agenda' && <Agenda />}

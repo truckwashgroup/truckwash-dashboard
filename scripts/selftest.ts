@@ -2816,6 +2816,173 @@ console.log('\n— dubbele mensen —')
     inDienst(staat).every((u) => u.id !== 'p3'))
 }
 
+/* ==================================================================== *
+ *  Uren rechtzetten en kilometers
+ *
+ *  Twee dingen die een medewerker over zichzelf zegt, en één ding dat hij
+ *  juist niet zelf bepaalt.
+ * ==================================================================== */
+
+console.log('\n— uren en kilometers —')
+
+{
+  const {
+    urenverzoeken, ritten: ritRepo, totaalKm, vergoeding, mijnRitten,
+    openVerzoeken, adresVan, KM_TARIEF, SOORT_LABEL,
+  } = await import('../src/lib/urenritten')
+
+  const tom = { id: 'zt_tom', name: 'Tom Verhoeven', locationId: 'loc_utr' }
+  const nour = { id: 'zt_nour', name: 'Nour El Amrani' }
+
+  await db.users.bulkPut([
+    { id: 'zt_tom', email: 'tom2@zt.nl', password: '', name: 'Tom Verhoeven',
+      roles: ['employee'], active: true, locationId: 'loc_utr', updatedAt: 0 },
+    { id: 'zt_nour', email: 'nour2@zt.nl', password: '', name: 'Nour El Amrani',
+      roles: ['employee', 'supervisor'], active: true, locationId: 'loc_utr',
+      manages: ['loc_utr'], updatedAt: 0 },
+  ] as never)
+
+  /* --- er staat niets, en dat moet er wel staan --- */
+
+  const dag = new Date(2026, 8, 1, 8, 0).getTime()
+  const verzoek = await urenverzoeken.indienen({
+    door: tom as never,
+    soort: 'vergeten',
+    van: dag,
+    tot: dag + 8 * 3_600_000,
+    toelichting: 'De kassa deed het niet, Nour heeft me binnen zien komen.',
+  })
+
+  check('een verzoek begint op nieuw', verzoek.status === 'nieuw')
+  check('en staat op naam van de aanvrager', verzoek.userId === 'zt_tom')
+  check('het staat in de lijst die op de leidinggevende wacht',
+    openVerzoeken(await db.hourRequests.toArray()).some((v) => v.id === verzoek.id))
+
+  const seintje = (await db.notifications.toArray())
+    .find((n) => n.toUserId === 'zt_nour' && n.title.includes('Urenverzoek'))
+  check('de leidinggevende krijgt er bericht van', !!seintje)
+
+  /* --- goedkeuren zet de uren ook echt recht --- */
+
+  const voor = await db.timeEntries.where('userId').equals('zt_tom').count()
+  await urenverzoeken.goedkeuren(
+    (await db.hourRequests.get(verzoek.id))!, nour as never, 'Klopt, ik heb hem gezien')
+  const na = await db.timeEntries.where('userId').equals('zt_tom').toArray()
+
+  check('goedkeuren levert een urenregel op', na.length === voor + 1)
+  check('met de gevraagde begintijd', na.some((e) => e.start === dag))
+  check('en de gevraagde eindtijd', na.some((e) => e.end === dag + 8 * 3_600_000))
+  check('de regel zegt waar hij vandaan komt',
+    na.some((e) => (e.note ?? '').includes('verzoek')))
+
+  const bij = (await db.hourRequests.get(verzoek.id))!
+  check('het verzoek staat op goedgekeurd', bij.status === 'goedgekeurd')
+  check('met wie het deed erbij', bij.beslistDoorNaam === 'Nour El Amrani')
+  check('en de reden', bij.beslissingReden === 'Klopt, ik heb hem gezien')
+
+  const bericht = (await db.notifications.toArray())
+    .find((n) => n.toUserId === 'zt_tom' && n.title.includes('rechtgezet'))
+  check('de aanvrager hoort het ook', !!bericht)
+
+  /* --- een bestaande regel bijstellen in plaats van erbij zetten --- */
+
+  const bestaand = na.find((e) => e.start === dag)!
+  const tweede = await urenverzoeken.indienen({
+    door: tom as never,
+    soort: 'te vroeg uitgeklokt',
+    van: dag,
+    tot: dag + 9 * 3_600_000,
+    entryId: bestaand.id,
+    toelichting: 'Ik heb nog een uur doorgewerkt na het uitklokken.',
+  })
+  const aantalVoor = await db.timeEntries.where('userId').equals('zt_tom').count()
+  await urenverzoeken.goedkeuren((await db.hourRequests.get(tweede.id))!, nour as never)
+
+  check('een bestaande regel wordt bijgesteld, niet gedupliceerd',
+    (await db.timeEntries.where('userId').equals('zt_tom').count()) === aantalVoor)
+  check('en de eindtijd staat een uur later',
+    (await db.timeEntries.get(bestaand.id))?.end === dag + 9 * 3_600_000)
+
+  /* --- afwijzen laat de uren met rust --- */
+
+  const derde = await urenverzoeken.indienen({
+    door: tom as never, soort: 'anders', van: dag, tot: dag + 20 * 3_600_000,
+    toelichting: 'Twintig uur gewerkt.',
+  })
+  const voorAfwijzen = await db.timeEntries.where('userId').equals('zt_tom').count()
+  await urenverzoeken.afwijzen(
+    (await db.hourRequests.get(derde.id))!, 'Twintig uur kan niet', nour as never)
+
+  check('afwijzen verandert niets aan de uren',
+    (await db.timeEntries.where('userId').equals('zt_tom').count()) === voorAfwijzen)
+  check('en de aanvrager hoort waarom',
+    (await db.notifications.toArray()).some(
+      (n) => n.toUserId === 'zt_tom' && (n.body ?? '').includes('Twintig uur kan niet')))
+
+  /* --- intrekken kan de aanvrager zelf --- */
+
+  const vierde = await urenverzoeken.indienen({
+    door: tom as never, soort: 'vergeten', van: dag, toelichting: 'Toch niet nodig.',
+  })
+  await urenverzoeken.intrekken(vierde)
+  check('een verzoek intrekken kan',
+    (await db.hourRequests.get(vierde.id))?.status === 'ingetrokken')
+  check('en dan wacht het niet meer op de leidinggevende',
+    !openVerzoeken(await db.hourRequests.toArray()).some((v) => v.id === vierde.id))
+
+  check('elke soort verzoek heeft een naam',
+    Object.values(SOORT_LABEL).every((l) => l.length > 3))
+
+  /* --- kilometers --- */
+
+  const rit = await ritRepo.toevoegen({
+    door: tom as never,
+    op: dag,
+    vanLabel: 'Thuis', naarLabel: 'Utrecht',
+    vanAdres: 'Dorpsstraat 1, Houten', naarAdres: 'Handelsweg 14, Utrecht',
+    km: 12.4, retour: true, doel: 'woon-werk',
+  })
+  check('een rit begint op nieuw', rit.status === 'nieuw')
+  check('en zegt dat de afstand van de routedienst komt', rit.bron === 'route')
+
+  await ritRepo.toevoegen({
+    door: tom as never,
+    op: dag + DAG_MS,
+    vanLabel: 'Utrecht', naarLabel: 'Almere',
+    vanAdres: 'Handelsweg 14, Utrecht', naarAdres: 'Ergens 3, Almere',
+    km: 40, retour: false, doel: 'vestiging',
+  })
+
+  const mijn = mijnRitten(await db.trips.toArray(), 'zt_tom')
+  check('beide ritten staan op zijn naam', mijn.length === 2)
+  check('de nieuwste bovenaan', mijn[0].naarLabel === 'Almere')
+
+  check('retour telt dubbel', totaalKm(mijn) === 12.4 * 2 + 40)
+  check('en de vergoeding volgt daaruit',
+    vergoeding(mijn, KM_TARIEF) === Math.round((12.4 * 2 + 40) * KM_TARIEF * 100) / 100)
+  check('het tarief is het onbelaste bedrag', KM_TARIEF === 0.23)
+
+  check('een lege lijst is nul kilometer', totaalKm([]) === 0)
+
+  /* --- het adres van een vestiging, zoals de routedienst het wil --- */
+
+  check('een vestigingsadres wordt één regel',
+    adresVan({ address: 'Handelsweg 14', postcode: '3542 AB', city: 'Utrecht' } as never)
+      === 'Handelsweg 14, 3542 AB Utrecht')
+  check('en zonder vestiging komt er niets uit', adresVan(undefined) === '')
+
+  /* --- alles overleeft de rondgang --- */
+
+  await sync()
+  await db.hourRequests.clear()
+  await db.trips.clear()
+  await setMeta(LAST_SYNC, 0)
+  await sync()
+  check('het verzoek staat op de server',
+    (await db.hourRequests.get(verzoek.id))?.status === 'goedgekeurd')
+  check('de ritten ook', (await db.trips.get(rit.id))?.km === 12.4)
+}
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

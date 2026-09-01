@@ -103,6 +103,18 @@ export interface User {
   archivedAt?: number
   archivedBy?: string
   archiveReason?: string
+
+  /**
+   * Dit dossier hoort bij een kassa, niet bij een mens.
+   *
+   * Een gekoppelde kassa heeft zijn eigen inlog, en daar hangt een dossier aan
+   * omdat de vestiging daarin staat -- en die bepaalt wat het apparaat mag
+   * zien. Zonder dit vlaggetje staat "Kassa KAS-UTR-1" tussen het personeel:
+   * in het rooster, in de urenstaat en in de lijst waaruit je aan de kassa
+   * iemand kiest. Overal waar mensen worden opgesomd, hoort dit eruit
+   * gefilterd te worden.
+   */
+  isDevice?: boolean
 }
 
 /* ------------------------------------------------------------------ *
@@ -315,7 +327,8 @@ export type Permission =
   | 'employer.view' | 'employer.manage' | 'employer.approve'
   | 'employer.staff' | 'employer.rules'
   /* kassa */
-  | 'pos.use' | 'pos.discount' | 'pos.refund' | 'pos.cash' | 'pos.manage'
+  | 'pos.use' | 'pos.discount' | 'pos.refund' | 'pos.cash' | 'pos.safe'
+  | 'pos.manage'
   /* beheer */
   | 'admin.settings' | 'admin.audit'
 
@@ -425,6 +438,7 @@ export const PERMISSIONS: PermissionMeta[] = [
   { key: 'pos.discount',      group: 'Kassa',      label: 'Korting geven',        hint: 'Een regel of de hele bon afprijzen.' },
   { key: 'pos.refund',        group: 'Kassa',      label: 'Bon crediteren',       hint: 'Een afgerekende bon terugdraaien met een creditbon.', sensitive: true },
   { key: 'pos.cash',          group: 'Kassa',      label: 'Lade en dagafsluiting', hint: 'Kas openen, tellen, afstorten en de dag afsluiten.', sensitive: true },
+  { key: 'pos.safe',          group: 'Kassa',      label: 'Kluis',                hint: 'De kluis openen, afstorten, wisselgeld halen en de kluis tellen.', sensitive: true },
   { key: 'pos.manage',        group: 'Kassa',      label: 'Kassa beheren',        hint: "Artikelen, prijzen, kaarten, codes en de printerinstellingen.", sensitive: true },
 
   { key: 'admin.settings',    group: 'Beheer',     label: 'Instellingen',         hint: 'Tarieven, openingstijden en app-instellingen.', sensitive: true },
@@ -1087,6 +1101,16 @@ export interface PersonnelPrivate {
   birthPlace?: string
   nationality?: string
 
+  /**
+   * Waar iemand woont.
+   *
+   * Hier en niet op het profiel: het adres van een collega gaat niemand
+   * anders aan. Zonder adres valt woon-werkverkeer niet uit te rekenen.
+   */
+  address?: string
+  postcode?: string
+  city?: string
+
   /* --- identiteitsbewijs --- */
   documentType?: 'paspoort' | 'id-kaart' | 'verblijfsdocument' | 'rijbewijs'
   documentNumber?: string
@@ -1559,6 +1583,7 @@ export type EntityName =
   | 'notifications' | 'courses' | 'courseProgress'
   | 'assets' | 'faults' | 'workOrders' | 'maintenancePlans'
   | 'tickets' | 'ticketMessages' | 'logEvents' | 'devPlans'
+  | 'hourRequests' | 'trips'
   | 'signups' | 'channels' | 'chatMessages' | 'channelReads' | 'emailLog'
   | 'personnelPrivate' | 'documents' | 'mailbox' | 'changeRequests'
   | 'agendaItems' | 'employers' | 'employerLinks' | 'employerRules'
@@ -1598,4 +1623,98 @@ export interface WachtendeMail {
   request: unknown
   createdAt: number
   tries: number
+}
+
+/* ------------------------------------------------------------------ *
+ *  Uren rechtzetten
+ *
+ *  Klokken gaat via de kassa. Wie vergeet in te klokken staat daarmee met
+ *  lege handen -- hij was er wel, het staat er niet, en hij kan er zelf
+ *  niets aan doen. Dit is de weg terug: hij zegt wat er had moeten staan,
+ *  zijn leidinggevende kijkt ernaar.
+ * ------------------------------------------------------------------ */
+
+export type HourRequestSoort =
+  | 'vergeten' | 'verkeerde tijd' | 'te vroeg uitgeklokt' | 'anders'
+
+export type HourRequestStatus = 'nieuw' | 'goedgekeurd' | 'afgewezen' | 'ingetrokken'
+
+export const HR_STATUS: Record<HourRequestStatus, { label: string; tone: string }> = {
+  nieuw:        { label: 'Wacht op akkoord', tone: 'warn' },
+  goedgekeurd:  { label: 'Goedgekeurd',      tone: 'ok' },
+  afgewezen:    { label: 'Afgewezen',        tone: 'danger' },
+  ingetrokken:  { label: 'Ingetrokken',      tone: 'default' },
+}
+
+export interface HourRequest {
+  id: string
+  userId: string
+  userName: string
+  /** De regel waar het over gaat; leeg betekent: die is er helemaal niet */
+  entryId?: string
+  locationId?: string
+
+  soort: HourRequestSoort
+  /** Wat er volgens de medewerker had moeten staan */
+  van: number
+  tot?: number
+  toelichting: string
+
+  status: HourRequestStatus
+  aangevraagdOp: number
+
+  beslistDoor?: string
+  beslistDoorNaam?: string
+  beslistOp?: number
+  beslissingReden?: string
+
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
+ *  Ritten
+ *
+ *  De afstand komt van de routedienst, over de weg, van adres naar adres.
+ *  Losse kilometers intypen kan niet -- niet in het scherm en niet in de
+ *  database. Een vergoeding waarbij iedereen zijn eigen getal invult is geen
+ *  vergoeding maar een vertrouwenskwestie.
+ * ------------------------------------------------------------------ */
+
+export type TripDoel = 'woon-werk' | 'klant' | 'vestiging' | 'anders'
+
+export const TRIP_DOEL: Record<TripDoel, { label: string; hint: string }> = {
+  'woon-werk':  { label: 'Woon-werk',   hint: 'Van huis naar de vestiging en terug' },
+  'vestiging':  { label: 'Tussen vestigingen', hint: 'Ingesprongen op een andere locatie' },
+  'klant':      { label: 'Naar een klant', hint: 'Op locatie bij een klant' },
+  'anders':     { label: 'Anders',      hint: 'Met een toelichting erbij' },
+}
+
+export interface Trip {
+  id: string
+  userId: string
+  userName: string
+  /** De dag waarop de rit is gemaakt */
+  op: number
+
+  vanLabel: string
+  naarLabel: string
+  /** Wat er werkelijk is opgezocht; hiermee is de afstand na te rekenen */
+  vanAdres: string
+  naarAdres: string
+
+  /** Kilometers over de weg, één kant op */
+  km: number
+  retour: boolean
+  doel: TripDoel
+  toelichting?: string
+
+  /** Waar de afstand vandaan komt. 'handmatig' bestaat met opzet niet. */
+  bron: 'route' | 'vast'
+
+  status: 'nieuw' | 'goedgekeurd' | 'afgewezen'
+  beslistDoor?: string
+  beslistDoorNaam?: string
+  beslistOp?: number
+
+  updatedAt: number
 }

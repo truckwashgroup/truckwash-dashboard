@@ -3632,3 +3632,67 @@ table.data.matrix th { vertical-align: bottom; }
 
 /* Wie beweging heeft uitgezet, krijgt het ook hier niet. */
 [data-beweging="uit"] .rondleiding-prent .bel { display: none; }
+
+/* ====================== Uren en kilometers ========================= */
+
+.verzoek-lijst { display: grid; }
+
+.verzoek {
+  display: grid; gap: 7px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.verzoek:last-child { border-bottom: 0; }
+.verzoek.open { background: var(--tint-warn-weak); }
+
+.verzoek .kop { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.verzoek .kop strong { font-size: .89rem; }
+.verzoek .kop .meta { font-size: .73rem; color: var(--text-3); margin-left: auto; }
+
+.verzoek .wat { font-size: .84rem; color: var(--text-2); }
+.verzoek .reden {
+  font-size: .82rem; color: var(--text-2); line-height: 1.55;
+  padding-left: 10px; border-left: 2px solid var(--line);
+}
+.verzoek .besluit {
+  display: flex; align-items: center; gap: 6px;
+  font-size: .76rem; color: var(--text-3);
+}
+.verzoek .besluit svg { flex: none; }
+
+.verzoek .vergelijk {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.verzoek .vergelijk > div { display: grid; gap: 2px; min-width: 0; }
+.verzoek .vergelijk .l {
+  font-size: .68rem; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--text-3);
+}
+.verzoek .vergelijk .w { font-size: .85rem; font-variant-numeric: tabular-nums; }
+.verzoek .vergelijk .w.nieuw { font-weight: 600; color: var(--text-ok, var(--ok)); }
+
+@media (max-width: 560px) {
+  .verzoek .vergelijk { grid-template-columns: 1fr; }
+}
+
+/* --------------------------- De uitkomst -------------------------- */
+
+.rit-uitkomst {
+  display: flex; align-items: center; gap: 12px;
+  padding: 13px 15px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line-ok);
+  border-radius: var(--radius);
+  background: var(--tint-ok);
+}
+.rit-uitkomst svg { flex: none; color: var(--ok); }
+.rit-uitkomst > div { display: grid; gap: 2px; min-width: 0; }
+.rit-uitkomst strong { font-size: .93rem; }
+.rit-uitkomst span {
+  font-size: .77rem; color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}

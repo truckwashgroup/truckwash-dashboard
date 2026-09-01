@@ -1,8 +1,10 @@
 import { create } from 'zustand'
 import { api, type PushChange } from './api'
 import {
-  GeenRechten, GeenSessie, OntbrekendeTabel, ontbrekendeTabellen,
+  GeenRechten, GeenSessie, OntbrekendeKolom, OntbrekendeTabel,
+  ontbrekendeTabellen,
 } from './api/supabaseApi'
+import { verstuurWachtendePost } from './mail'
 import { db, getMeta, setMeta } from './db'
 import { logLive } from './trail'
 import type { EntityName, OutboxRecord, SyncOp, SyncState } from './types'
@@ -87,7 +89,15 @@ export const useSync = create<SyncStore>((set, get) => ({
         sessieWeg: false,
       })
 
-      logLive('sync', `Ronde klaar — ${geduwd} verstuurd, ${opgehaald} opgehaald`, {
+      /*
+       * En de post die op verbinding stond te wachten. Een roosterwijziging
+       * die offline wordt gemaakt levert een bericht in de app op dat via de
+       * wachtrij alsnog aankomt -- de mail hoort dat ook te doen.
+       */
+      const gemaild = await verstuurWachtendePost()
+
+      logLive('sync', `Ronde klaar — ${geduwd} verstuurd, ${opgehaald} opgehaald` +
+        (gemaild ? `, ${gemaild} mail${gemaild === 1 ? '' : 's'} alsnog verstuurd` : ''), {
         duur: Date.now() - begin,
       })
     } catch (e) {
@@ -140,6 +150,7 @@ export async function ensureBackendMatches(): Promise<boolean> {
     db.assets.clear(), db.faults.clear(), db.workOrders.clear(),
     db.maintenancePlans.clear(), db.tickets.clear(),
     db.ticketMessages.clear(), db.logEvents.clear(), db.devPlans.clear(),
+    db.mailOutbox.clear(),
     db.signups.clear(), db.channels.clear(),
     db.chatMessages.clear(), db.channelReads.clear(), db.emailLog.clear(),
     db.personnelPrivate.clear(), db.documents.clear(), db.mailbox.clear(),
@@ -283,7 +294,7 @@ async function pushPerStuk(batch: OutboxRecord[]): Promise<Error | null> {
        * hem na acht pogingen weggooien zou werk laten verdwijnen om een
        * reden die niets met dat werk te maken heeft.
        */
-      if (e instanceof OntbrekendeTabel) {
+      if (e instanceof OntbrekendeTabel || e instanceof OntbrekendeKolom) {
         await db.outbox.update(r.id!, { lastError: msg })
         continue
       }

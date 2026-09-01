@@ -1572,3 +1572,19 @@ export interface SyncState {
   lastSyncAt: number | null
   lastError: string | null
 }
+
+/* ------------------------------------------------------------------ *
+ *  Post die op verbinding wacht
+ *
+ *  Blijft op het apparaat staan; hij gaat niet mee met de synchronisatie.
+ *  Die verstuurt records, en dit is een verzoek -- twee apparaten die
+ *  hetzelfde verzoek doorsturen leveren twee mails op.
+ * ------------------------------------------------------------------ */
+
+export interface WachtendeMail {
+  id?: number
+  /** Hetzelfde verzoek dat anders meteen naar de serverfunctie was gegaan */
+  request: unknown
+  createdAt: number
+  tries: number
+}

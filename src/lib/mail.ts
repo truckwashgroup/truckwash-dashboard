@@ -1,3 +1,4 @@
+import { db } from './db'
 import { supabase, supabaseConfigured } from './api/supabaseApi'
 
 /* ------------------------------------------------------------------ *
@@ -64,7 +65,20 @@ let functionMissing = false
  */
 export async function sendMail(request: MailRequest): Promise<MailResult | null> {
   if (!supabaseConfigured || functionMissing) return null
-  if (typeof navigator !== 'undefined' && !navigator.onLine) return null
+
+  /*
+   * Zonder verbinding niet weggooien maar bewaren.
+   *
+   * Dit was een gat waar je zo doorheen viel: een leidinggevende die het
+   * rooster op een tablet zonder bereik omgooit. Het belletje in de app kwam
+   * later alsnog aan, want dat gaat via de wachtrij -- de mail was een
+   * directe aanroep en verdween. Iemand kreeg dus wel bericht in een app die
+   * hij niet openheeft, en geen mail.
+   */
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    await bewaarVoorStraks(request)
+    return null
+  }
 
   try {
     const { data, error } = await supabase().functions.invoke<MailResult>(FUNCTION, {
@@ -101,6 +115,73 @@ export async function sendMail(request: MailRequest): Promise<MailResult | null>
       e instanceof Error ? e.message : String(e)}`)
     return null
   }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Post die moest wachten
+ *
+ *  Een eigen wachtrijtje, want post gaat niet langs de gewone
+ *  synchronisatie: dat verstuurt records, en dit is een verzoek. Hij blijft
+ *  op dit apparaat staan tot er verbinding is.
+ * ------------------------------------------------------------------ */
+
+/** Zoveel verzoeken bewaren we hoogstens; daarboven vervalt het oudste. */
+const MAX_WACHTEND = 200
+
+async function bewaarVoorStraks(request: MailRequest) {
+  try {
+    await db.mailOutbox.add({
+      request,
+      createdAt: Date.now(),
+      tries: 0,
+    })
+    const aantal = await db.mailOutbox.count()
+    if (aantal > MAX_WACHTEND) {
+      const oudste = await db.mailOutbox.orderBy('createdAt').limit(aantal - MAX_WACHTEND).toArray()
+      await db.mailOutbox.bulkDelete(oudste.map((r) => r.id!))
+    }
+  } catch {
+    /* Lukt zelfs dat niet, dan is de bel in de app nog steeds gegaan. */
+  }
+}
+
+/**
+ * De bewaarde post alsnog versturen.
+ *
+ * Wordt bij elke geslaagde synchronisatieronde aangeroepen. Wat niet lukt
+ * blijft staan, tot een stuk of wat pogingen -- een adres dat niet meer
+ * bestaat hoort niet eeuwig te blijven rondzingen.
+ */
+export async function verstuurWachtendePost(): Promise<number> {
+  if (!supabaseConfigured || functionMissing) return 0
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return 0
+
+  let verstuurd = 0
+  const wachtend = await db.mailOutbox.orderBy('createdAt').limit(25).toArray()
+
+  for (const regel of wachtend) {
+    const uit = await sendMail(regel.request as MailRequest)
+    if (uit) {
+      await db.mailOutbox.delete(regel.id!)
+      verstuurd++
+      continue
+    }
+    const tries = regel.tries + 1
+    if (tries >= 5) {
+      console.warn(
+        `[mail] ${(regel.request as MailRequest).template} is na ${tries} pogingen opgegeven.`,
+        laatsteFout ?? '')
+      await db.mailOutbox.delete(regel.id!)
+    } else {
+      await db.mailOutbox.update(regel.id!, { tries })
+    }
+  }
+  return verstuurd
+}
+
+/** Hoeveel post er nog op verzending wacht. */
+export function wachtendePost(): Promise<number> {
+  return db.mailOutbox.count()
 }
 
 /**

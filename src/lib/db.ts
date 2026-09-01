@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie'
 import type {
+  WachtendeMail,
     DevPlan,
 AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   CourseProgress, EmailLog, Expense, Fault, InventoryItem, Location, LogEvent,
@@ -35,6 +36,7 @@ class TruckwashDB extends Dexie {
   ticketMessages!: Table<TicketMessage, string>
   logEvents!: Table<LogEvent, string>
   devPlans!: Table<DevPlan, string>
+  mailOutbox!: Table<WachtendeMail, number>
   signups!: Table<Signup, string>
   channels!: Table<Channel, string>
   chatMessages!: Table<ChatMessage, string>
@@ -144,6 +146,11 @@ class TruckwashDB extends Dexie {
     // v13: van melding naar plan
     this.version(13).stores({
       devPlans: 'id, ticketId, status, gemaaktOp, updatedAt',
+    })
+
+    // v14: post die op verbinding wacht
+    this.version(14).stores({
+      mailOutbox: '++id, createdAt',
     })
   }
 }

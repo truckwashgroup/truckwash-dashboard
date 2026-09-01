@@ -131,6 +131,21 @@ const OVERRIDES: Partial<Record<EntityName, Record<string, string>>> = {
   users: { function: 'job_title' },
 }
 
+/**
+ * Velden die alleen op dit apparaat bestaan en niet naar de server gaan.
+ *
+ * `password` is er zo een. De testgegevens gebruiken hem om zonder Supabase
+ * te kunnen inloggen; de echte database kent die kolom niet en hoort hem ook
+ * niet te kennen -- wachtwoorden horen bij auth, niet bij een dossier.
+ *
+ * Zonder deze lijst stuurde de app hem gewoon mee, en dan weigert PostgREST
+ * de hele rij met "Could not find the 'password' column". Daar sneuvelde een
+ * nieuw personeelsdossier op.
+ */
+const LOKAAL: Partial<Record<EntityName, string[]>> = {
+  users: ['password'],
+}
+
 /* ------------------------------------------------------------------ *
  *  camelCase <-> snake_case
  * ------------------------------------------------------------------ */
@@ -140,9 +155,11 @@ const toCamel = (s: string) => s.replace(/_([a-z])/g, (_, c: string) => c.toUppe
 
 export function toRow(entity: EntityName, obj: Record<string, unknown>) {
   const over = OVERRIDES[entity] ?? {}
+  const lokaal = LOKAAL[entity] ?? []
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(obj)) {
     if (v === undefined) continue
+    if (lokaal.includes(k)) continue
     out[over[k] ?? toSnake(k)] = v
   }
   // updated_at wordt serverzijdig gezet
@@ -182,6 +199,20 @@ export function tabelOntbreekt(error: { code?: string; message?: string } | null
   // 42P01 komt van Postgres, PGRST205/PGRST106 van de laag ervoor.
   if (['42P01', 'PGRST205', 'PGRST106'].includes(error.code ?? '')) return true
   return /(relation|table).{0,40}(does not exist|not found)/i.test(error.message ?? '')
+}
+
+/**
+ * Bestaat deze kolom nog niet?
+ *
+ * Hetzelfde soort probleem als een tabel die er niet is: het schema loopt
+ * achter, of de app stuurt iets mee wat er niet hoort. In beide gevallen is
+ * het record niet fout, en hoort het niet na acht pogingen weggegooid te
+ * worden -- dat is precies wat er met een nieuw personeelsdossier gebeurde.
+ */
+export function kolomOntbreekt(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false
+  if (error.code === 'PGRST204') return true
+  return /could not find the .* column/i.test(error.message ?? '')
 }
 
 /** Geen rechten op een tabel is normaal: een klant ziet geen voorraad. */
@@ -273,6 +304,21 @@ export async function heeftSessie(): Promise<boolean> {
  * werk weggooit. Hij blijft staan tot de rechten kloppen, en dan gaat hij
  * alsnog mee.
  */
+/**
+ * Een kolom die de database niet kent.
+ *
+ * Blijft staan tot het schema klopt, net als een ontbrekende tabel. Anders
+ * verdwijnt er werk om een reden die niets met dat werk te maken heeft.
+ */
+export class OntbrekendeKolom extends Error {
+  constructor(readonly tabel: string, boodschap?: string) {
+    super(
+      `De tabel "${tabel}" mist een kolom die de app meestuurt: ${boodschap ?? ''} `.trim() +
+      ' Draai supabase/setup.sql opnieuw; je wijziging blijft zolang in de wachtrij staan.',
+    )
+  }
+}
+
 export class GeenRechten extends Error {
   constructor(readonly tabel: string, boodschap: string) {
     super(
@@ -355,6 +401,7 @@ export const supabaseApi: ApiAdapter = {
       if (deletes.length) {
         const { error } = await supabase().from(table).delete().in('id', deletes)
         if (error && tabelOntbreekt(error)) throw new OntbrekendeTabel(table)
+        if (error && kolomOntbreekt(error)) throw new OntbrekendeKolom(table, error.message)
         if (error && geenRechten(error)) throw new GeenRechten(table, error.message)
         if (error) fail(`verwijderen in ${table}`, error)
       }
@@ -365,6 +412,7 @@ export const supabaseApi: ApiAdapter = {
       if (upserts.length) {
         const { error } = await supabase().from(table).upsert(upserts, { onConflict: 'id' })
         if (error && tabelOntbreekt(error)) throw new OntbrekendeTabel(table)
+        if (error && kolomOntbreekt(error)) throw new OntbrekendeKolom(table, error.message)
         if (error && geenRechten(error)) throw new GeenRechten(table, error.message)
         if (error) fail(`opslaan in ${table}`, error)
       }

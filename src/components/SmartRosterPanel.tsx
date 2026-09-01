@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   Check, ChevronLeft, ChevronRight, Send, Sparkles, TriangleAlert, X,
 } from 'lucide-react'
-import { db } from '../lib/db'
+import { db, alleMensen } from '../lib/db'
 import { shifts as shiftRepo, notifications as notifyRepo } from '../lib/repo'
 import type { Shift, User, WashJob } from '../lib/types'
 import { planWeek, type Proposal } from '../lib/smartRoster'
@@ -30,7 +30,7 @@ export default function SmartRosterPanel({ team }: { team?: User[] }) {
   const [rejected, setRejected] = useState<Set<string>>(new Set())
   const [applying, setApplying] = useState(false)
 
-  const allUsers = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const allUsers = useLiveQuery(() => alleMensen(), [], [] as User[])
   const shifts = useLiveQuery(() => db.shifts.toArray(), [], [] as Shift[])
   const jobs = useLiveQuery(() => db.washJobs.toArray(), [], [] as WashJob[])
 

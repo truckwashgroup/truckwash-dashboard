@@ -4,7 +4,7 @@ import {
   Bell, Database, Download, HardDrive, KeyRound, RefreshCw, ServerCog,
   ShieldCheck, Trash2, TriangleAlert, Wifi, WifiOff,
 } from 'lucide-react'
-import { db, setMeta } from '../../lib/db'
+import { db, setMeta, alleMensen } from '../../lib/db'
 import { LAST_SYNC, useSync } from '../../lib/sync'
 import { activeBackend, isForcedOffline, setForcedOffline } from '../../lib/api'
 import { useUpdates } from '../../lib/updates'
@@ -32,7 +32,7 @@ export default function Beheer() {
   const [notif, setNotif] = useState(notifyPermissionState())
   const [busy, setBusy] = useState(false)
 
-  const users = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const users = useLiveQuery(() => alleMensen(), [], [] as User[])
   const counts = useLiveQuery(async () => ({
     users: await db.users.count(),
     companies: await db.companies.count(),

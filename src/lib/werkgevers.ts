@@ -1,4 +1,4 @@
-import { db, uid } from './db'
+import { db, uid, alleMensen } from './db'
 import { enqueue } from './sync'
 import { notifications, users as userRepo } from './repo'
 import { supabase, supabaseConfigured } from './api/supabaseApi'
@@ -106,7 +106,7 @@ export const werkgevers = {
     }
     await put('employers', db.employers, werkgever)
 
-    const bazen = (await db.users.toArray()).filter(
+    const bazen = (await alleMensen()).filter(
       (u) => u.active && u.roles.includes('management'))
     for (const baas of bazen) {
       await notifications.send({

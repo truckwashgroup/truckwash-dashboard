@@ -1,4 +1,4 @@
-import { db } from './db'
+import { db, alleMensen } from './db'
 import { supabase, supabaseConfigured } from './api/supabaseApi'
 import type { User } from './types'
 
@@ -170,5 +170,5 @@ export function inDienst(alle: User[]): User[] {
 export async function adresAlBekend(email: string): Promise<User | undefined> {
   const schoon = email.trim().toLowerCase()
   if (!schoon) return undefined
-  return (await db.users.toArray()).find((u) => u.email.toLowerCase() === schoon)
+  return (await alleMensen()).find((u) => u.email.toLowerCase() === schoon)
 }

@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   ArrowRight, Check, ClipboardCheck, Clock, PenLine, ThumbsDown, Undo2, X,
 } from 'lucide-react'
-import { db } from '../lib/db'
+import { db, alleMensen } from '../lib/db'
 import {
   gelijk, huidigeWaarde, openVerzoeken, toonWaarde, verzoekenVan, wijzigingen,
 } from '../lib/wijzigingen'
@@ -42,7 +42,7 @@ export function OpenWijzigingen() {
 
   const alle = useLiveQuery(() => db.changeRequests.toArray(), [], [] as DossierWijziging[])
   const locaties = useLiveQuery(() => db.locations.toArray(), [], [] as Location[])
-  const mensen = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const mensen = useLiveQuery(() => alleMensen(), [], [] as User[])
 
   const [afwijzen, setAfwijzen] = useState<DossierWijziging | null>(null)
 
@@ -103,7 +103,7 @@ export function WijzigingenVan({ person }: { person: User }) {
 
   const alle = useLiveQuery(() => db.changeRequests.toArray(), [], [] as DossierWijziging[])
   const locaties = useLiveQuery(() => db.locations.toArray(), [], [] as Location[])
-  const mensen = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const mensen = useLiveQuery(() => alleMensen(), [], [] as User[])
   const [afwijzen, setAfwijzen] = useState<DossierWijziging | null>(null)
 
   const mijne = useMemo(() => verzoekenVan(alle, person.id), [alle, person.id])
@@ -307,7 +307,7 @@ export function WijzigingAanvragen({
 }) {
   const me = useAuth((s) => s.user)!
   const locaties = useLiveQuery(() => db.locations.toArray(), [], [] as Location[])
-  const mensen = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const mensen = useLiveQuery(() => alleMensen(), [], [] as User[])
 
   const [gekozen, setGekozen] = useState<Set<WijzigbaarVeld>>(new Set())
   const [waarden, setWaarden] = useState<Partial<Record<WijzigbaarVeld, unknown>>>({})

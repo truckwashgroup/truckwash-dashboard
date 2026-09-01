@@ -6,7 +6,7 @@ import {
   TriangleAlert, Wand2,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
-import { db } from '../../lib/db'
+import { db, alleMensen } from '../../lib/db'
 import {
   tickets as ticketRepo, ticketMessages as messageRepo, logs as logRepo,
   TICKET_PRIORITY_TONE, TICKET_STATUS_TONE,
@@ -260,7 +260,7 @@ function TicketDetail({ ticket, onBack }: { ticket: Ticket; onBack: () => void }
     [ticket.id],
     [] as TicketMessage[],
   )
-  const users = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const users = useLiveQuery(() => alleMensen(), [], [] as User[])
   const devs = users.filter((u) => u.active && u.roles.includes('developer'))
 
   const mag = perms.can('dev.respond')

@@ -1,5 +1,10 @@
 import Dexie, { type Table } from 'dexie'
 import type {
+  PosRegister,
+  PosDevice,
+  PosPairing,
+  PosSafe,
+  PosSafeMove,
   HourRequest,
   Trip,
   WachtendeMail,
@@ -40,6 +45,11 @@ class TruckwashDB extends Dexie {
   devPlans!: Table<DevPlan, string>
   hourRequests!: Table<HourRequest, string>
   trips!: Table<Trip, string>
+  posRegisters!: Table<PosRegister, string>
+  posDevices!: Table<PosDevice, string>
+  posPairings!: Table<PosPairing, string>
+  posSafes!: Table<PosSafe, string>
+  posSafeMoves!: Table<PosSafeMove, string>
   mailOutbox!: Table<WachtendeMail, number>
   signups!: Table<Signup, string>
   channels!: Table<Channel, string>
@@ -162,6 +172,15 @@ class TruckwashDB extends Dexie {
       hourRequests: 'id, userId, status, aangevraagdOp, updatedAt',
       trips: 'id, userId, op, status, updatedAt',
     })
+
+    // v16: de kassa's, de apparaten en de kluis
+    this.version(16).stores({
+      posRegisters: 'id, locationId, code, updatedAt',
+      posDevices: 'id, registerId, locationId, status, updatedAt',
+      posPairings: 'id, code, registerId, expiresAt, updatedAt',
+      posSafes: 'id, locationId, updatedAt',
+      posSafeMoves: 'id, safeId, at, soort, updatedAt',
+    })
   }
 }
 
@@ -182,4 +201,28 @@ export function uid(prefix = ''): string {
       ? crypto.randomUUID()
       : Math.random().toString(36).slice(2) + Date.now().toString(36)
   return prefix ? `${prefix}_${raw}` : raw
+}
+
+/* ------------------------------------------------------------------ *
+ *  Mensen, geen apparaten
+ *
+ *  Een gekoppelde kassa heeft een eigen personeelsdossier, want daar hangt
+ *  aan welke vestiging hij is en dus wat hij mag zien. Maar het is geen mens.
+ *
+ *  Zonder deze grens staat "Kassa KAS-UTR-1" tussen het personeel: in het
+ *  rooster, in de urenstaat, in elke keuzelijst waar je iemand aanwijst, en
+ *  in elk aantal ("15 medewerkers"). Dat is het soort ding dat je één keer
+ *  over het hoofd ziet en dan drie maanden in een rapport meeneemt.
+ *
+ *  Vandaar op één plek in plaats van in tweeëndertig schermen. Wie een lijst
+ *  van mensen wil, vraagt hierom -- niet om db.users.
+ * ------------------------------------------------------------------ */
+
+export function alleMensen() {
+  return db.users.filter((u) => !u.isDevice).toArray()
+}
+
+/** En hetzelfde voor een lijst die je al hebt. */
+export function alleenMensen<T extends { isDevice?: boolean }>(lijst: T[]): T[] {
+  return lijst.filter((u) => !u.isDevice)
 }

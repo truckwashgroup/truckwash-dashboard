@@ -1,4 +1,4 @@
-import { db, uid } from './db'
+import { db, uid, alleMensen } from './db'
 import { enqueue } from './sync'
 import { notifications } from './repo'
 import { deviceInfo, trail } from './trail'
@@ -75,7 +75,7 @@ export const tickets = {
     await put('tickets', db.tickets, ticket)
 
     // De ontwikkelaars op de hoogte brengen
-    const devs = (await db.users.toArray()).filter(
+    const devs = (await alleMensen()).filter(
       (u) => u.active && u.roles.includes('developer'))
     for (const d of devs) {
       await notifications.send({

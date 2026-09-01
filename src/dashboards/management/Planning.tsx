@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { CalendarRange, Search } from 'lucide-react'
-import { db } from '../../lib/db'
+import { db, alleMensen } from '../../lib/db'
 import { jobs as jobRepo } from '../../lib/repo'
 import { SERVICES, type User, type WashJob, type WashStatus } from '../../lib/types'
 import { dateShort, duration, money, time } from '../../lib/format'
@@ -32,7 +32,7 @@ export default function Planning() {
   const [q, setQ] = useState('')
 
   const jobs = useLiveQuery(() => db.washJobs.toArray(), [], [] as WashJob[])
-  const users = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const users = useLiveQuery(() => alleMensen(), [], [] as User[])
   const staff = users.filter((u) => u.roles.includes('employee') && u.active)
 
   const rows = useMemo(() => {

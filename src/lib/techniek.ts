@@ -1,4 +1,4 @@
-import { db, uid } from './db'
+import { db, uid, alleMensen } from './db'
 import { enqueue } from './sync'
 import { notifications } from './repo'
 import {
@@ -163,7 +163,7 @@ export const faults = {
     }
 
     // De technische dienst van die vestiging op de hoogte brengen.
-    const technici = (await db.users.toArray()).filter(
+    const technici = (await alleMensen()).filter(
       (u) => u.active && u.roles.includes('technician') &&
         (u.allLocations || u.locationId === input.locationId || (u.manages ?? []).includes(input.locationId)),
     )

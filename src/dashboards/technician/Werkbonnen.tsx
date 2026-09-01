@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   ArrowLeft, Check, ClipboardList, Package, Play, Plus, Printer, Search, Trash2,
 } from 'lucide-react'
-import { db } from '../../lib/db'
+import { db, alleMensen } from '../../lib/db'
 import { workOrders as orderRepo } from '../../lib/techniek'
 import type { InventoryItem, User, WorkOrder, WorkOrderStatus } from '../../lib/types'
 import { dateTime, duration, money } from '../../lib/format'
@@ -159,7 +159,7 @@ function WerkbonDetail({ order, onBack }: { order: WorkOrder; onBack: () => void
   const [partPrijs, setPartPrijs] = useState('')
   const [partItem, setPartItem] = useState('')
 
-  const users = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const users = useLiveQuery(() => alleMensen(), [], [] as User[])
   const voorraad = useLiveQuery(
     () => db.inventory.where('locationId').equals(order.locationId).toArray(),
     [order.locationId],

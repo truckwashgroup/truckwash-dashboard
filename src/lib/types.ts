@@ -1587,6 +1587,7 @@ export type EntityName =
   | 'signups' | 'channels' | 'chatMessages' | 'channelReads' | 'emailLog'
   | 'personnelPrivate' | 'documents' | 'mailbox' | 'changeRequests'
   | 'agendaItems' | 'employers' | 'employerLinks' | 'employerRules'
+  | 'posRegisters' | 'posDevices' | 'posPairings' | 'posSafes' | 'posSafeMoves'
 
 export type SyncOp = 'put' | 'delete'
 
@@ -1716,5 +1717,153 @@ export interface Trip {
   beslistDoorNaam?: string
   beslistOp?: number
 
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
+ *  De kassa's, de apparaten en de kluis
+ *
+ *  De kassa is een tweede app die met dezelfde database praat. Wat hier
+ *  staat is de beheerkant: welke kassa's er zijn, welk apparaat erop staat,
+ *  en wat er in de kluis zit.
+ *
+ *  Het schema komt uit 0012 en 0025 en wordt aan de kassakant gebruikt. Deze
+ *  types zijn de vertaling ervan naar de app; verander ze niet zonder de
+ *  andere kant erbij, want die leunt erop.
+ * ------------------------------------------------------------------ */
+
+export interface PosRegister {
+  id: string
+  locationId?: string
+  /** Kort en uniek, komt in elk bonnummer: KAS-UTR-1 */
+  code: string
+  name: string
+  /** Welk apparaat hier staat, zoals de kassa het zelf noteert */
+  device?: string
+  /** Instellingen die de kassa zelf zet; het dashboard leest ze alleen. */
+  printer?: Record<string, unknown>
+  terminal?: Record<string, unknown>
+  /** Het hoogste bonnummer dat de server heeft gezien */
+  lastSeq: number
+  active: boolean
+  updatedAt: number
+}
+
+export type PosDeviceStatus = 'actief' | 'geblokkeerd' | 'ingetrokken'
+
+export const POS_DEVICE_STATUS: Record<PosDeviceStatus, {
+  label: string
+  tone: string
+  hint: string
+}> = {
+  actief: {
+    label: 'Actief',
+    tone: 'ok',
+    hint: 'Doet mee',
+  },
+  geblokkeerd: {
+    label: 'Geblokkeerd',
+    tone: 'warn',
+    hint: 'De kassa gaat op slot maar blijft versturen wat er nog op staat',
+  },
+  ingetrokken: {
+    label: 'Ingetrokken',
+    tone: 'danger',
+    hint: 'De kassa maakt zijn wachtrij leeg en wist zichzelf',
+  },
+}
+
+export interface PosDevice {
+  id: string
+  registerId?: string
+  locationId?: string
+  /** Wat het apparaat van zichzelf weet; overleeft een herinstallatie */
+  deviceKey: string
+  name: string
+  platform: string
+  appVersion?: string
+  authUserId?: string
+  profileId?: string
+  status: PosDeviceStatus
+  pairedAt: number
+  lastSeenAt?: number
+  /**
+   * Wanneer het apparaat zichzelf heeft gewist.
+   *
+   * Leeg bij een ingetrokken apparaat betekent: nog niet klaar. Er kan omzet
+   * op staan die nog niet is verstuurd, dus het inlogaccount blijft tot dit
+   * gevuld is.
+   */
+  wipedAt?: number
+  note?: string
+  updatedAt: number
+}
+
+export interface PosPairing {
+  id: string
+  /** Acht tekens, zonder I, L, O, 0 en 1 */
+  code: string
+  locationId: string
+  registerId?: string
+  createdBy?: string
+  createdByName: string
+  expiresAt: number
+  usedAt?: number
+  usedByDevice?: string
+  note?: string
+  updatedAt: number
+}
+
+export interface PosSafe {
+  id: string
+  locationId?: string
+  name: string
+  active: boolean
+  note?: string
+  updatedAt: number
+}
+
+export type SafeMoveSoort =
+  | 'afstorting' | 'wisselgeld' | 'naar-bank' | 'van-bank'
+  | 'uitgave' | 'inleg' | 'telling'
+
+export const SAFE_MOVE_SOORT: Record<SafeMoveSoort, { label: string; hint: string }> = {
+  'afstorting': { label: 'Afstorting', hint: 'Uit de kassalade naar de kluis' },
+  'wisselgeld': { label: 'Wisselgeld',  hint: 'Uit de kluis naar de kassalade' },
+  'naar-bank':  { label: 'Naar de bank', hint: 'Opgehaald of afgestort' },
+  'van-bank':   { label: 'Van de bank', hint: 'Wisselgeld gehaald' },
+  'uitgave':    { label: 'Uitgave',     hint: 'Contant betaald uit de kluis' },
+  'inleg':      { label: 'Inleg',       hint: 'Er is geld bij gelegd' },
+  'telling':    { label: 'Telling',     hint: 'De kluis is geteld; dit zet het saldo' },
+}
+
+/**
+ * De briefjes en munten.
+ *
+ * De sleutels zijn b<euro> en m<cent>: b100 is een briefje van honderd, m5
+ * een munt van vijf cent. Let op dat b5 en m5 dus niet hetzelfde zijn --
+ * vijf euro tegenover vijf cent.
+ */
+export type Coupures = Record<string, number>
+
+export interface PosSafeMove {
+  id: string
+  safeId: string
+  locationId?: string
+  soort: SafeMoveSoort
+  /** Wat er fysiek bewoog. Bij een telling leeg. */
+  coins: Coupures
+  /** Alleen bij een telling: de volledige samenstelling zoals geteld. */
+  counted?: Coupures
+  /** Het bedrag met teken, vastgelegd op het moment zelf */
+  amount: number
+  expected?: number
+  difference?: number
+  sessionId?: string
+  registerId?: string
+  reason: string
+  userId?: string
+  userName: string
+  at: number
   updatedAt: number
 }

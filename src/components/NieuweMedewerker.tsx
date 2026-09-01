@@ -6,7 +6,7 @@ import {
   FileText, Fingerprint, Loader2, ScanLine, Send, ShieldCheck, Upload,
   UserPlus, UserSearch, X,
 } from 'lucide-react'
-import { db } from '../lib/db'
+import { db, alleMensen } from '../lib/db'
 import { users as userRepo } from '../lib/repo'
 import { mogelijkDubbel, personeel } from '../lib/personeel'
 import {
@@ -79,7 +79,7 @@ export default function NieuweMedewerker({
   onKlaar: (id: string) => void
 }) {
   const me = useAuth((s) => s.user)!
-  const bestaand = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const bestaand = useLiveQuery(() => alleMensen(), [], [] as User[])
 
   const [stap, setStap] = useState<Stap>('papieren')
   const [gemaaktId, setGemaaktId] = useState<string | null>(null)

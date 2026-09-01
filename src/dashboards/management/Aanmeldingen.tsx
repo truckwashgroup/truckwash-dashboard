@@ -5,7 +5,7 @@ import {
   MessageSquareQuote, Phone, RotateCcw, ShieldCheck, ThumbsDown, UserPlus,
   UserSearch, XCircle,
 } from 'lucide-react'
-import { db } from '../../lib/db'
+import { db, alleMensen } from '../../lib/db'
 import { signups as signupRepo } from '../../lib/signups'
 import { mogelijkDubbel } from '../../lib/personeel'
 import {
@@ -194,7 +194,7 @@ function AanmeldingDetail({ signup, onBack }: { signup: Signup; onBack: () => vo
    * privé-adres. Op e-mailadres zijn dat twee verschillende mensen, dus de
    * koppeling ziet het niet -- op naam en telefoonnummer valt het wél op.
    */
-  const iedereen = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const iedereen = useLiveQuery(() => alleMensen(), [], [] as User[])
   const verdenkingen = useMemo(
     () => mogelijkDubbel(iedereen, {
       naam: signup.name, email: signup.email, telefoon: signup.phone,
@@ -353,7 +353,7 @@ function ToelatenDialoog({
   onClose: () => void
   onDone: () => void
 }) {
-  const bestaande = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const bestaande = useLiveQuery(() => alleMensen(), [], [] as User[])
   const bedrijven = useLiveQuery(() => db.companies.toArray(), [], [] as Company[])
 
   const [roles, setRoles] = useState<Role[]>(

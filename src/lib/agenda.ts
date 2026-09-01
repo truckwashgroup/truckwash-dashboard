@@ -1,4 +1,4 @@
-import { db, uid } from './db'
+import { db, uid, alleMensen } from './db'
 import { enqueue } from './sync'
 import { notifications } from './repo'
 import { withinScope } from './locations'
@@ -446,7 +446,7 @@ export async function feliciteer(
   namens: Pick<User, 'id' | 'name'>,
   vandaag = Date.now(),
 ): Promise<number> {
-  const mensen = await db.users.toArray()
+  const mensen = await alleMensen()
   const prive = await db.personnelPrivate.toArray()
   const lijst = teVieren(mensen, prive, vandaag)
   if (lijst.length === 0) return 0

@@ -1,4 +1,4 @@
-import { db, uid } from './db'
+import { db, uid, alleMensen } from './db'
 import { enqueue } from './sync'
 import { notifications, timeEntries } from './repo'
 import { supabase, supabaseConfigured } from './api/supabaseApi'
@@ -33,7 +33,7 @@ async function put<T extends { id: string; updatedAt?: number }>(
 
 /** De leidinggevenden die over deze persoon gaan. */
 async function leidinggevendenVan(user: Pick<User, 'id' | 'locationId' | 'supervisorId'>) {
-  const iedereen = await db.users.toArray()
+  const iedereen = await alleMensen()
   const direct = user.supervisorId
     ? iedereen.filter((u) => u.id === user.supervisorId)
     : []

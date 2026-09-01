@@ -1,4 +1,4 @@
-import { db, uid } from './db'
+import { db, uid, alleMensen } from './db'
 import { enqueue } from './sync'
 import { notifications, users as userRepo } from './repo'
 import { mailAanmeldingBesluit, mailAanmeldingOntvangen } from './mail'
@@ -158,7 +158,7 @@ export const signups = {
 
     const bestaand = signup.profileId
       ? await db.users.get(signup.profileId)
-      : (await db.users.toArray()).find(
+      : (await alleMensen()).find(
           (u) => u.email.toLowerCase() === signup.email.toLowerCase())
 
     const patch: Partial<User> = {

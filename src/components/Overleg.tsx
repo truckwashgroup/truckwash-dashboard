@@ -4,7 +4,7 @@ import {
   AtSign, Check, CornerUpLeft, Hash, Loader2, MapPin, MessageSquare,
   MoreHorizontal, Plus, Search, Send, Trash2, Users, X,
 } from 'lucide-react'
-import { db } from '../lib/db'
+import { db, alleMensen } from '../lib/db'
 import {
   channelStates, channels as channelRepo, chat, channelTitle, ensureDefaultChannels,
   MAX_MESSAGE, mayRead, type ChannelState,
@@ -45,7 +45,7 @@ export default function Overleg() {
   const alleKanalen = useLiveQuery(() => db.channels.toArray(), [], [] as Channel[])
   const berichten = useLiveQuery(() => db.chatMessages.toArray(), [], [] as ChatMessage[])
   const gelezen = useLiveQuery(() => db.channelReads.toArray(), [], [] as ChannelRead[])
-  const iedereen = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const iedereen = useLiveQuery(() => alleMensen(), [], [] as User[])
   const locaties = useLiveQuery(() => db.locations.toArray(), [], [] as Location[])
 
   /* Sneller kijken zolang dit scherm openstaat; drie kwartier wachten op

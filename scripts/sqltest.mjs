@@ -1967,6 +1967,194 @@ check('en zakt niet terug als er een lagere bon nakomt',
     `select last_seq as n from public.pos_registers where id = 'reg_1'`)).rows[0].n) === 3)
 
 
+
+console.log('\n26. De kassa vanaf het kantoor')
+
+/*
+ * Wat het dashboard met de kassatabellen mag. Het schema komt van de
+ * kassakant; dit is de controle dat de beheerkant erbij kan wat hij nodig
+ * heeft, en niet meer dan dat.
+ */
+
+await db.exec(`
+  alter table public.pos_registers force row level security;
+  alter table public.pos_devices   force row level security;
+  alter table public.pos_pairings  force row level security;
+  alter table public.pos_safes     force row level security;
+  alter table public.pos_safe_moves force row level security;
+  grant select, insert, update, delete on all tables in schema public to authenticated;
+
+  insert into public.pos_registers (id, location_id, code, name)
+  values ('reg_beheer', 'loc_utr', 'KAS-BEH-1', 'Balie')
+  on conflict (id) do nothing;
+`)
+
+/* --- de code op de bon is uniek --- */
+
+check('twee kassa-codes die hetzelfde zijn kan niet',
+  (await botst(`
+     insert into public.pos_registers (id, location_id, code, name)
+     values ('reg_dubbel', 'loc_utr', 'KAS-BEH-1', 'Nog een')`)) !== null)
+
+/* --- het management beheert de kassa's --- */
+
+check('het management maakt een kassa aan',
+  await magSchrijven(baas, `insert into public.pos_registers
+     (id, location_id, code, name) values
+     ('reg_baas', 'loc_utr', 'KAS-UTR-9', 'Testkassa');`))
+
+await magSchrijven(wasser, `insert into public.pos_registers
+   (id, location_id, code, name) values
+   ('reg_wasser', 'loc_utr', 'KAS-STIEKEM', 'Van mij');`)
+check('een wasser niet',
+  (await db.query(
+    `select count(*)::int as n from public.pos_registers where id = 'reg_wasser'`
+  )).rows[0].n === 0)
+
+/* --- de koppelcodes --- */
+
+await magSchrijven(baas, `insert into public.pos_pairings
+   (id, code, location_id, register_id, created_by_name, expires_at) values
+   ('bpair_1', 'BH7QJ4M2', 'loc_utr', 'reg_beheer', 'Ilse', ${Date.now() + 3600000});`)
+check('het management maakt een koppelcode',
+  (await db.query(
+    `select count(*)::int as n from public.pos_pairings where id = 'bpair_1'`)).rows[0].n === 1)
+
+check('en dezelfde code kan niet twee keer bestaan',
+  (await botst(`
+     insert into public.pos_pairings
+       (id, code, location_id, register_id, created_by_name, expires_at)
+     values ('bpair_2', 'BH7QJ4M2', 'loc_utr', 'reg_beheer', 'Ilse', 1)`)) !== null)
+
+/*
+ * Dit is waar het om gaat bij een koppelcode. Wie hem kan lezen kan een
+ * apparaat aan een vestiging hangen -- dus dat mag alleen wie kassa's
+ * beheert.
+ */
+check('een wasser leest de koppelcodes niet',
+  (await countAs(wasser, 'select count(*)::int as n from public.pos_pairings')) === 0)
+check('het management wel',
+  (await countAs(baas, 'select count(*)::int as n from public.pos_pairings')) > 0)
+
+/* --- de apparaten --- */
+
+await db.exec(`
+  insert into public.pos_devices
+    (id, register_id, location_id, device_key, name, platform, status)
+  values ('bdev_1', 'reg_beheer', 'loc_utr', 'abc', 'Tablet balie', 'android', 'actief');
+`)
+
+check('twee apparaten op dezelfde kassa kan niet',
+  (await botst(`
+     insert into public.pos_devices
+       (id, register_id, location_id, device_key, name, platform, status)
+     values ('bdev_2', 'reg_beheer', 'loc_utr', 'def', 'Tweede', 'android', 'actief')`)) !== null)
+
+check('maar een opvolger van een ingetrokken apparaat wel',
+  (await botst(`
+     update public.pos_devices set status = 'ingetrokken' where id = 'bdev_1';
+     insert into public.pos_devices
+       (id, register_id, location_id, device_key, name, platform, status)
+     values ('bdev_3', 'reg_beheer', 'loc_utr', 'ghi', 'Opvolger', 'android', 'actief')`)) === null)
+
+check('het management blokkeert een apparaat',
+  await magSchrijven(baas,
+    `update public.pos_devices set status = 'geblokkeerd' where id = 'bdev_3';`))
+check('en dat staat er dan ook',
+  (await db.query(
+    `select status from public.pos_devices where id = 'bdev_3'`)).rows[0].status === 'geblokkeerd')
+
+/* --- de kluis --- */
+
+check('elke vestiging heeft een kluis gekregen',
+  (await db.query(`
+     select count(*)::int as n from public.pos_safes s
+      join public.locations l on l.id = s.location_id`)).rows[0].n > 0)
+
+check('twee kluizen op één vestiging kan niet',
+  (await botst(`
+     insert into public.pos_safes (id, location_id, name)
+     values ('kluis_tweede', 'loc_utr', 'Nog een kluis')`)) !== null)
+
+/* --- wat een briefje waard is --- */
+
+check('b100 is honderd euro',
+  Number((await db.query(`select public.pos_munt_waarde('b100') as w`)).rows[0].w) === 100)
+check('m5 is vijf cent',
+  Number((await db.query(`select public.pos_munt_waarde('m5') as w`)).rows[0].w) === 0.05)
+check('en b5 is iets heel anders dan m5',
+  Number((await db.query(`select public.pos_munt_waarde('b5') as w`)).rows[0].w) === 5)
+
+/* --- het saldo van de kluis --- */
+
+/*
+ * Een kluis waar nog niets in is geboekt, want afdeling 18 heeft de kluis van
+ * Utrecht al vol gezet. Twee afdelingen die in dezelfde kluis boeken meten
+ * elkaars saldo.
+ */
+const { rows: [schoneKluis] } = await db.query(`
+  select s.id from public.pos_safes s
+   where not exists (select 1 from public.pos_safe_moves m where m.safe_id = s.id)
+   limit 1`)
+
+await db.exec(`
+  insert into public.pos_safe_moves
+    (id, safe_id, location_id, soort, coins, amount, at) values
+    ('bsm_1', '${schoneKluis.id}', null, 'inleg', '{"b50":4}'::jsonb, 200, 101000);
+
+  insert into public.pos_safe_moves
+    (id, safe_id, location_id, soort, coins, counted, amount, expected, difference, at)
+  values ('bsm_2', '${schoneKluis.id}', null, 'telling', '{}'::jsonb,
+          '{"b50":4,"b20":1}'::jsonb, 0, 200, 20, 102000);
+
+  insert into public.pos_safe_moves
+    (id, safe_id, location_id, soort, coins, amount, at) values
+    ('bsm_3', '${schoneKluis.id}', null, 'afstorting', '{"b20":5}'::jsonb, 100, 103000);
+`)
+
+check('het saldo telt vanaf de laatste telling',
+  Number((await db.query(
+    `select public.pos_kluis_saldo('${schoneKluis.id}') as s`)).rows[0].s) === 320)
+
+/*
+ * Een kasadministratie die je achteraf kunt bijschaven is geen
+ * administratie. Corrigeren doe je met een tegenboeking of een telling.
+ */
+await magSchrijven(baas,
+  `update public.pos_safe_moves set amount = 9999 where id = 'bsm_3';`)
+check('een kluisboeking is niet te wijzigen',
+  Number((await db.query(
+    `select amount from public.pos_safe_moves where id = 'bsm_3'`)).rows[0].amount) === 100)
+
+await magSchrijven(baas, `delete from public.pos_safe_moves where id = 'bsm_3';`)
+check('en niet te wissen',
+  (await db.query(
+    `select count(*)::int as n from public.pos_safe_moves where id = 'bsm_3'`)).rows[0].n === 1)
+
+/* --- een apparaat is geen medewerker --- */
+
+check('het vlaggetje staat op de dossiers',
+  (await db.query(`
+     select 1 from information_schema.columns
+      where table_name = 'profiles' and column_name = 'is_device'`)).rows.length === 1)
+
+await db.exec(`
+  insert into auth.users (id, email) values
+    ('e5e5e5e5-5555-5555-5555-e5e5e5e5e5e5', 'kas.utr.1@truckwash1group.nl');
+  update public.profiles
+     set roles = array['employee']::text[], active = true, is_device = true
+   where email = 'kas.utr.1@truckwash1group.nl';
+`)
+check('een apparaat staat als apparaat gemarkeerd',
+  (await db.query(`
+     select count(*)::int as n from public.profiles where is_device`)).rows[0].n === 1)
+check('en telt dus niet mee als medewerker',
+  (await db.query(`
+     select count(*)::int as n from public.profiles
+      where active and not is_device`)).rows[0].n
+   < (await db.query(`
+     select count(*)::int as n from public.profiles where active`)).rows[0].n)
+
 await db.close()
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

@@ -5,7 +5,7 @@ import {
   Phone, Send, ShieldCheck, SlidersHorizontal,
   Timer, UserCog, UserPlus, Users,
 } from 'lucide-react'
-import { db } from '../../lib/db'
+import { db, alleMensen } from '../../lib/db'
 import { users as userRepo } from '../../lib/repo'
 import { ROLE_LABELS, ROLE_ORDER, type Role, type Shift, type TimeEntry, type User, type WashJob } from '../../lib/types'
 import { duration, initials, money, number } from '../../lib/format'
@@ -34,7 +34,7 @@ export default function Personeel({ days }: { days: number }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
 
-  const users = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const users = useLiveQuery(() => alleMensen(), [], [] as User[])
   const jobs = useLiveQuery(() => db.washJobs.toArray(), [], [] as WashJob[])
   const entries = useLiveQuery(() => db.timeEntries.toArray(), [], [] as TimeEntry[])
 

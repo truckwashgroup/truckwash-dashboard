@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   Building2, CheckCircle2, Clock, Loader2, Mail, MapPin, Phone, Send, Truck,
 } from 'lucide-react'
-import { db } from '../../lib/db'
+import { db, alleMensen } from '../../lib/db'
 import { notifications } from '../../lib/repo'
 import { SERVICES, type Location, type User } from '../../lib/types'
 import { money } from '../../lib/format'
@@ -43,7 +43,7 @@ export default function Welkom() {
   const [verstuurd, setVerstuurd] = useState(false)
 
   const bazen = useLiveQuery(
-    async () => (await db.users.toArray()).filter(
+    async () => (await alleMensen()).filter(
       (u) => u.active && u.roles.includes('management')),
     [],
     [] as User[],

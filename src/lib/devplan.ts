@@ -1,4 +1,4 @@
-import { db, uid } from './db'
+import { db, uid, alleMensen } from './db'
 import { enqueue } from './sync'
 import { notifications } from './repo'
 import { ticketMessages, tickets } from './tickets'
@@ -328,7 +328,7 @@ export const plannen = {
   async indienen(plan: DevPlan) {
     const bijgewerkt = await plannen.update(plan.id, { status: 'ter beoordeling' })
 
-    const bazen = (await db.users.toArray()).filter(
+    const bazen = (await alleMensen()).filter(
       (u) => u.active && u.roles.includes('management'))
     for (const baas of bazen) {
       await notifications.send({

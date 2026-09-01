@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Mail, MailCheck, Megaphone, Send, Users } from 'lucide-react'
-import { db } from '../lib/db'
+import { db, alleMensen } from '../lib/db'
 import { notifications as notifyRepo } from '../lib/repo'
 import { mailBericht } from '../lib/mail'
 import { ROLE_LABELS, type NotificationKind, type Role, type User } from '../lib/types'
@@ -41,7 +41,7 @@ export default function BerichtVersturen({
   const me = useAuth((s) => s.user)!
   const perms = usePerms()
 
-  const allUsers = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const allUsers = useLiveQuery(() => alleMensen(), [], [] as User[])
   const kandidaten = (team ?? allUsers).filter((u) => u.active && u.id !== me.id)
 
   const [mode, setMode] = useState<'personen' | 'groep'>('personen')

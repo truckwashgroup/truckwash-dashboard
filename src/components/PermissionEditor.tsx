@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { AlertTriangle, RotateCcw, ShieldCheck, ShieldX, Undo2 } from 'lucide-react'
-import { db } from '../lib/db'
+import { db, alleMensen } from '../lib/db'
 import { users as userRepo } from '../lib/repo'
 import {
   PERMISSION_GROUPS, PERMISSIONS, ROLE_LABELS, ROLE_ORDER,
@@ -28,7 +28,7 @@ export default function PermissionEditor({
   person: User
   onClose?: () => void
 }) {
-  const allUsers = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const allUsers = useLiveQuery(() => alleMensen(), [], [] as User[])
   const [confirm, setConfirm] = useState<Permission | null>(null)
 
   const effective = useMemo(() => effectivePermissions(person), [person])

@@ -8,7 +8,7 @@ import {
   MicOff, Package, Radio, Receipt, ScrollText, Search, Server, Settings, Timer,
   Truck, Users, Wrench, X,
 } from 'lucide-react'
-import { db } from '../lib/db'
+import { db, alleMensen } from '../lib/db'
 import {
   AGENDA_SOORTEN, ASSET_CATEGORIES, DOCUMENT_KINDS, KOPPELING_STATUS, SERVICES,
   WERKGEVER_STATUS, type Permission, type Role,
@@ -243,7 +243,7 @@ export default function GlobalSearch() {
       }
 
       if (perms.can('staff.view')) {
-        for (const u of await db.users.toArray()) {
+        for (const u of await alleMensen()) {
           if (!has(u.name, u.email, u.personnelNumber, u.function)) continue
           if (!voegToe('Medewerkers', () => ({
             id: 'user:' + u.id,

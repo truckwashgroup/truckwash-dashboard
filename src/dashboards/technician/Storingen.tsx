@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   AlertTriangle, ArrowLeft, Check, ClipboardPlus, Search, UserCheck, X,
 } from 'lucide-react'
-import { db } from '../../lib/db'
+import { db, alleMensen } from '../../lib/db'
 import { faults as faultRepo, workOrders as orderRepo } from '../../lib/techniek'
 import {
   type Fault, type FaultStatus, type User, type WorkOrder,
@@ -161,7 +161,7 @@ function StoringDetail({ fault, onBack }: { fault: Fault; onBack: () => void }) 
   const [afronden, setAfronden] = useState(false)
   const [resolution, setResolution] = useState('')
 
-  const users = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const users = useLiveQuery(() => alleMensen(), [], [] as User[])
   const monteurs = users.filter(
     (u) => u.active && (u.roles.includes('technician') || u.roles.includes('supervisor')))
   const order = useLiveQuery(

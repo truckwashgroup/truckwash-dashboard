@@ -4,7 +4,7 @@ import {
   ArrowLeft, Ban, Briefcase, Building2, Check, CheckCircle2, ClipboardList,
   Mail, Phone, Plus, ShieldCheck, ThumbsDown, Truck, Users,
 } from 'lucide-react'
-import { db } from '../../lib/db'
+import { db, alleMensen } from '../../lib/db'
 import { chauffeursVan, werkgevers as wgRepo } from '../../lib/werkgevers'
 import {
   KOPPELING_STATUS, REGEL_SOORTEN, SERVICES, WERKGEVER_STATUS,
@@ -423,7 +423,7 @@ function BeheerdersDialoog({
   onClose: () => void
 }) {
   const mensen = useLiveQuery(
-    async () => (await db.users.toArray())
+    async () => (await alleMensen())
       .filter((u) => u.active)
       .sort((a, b) => a.name.localeCompare(b.name)),
     [],

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Award, Bell, CalendarClock, Check, GraduationCap, TriangleAlert, X } from 'lucide-react'
-import { db } from '../lib/db'
+import { db, alleMensen } from '../lib/db'
 import { learning, notifications as notifyRepo } from '../lib/repo'
 import { COURSE_CATEGORIES, type Course, type CourseProgress, type User } from '../lib/types'
 import { initials } from '../lib/format'
@@ -40,7 +40,7 @@ export default function OpleidingOverzicht({ team }: { team?: User[] }) {
   const perms = usePerms()
   const [busy, setBusy] = useState(false)
 
-  const allUsers = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const allUsers = useLiveQuery(() => alleMensen(), [], [] as User[])
   const courses = useLiveQuery(() => db.courses.toArray(), [], [] as Course[])
   const progress = useLiveQuery(() => db.courseProgress.toArray(), [], [] as CourseProgress[])
 

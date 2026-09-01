@@ -3121,6 +3121,208 @@ console.log('\n— pasjes uitlezen —')
     pasVoorstel.find((v) => v.veld === 'iban')?.gecontroleerd === 'mod-97 klopt')
 }
 
+/* ==================================================================== *
+ *  De kassa's en de kluis
+ *
+ *  Twee dingen die hier fout kunnen gaan zonder dat iemand het merkt: een
+ *  koppelcode met tekens die je niet uit elkaar houdt, en een kluissaldo dat
+ *  net niet klopt. Bij het eerste belt er iemand; bij het tweede niet.
+ * ==================================================================== */
+
+console.log('\n— kassa en kluis —')
+
+{
+  const {
+    schoonCode, codeProbleem, voorstelCode, nieuweCode, toonCode, openCodes,
+    muntWaarde, waardeVan, saldoVan, laatsteTelling, tellingAchterstallig,
+    bewegingenVan, coupuresOpVolgorde, coupureLabel, apparaatVan, stilte,
+    TELLING_TERMIJN,
+  } = await import('../src/lib/kassa')
+
+  /* --- de code op de bon --- */
+
+  check('een code wordt hoofdletters', schoonCode('kas-utr-1') === 'KAS-UTR-1')
+  check('spaties worden streepjes', schoonCode('kas utr 1') === 'KAS-UTR-1')
+  check('rommel eruit', schoonCode('kas//utr__1') === 'KAS-UTR-1')
+  check('geen streepje aan het begin of eind', schoonCode('-kas-') === 'KAS')
+
+  const kassas = [
+    { id: 'r1', code: 'KAS-UTR-1', name: 'Balie', locationId: 'loc_utr',
+      lastSeq: 42, active: true, updatedAt: 0 },
+    { id: 'r2', code: 'KAS-UTR-2', name: 'Buiten', locationId: 'loc_utr',
+      lastSeq: 0, active: false, updatedAt: 0 },
+  ] as never[]
+
+  check('een dubbele code wordt tegengehouden',
+    !!codeProbleem('kas utr 1', kassas))
+  check('en dat wordt uitgelegd, niet als databasefout',
+    (codeProbleem('KAS-UTR-1', kassas) ?? '').includes('op elke bon'))
+  check('een vrije code mag', codeProbleem('KAS-UTR-3', kassas) === null)
+  check('je eigen code botst niet met jezelf',
+    codeProbleem('KAS-UTR-1', kassas, 'r1') === null)
+  check('twee tekens is te kort', !!codeProbleem('AB', kassas))
+
+  const voorstel = voorstelCode({ code: 'TW-UTR' } as never, kassas)
+  check('het voorstel telt door op wat er staat', voorstel === 'KAS-UTR-3',
+    voorstel)
+
+  /* --- de koppelcode --- */
+
+  const codes = Array.from({ length: 60 }, () => nieuweCode())
+
+  check('een code is acht tekens', codes.every((c) => c.length === 8))
+  check('en alleen hoofdletters en cijfers',
+    codes.every((c) => /^[A-Z0-9]{8}$/.test(c)))
+
+  /*
+   * Dit is de hele reden dat er een eigen alfabet is. Een code wordt van een
+   * scherm gelezen en op een tablet ingetikt; wie een I voor een 1 aanziet
+   * krijgt "code onbekend" en belt.
+   */
+  check('geen I, L, O, 0 of 1 erin',
+    codes.every((c) => !/[ILO01]/.test(c)),
+    codes.find((c) => /[ILO01]/.test(c)))
+
+  check('twee codes achter elkaar zijn niet gelijk',
+    new Set(codes).size === codes.length)
+
+  check('een code wordt in twee groepjes getoond',
+    toonCode('K7QJ4M2P') === 'K7QJ-4M2P')
+  check('en de streepjes storen niet bij het teruglezen',
+    toonCode('K7QJ-4M2P') === 'K7QJ-4M2P')
+
+  const nu = Date.now()
+  const alleCodes = [
+    { id: 'p1', code: 'AAAABBBB', registerId: 'r1', locationId: 'loc_utr',
+      createdByName: 'Ilse', expiresAt: nu + 3_600_000, updatedAt: 0 },
+    { id: 'p2', code: 'CCCCDDDD', registerId: 'r1', locationId: 'loc_utr',
+      createdByName: 'Ilse', expiresAt: nu - 1000, updatedAt: 0 },
+    { id: 'p3', code: 'EEEEFFFF', registerId: 'r1', locationId: 'loc_utr',
+      createdByName: 'Ilse', expiresAt: nu + 3_600_000, usedAt: nu, updatedAt: 0 },
+    { id: 'p4', code: 'GGGGHHHH', registerId: 'r2', locationId: 'loc_utr',
+      createdByName: 'Ilse', expiresAt: nu + 3_600_000, updatedAt: 0 },
+  ] as never[]
+
+  const open = openCodes(alleCodes, 'r1', nu)
+  check('alleen codes die nog werken', open.length === 1 && open[0].id === 'p1')
+  check('een verlopen code telt niet mee', !open.some((c) => c.id === 'p2'))
+  check('een gebruikte code ook niet', !open.some((c) => c.id === 'p3'))
+  check('en een code van een andere kassa evenmin', !open.some((c) => c.id === 'p4'))
+
+  /* --- briefjes en munten --- */
+
+  check('b100 is een briefje van honderd', muntWaarde('b100') === 100)
+  check('m5 is vijf cent', muntWaarde('m5') === 0.05)
+  /*
+   * Dit onderscheid is de reden dat de sleutel met een letter begint. Vijf
+   * euro tegenover vijf cent scheelt een factor honderd, en dat wil je niet
+   * in een kasverschil terugvinden.
+   */
+  check('b5 en m5 zijn niet hetzelfde', muntWaarde('b5') !== muntWaarde('m5'))
+  check('b5 is vijf euro', muntWaarde('b5') === 5)
+  check('onzin is niets waard', muntWaarde('x9') === 0)
+
+  check('een stapel telt op',
+    waardeVan({ b50: 2, b20: 1, m50: 3, m5: 4 }) === 100 + 20 + 1.5 + 0.2)
+  check('een lege stapel is nul', waardeVan({}) === 0)
+  check('en niets is ook nul', waardeVan(undefined) === 0)
+
+  check('coupures staan van groot naar klein',
+    coupuresOpVolgorde({ m5: 1, b50: 1, m50: 1 }).map((c) => c[0]).join(',')
+      === 'b50,m50,m5')
+  check('nul stuks doen niet mee',
+    coupuresOpVolgorde({ b50: 0, b20: 2 }).length === 1)
+  check('een briefje heet euro', coupureLabel('b50') === '€ 50')
+  check('en een munt cent', coupureLabel('m20') === '20 cent')
+
+  /* --- het saldo --- */
+
+  const DAG = 86_400_000
+  const bewegingen = [
+    { id: 'm1', safeId: 'k1', soort: 'inleg', coins: { b50: 4 }, amount: 200,
+      reason: '', userName: '', at: nu - 10 * DAG, updatedAt: 0 },
+    { id: 'm2', safeId: 'k1', soort: 'telling', coins: {}, counted: { b50: 4, b20: 1 },
+      amount: 0, expected: 200, difference: 20,
+      reason: '', userName: '', at: nu - 5 * DAG, updatedAt: 0 },
+    { id: 'm3', safeId: 'k1', soort: 'afstorting', coins: { b20: 5 }, amount: 100,
+      reason: '', userName: '', at: nu - 2 * DAG, updatedAt: 0 },
+    { id: 'm4', safeId: 'k1', soort: 'naar-bank', coins: { b50: 2 }, amount: -100,
+      reason: '', userName: '', at: nu - 1 * DAG, updatedAt: 0 },
+    { id: 'm9', safeId: 'k2', soort: 'inleg', coins: { b10: 1 }, amount: 10,
+      reason: '', userName: '', at: nu, updatedAt: 0 },
+  ] as never[]
+
+  /*
+   * Vanaf de laatste telling optellen. De inleg van tien dagen geleden telt
+   * dus niet mee: die zat al in wat er is geteld.
+   */
+  check('het saldo begint bij de laatste telling',
+    saldoVan(bewegingen, 'k1') === 220 + 100 - 100)
+  check('een andere kluis staat er los van', saldoVan(bewegingen, 'k2') === 10)
+  check('zonder bewegingen is het nul', saldoVan([], 'k1') === 0)
+
+  const zonderTelling = bewegingen.filter((m) => m.soort !== 'telling')
+  check('zonder telling wordt alles opgeteld',
+    saldoVan(zonderTelling, 'k1') === 200 + 100 - 100)
+
+  /*
+   * Twee boekingen in dezelfde milliseconde. Zou er alleen op tijd worden
+   * gesorteerd, dan viel de boeking van hetzelfde moment als de telling uit
+   * het saldo -- geen fout, alleen een bedrag dat niet klopt.
+   */
+  const zelfdeTel = [
+    { id: 'a', safeId: 'k3', soort: 'telling', coins: {}, counted: { b50: 1 },
+      amount: 0, reason: '', userName: '', at: 1000, updatedAt: 0 },
+    { id: 'b', safeId: 'k3', soort: 'inleg', coins: { b10: 1 }, amount: 10,
+      reason: '', userName: '', at: 1000, updatedAt: 0 },
+  ] as never[]
+  check('een boeking van hetzelfde moment als de telling telt mee',
+    saldoVan(zelfdeTel, 'k3') === 60)
+
+  /* --- is er nog geteld --- */
+
+  check('de laatste telling wordt gevonden',
+    laatsteTelling(bewegingen, 'k1')?.id === 'm2')
+  check('een kluis zonder telling levert niets op',
+    laatsteTelling(bewegingen, 'k2') === undefined)
+
+  check('vijf dagen geleden geteld is op tijd',
+    !tellingAchterstallig(bewegingen, 'k1', nu).achterstallig)
+  check('twintig dagen niet',
+    tellingAchterstallig(bewegingen, 'k1', nu + 20 * DAG).achterstallig)
+  check('nooit geteld telt als achterstallig',
+    tellingAchterstallig(bewegingen, 'k2', nu).achterstallig)
+  check('en dat wordt apart gemeld',
+    tellingAchterstallig(bewegingen, 'k2', nu).nooit)
+  check('de termijn staat op veertien dagen', TELLING_TERMIJN === 14 * DAG)
+
+  check('de bewegingen komen nieuwste eerst',
+    bewegingenVan(bewegingen, 'k1')[0].id === 'm4')
+  check('en alleen van die kluis',
+    bewegingenVan(bewegingen, 'k1').every((m) => m.safeId === 'k1'))
+
+  /* --- welk apparaat staat er --- */
+
+  const apparaten = [
+    { id: 'd1', registerId: 'r1', status: 'ingetrokken', deviceKey: 'a',
+      name: 'Oude tablet', platform: 'android', pairedAt: 1, updatedAt: 0 },
+    { id: 'd2', registerId: 'r1', status: 'actief', deviceKey: 'b',
+      name: 'Tablet balie', platform: 'android', pairedAt: 2,
+      lastSeenAt: nu - 3_600_000, updatedAt: 0 },
+  ] as never[]
+
+  check('het actieve apparaat wordt gepakt',
+    apparaatVan(apparaten, 'r1')?.id === 'd2')
+  check('een ingetrokken apparaat blijft zichtbaar als er niets anders is',
+    apparaatVan([apparaten[0]], 'r1')?.id === 'd1')
+  check('en zonder apparaat komt er niets uit',
+    apparaatVan(apparaten, 'r9') === undefined)
+
+  check('de stilte wordt gemeten', stilte(apparaten[1], nu) === 3_600_000)
+  check('een apparaat dat zich nooit meldde geeft niets',
+    stilte(apparaten[0], nu) === null)
+}
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

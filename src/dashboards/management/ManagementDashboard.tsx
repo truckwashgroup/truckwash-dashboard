@@ -2,11 +2,11 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   CalendarRange, GraduationCap, Inbox, LayoutDashboard, LayoutGrid,
-  Briefcase, CalendarDays, Mail, MessageSquare, Package, Receipt, Send,
-  Settings, Users, Wrench,
+  Briefcase, CalendarDays, Mail, MessageSquare, Monitor, Package, Receipt,
+  Send, Settings, Users, Wrench,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
-import { db } from '../../lib/db'
+import { db, alleMensen } from '../../lib/db'
 import { money } from '../../lib/format'
 import Overzicht from './Overzicht'
 import Financieel from './Financieel'
@@ -17,6 +17,7 @@ import Beheer from './Beheer'
 import Techniek from './Techniek'
 import Aanmeldingen from './Aanmeldingen'
 import Werkgevers from './Werkgevers'
+import Kassas from './Kassas'
 import OpleidingOverzicht from '../../components/OpleidingOverzicht'
 import BerichtVersturen from '../../components/BerichtVersturen'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
@@ -51,12 +52,13 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   postbus: { title: 'Postbus', subtitle: 'Post die binnenkomt op het dashboard' },
   agenda: { title: 'Agenda', subtitle: 'Afspraken, verjaardagen en wat er aankomt' },
   werkgevers: { title: 'Werkgevers', subtitle: 'Bedrijven waarvan de chauffeurs hier wassen' },
+  kassas: { title: "Kassa's", subtitle: 'Apparaten, koppelcodes en de kluis' },
   beheer: { title: 'Beheer', subtitle: 'Instellingen, rechten en gegevens' },
 }
 
 const ZONDER_PERIODE = [
   'start', 'planning', 'beheer', 'opleiding', 'aanmeldingen', 'overleg', 'postbus',
-  'agenda', 'werkgevers',
+  'agenda', 'werkgevers', 'kassas',
 ]
 
 export default function ManagementDashboard() {
@@ -69,7 +71,7 @@ export default function ManagementDashboard() {
   const aanmeldingen = useLiveQuery(() => db.signups.toArray(), [], [] as Signup[])
   const storingen = useLiveQuery(() => db.faults.toArray(), [], [] as Fault[])
   const voorraad = useLiveQuery(() => db.inventory.toArray(), [], [] as InventoryItem[])
-  const mensen = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const mensen = useLiveQuery(() => alleMensen(), [], [] as User[])
   const ongelezen = useOverlegTeller()
   const post = useLiveQuery(() => db.mailbox.toArray(), [], [] as MailBericht[])
   const werkgevers = useLiveQuery(() => db.employers.toArray(), [], [] as Werkgever[])
@@ -131,6 +133,9 @@ export default function ManagementDashboard() {
     ...(perms.can('employer.view')
       ? [{ key: 'werkgevers', label: 'Werkgevers', icon: Briefcase,
            badge: cijfers.nieuweWerkgevers || undefined }]
+      : []),
+    ...(perms.can('pos.manage')
+      ? [{ key: 'kassas', label: "Kassa's", icon: Monitor }]
       : []),
     ...(perms.can('agenda.view')
       ? [{ key: 'agenda', label: 'Agenda', icon: CalendarDays }]
@@ -240,6 +245,14 @@ export default function ManagementDashboard() {
       statLabel: ongelezen === 1 ? 'nieuw bericht' : 'nieuwe berichten',
       urgent: ongelezen > 0,
       onClick: () => setPage('overleg'),
+    }] : []),
+    ...(perms.can('pos.manage') ? [{
+      key: 'kassas',
+      label: "Kassa's",
+      hint: 'Apparaten, koppelcodes en de kluis',
+      icon: Monitor,
+      tint: 'neutraal' as TegelTint,
+      onClick: () => setPage('kassas'),
     }] : []),
     ...(perms.can('employer.view') ? [{
       key: 'werkgevers',
@@ -351,6 +364,7 @@ export default function ManagementDashboard() {
       {page === 'postbus' && <Postbus />}
       {page === 'agenda' && <Agenda />}
       {page === 'werkgevers' && <Werkgevers />}
+      {page === 'kassas' && <Kassas />}
       {page === 'beheer' && <Beheer />}
 
       <BerichtVersturen open={messaging} onClose={() => setMessaging(false)} />

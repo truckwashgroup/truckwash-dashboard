@@ -5,7 +5,7 @@ import {
   MessageSquare, Send, Sparkles, Square, Timer, TriangleAlert, Truck, Users,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
-import { db } from '../../lib/db'
+import { db, alleMensen } from '../../lib/db'
 import { SERVICES, SHIFT_KINDS, type Shift, type TimeEntry, type User, type WashJob } from '../../lib/types'
 import { dateFull, duration, initials, money, time } from '../../lib/format'
 import { Badge, Card, Empty, Stat } from '../../components/ui'
@@ -47,7 +47,7 @@ export default function SupervisorDashboard() {
   const [page, setPage] = useState('start')
   const [messaging, setMessaging] = useState(false)
 
-  const allUsers = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const allUsers = useLiveQuery(() => alleMensen(), [], [] as User[])
 
   /** Het team: wie deze leidinggevende onder zich heeft, plus hijzelf. */
   const team = useMemo(() => {

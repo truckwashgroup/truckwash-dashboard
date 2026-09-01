@@ -5,7 +5,7 @@ import {
   FileText, GraduationCap, MapPin, PartyPopper, Trash2, UserMinus, UserPlus,
   Users, Wrench,
 } from 'lucide-react'
-import { db } from '../lib/db'
+import { db, alleMensen } from '../lib/db'
 import {
   agenda as agendaRepo, beginVanDag, gebeurtenissen, perDag, SOORT_LABELS,
   type Gebeurtenis,
@@ -75,7 +75,7 @@ export default function Agenda() {
   const [alleDiensten, setAlleDiensten] = useState(false)
 
   const items = useLiveQuery(() => db.agendaItems.toArray(), [], [] as AgendaItem[])
-  const mensen = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const mensen = useLiveQuery(() => alleMensen(), [], [] as User[])
   const prive = useLiveQuery(() => db.personnelPrivate.toArray(), [], [] as PersonnelPrivate[])
   const shifts = useLiveQuery(() => db.shifts.toArray(), [], [] as Shift[])
   const documenten = useLiveQuery(() => db.documents.toArray(), [], [] as PersonnelDocument[])

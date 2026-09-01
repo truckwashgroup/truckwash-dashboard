@@ -1,4 +1,4 @@
-import { db, uid } from './db'
+import { db, uid, alleMensen } from './db'
 import { enqueue } from './sync'
 import { notifications } from './repo'
 import { dossier } from './dossier'
@@ -142,7 +142,7 @@ export const wijzigingen = {
     await put('changeRequests', db.changeRequests, verzoek)
 
     // Het management moet erover beslissen; laat het niet weken liggen.
-    const bazen = (await db.users.toArray()).filter(
+    const bazen = (await alleMensen()).filter(
       (u) => u.active && u.roles.includes('management') && u.id !== input.door.id)
 
     for (const baas of bazen) {

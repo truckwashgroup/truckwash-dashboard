@@ -7,7 +7,7 @@ import type {
   Signup, Channel, ChatMessage, ChannelRead, EmailLog,
   PersonnelPrivate, PersonnelDocument, MailBericht, DossierWijziging, AgendaItem,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel, DevPlan, HourRequest, Trip,
-  PosRegister, PosDevice, PosPairing, PosSafe, PosSafeMove,
+  PosRegister, PosDevice, PosPairing, PosSafe, PosSafeMove, LocationPhoto,
 } from '../types'
 import { SERVICES } from '../types'
 import { COURSES } from '../courses'
@@ -46,6 +46,7 @@ class MockServerDB extends Dexie {
   posPairings!: Table<PosPairing, string>
   posSafes!: Table<PosSafe, string>
   posSafeMoves!: Table<PosSafeMove, string>
+  locationPhotos!: Table<LocationPhoto, string>
   signups!: Table<Signup, string>
   channels!: Table<Channel, string>
   chatMessages!: Table<ChatMessage, string>
@@ -90,6 +91,7 @@ class MockServerDB extends Dexie {
       posPairings: 'id, updatedAt',
       posSafes: 'id, updatedAt',
       posSafeMoves: 'id, updatedAt',
+      locationPhotos: 'id, locationId, updatedAt',
       signups: 'id, updatedAt',
       channels: 'id, updatedAt',
       chatMessages: 'id, channelId, updatedAt',
@@ -137,6 +139,7 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   posPairings: () => server.posPairings,
   posSafes: () => server.posSafes,
   posSafeMoves: () => server.posSafeMoves,
+  locationPhotos: () => server.locationPhotos,
   signups: () => server.signups,
   channels: () => server.channels,
   chatMessages: () => server.chatMessages,

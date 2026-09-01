@@ -140,9 +140,71 @@ export interface Location {
   /** Vestigingsmanager */
   managerId?: string
   managerName?: string
+  email?: string
   /** Aantal wasstraten op deze locatie */
   bays: number
   active: boolean
+  /** Waarom hij uit staat. Zonder reden is "niet actief" over een half jaar een raadsel. */
+  inactiveReason?: string
+  inactiveAt?: number
+  /** Interne notitie: sleutelkastje, oprit, wat de chauffeur moet weten. */
+  notes?: string
+  /**
+   * Wat de kaartendienst van het adres maakte.
+   *
+   * geoLabel staat los van het ingetikte adres, met opzet. Lopen die twee
+   * uiteen, dan hoor je dat te zien -- de app hoort je adres niet stilletjes
+   * te herschrijven naar wat een dienst ervan dacht.
+   */
+  lat?: number
+  lon?: number
+  geoLabel?: string
+  geoAt?: number
+  /** Per dag een venster, of null voor dicht. */
+  openingHours?: Openingstijden
+  updatedAt: number
+}
+
+export type Weekdag = 'ma' | 'di' | 'wo' | 'do' | 'vr' | 'za' | 'zo'
+
+export const WEEKDAGEN: { key: Weekdag; kort: string; lang: string }[] = [
+  { key: 'ma', kort: 'ma', lang: 'maandag' },
+  { key: 'di', kort: 'di', lang: 'dinsdag' },
+  { key: 'wo', kort: 'wo', lang: 'woensdag' },
+  { key: 'do', kort: 'do', lang: 'donderdag' },
+  { key: 'vr', kort: 'vr', lang: 'vrijdag' },
+  { key: 'za', kort: 'za', lang: 'zaterdag' },
+  { key: 'zo', kort: 'zo', lang: 'zondag' },
+]
+
+export interface Venster { van: string; tot: string }
+
+/** Ontbreekt een dag, dan is er niets ingevuld; staat hij op null, dan is het dicht. */
+export type Openingstijden = Partial<Record<Weekdag, Venster | null>>
+
+/**
+ * Een foto bij een vestiging.
+ *
+ * Een eigen regel per foto en niet een lijst op de vestiging: ze hebben een
+ * volgorde en een bijschrift, en een rij met een lijst erin moet je bij elke
+ * wijziging in zijn geheel overschrijven.
+ */
+export interface LocationPhoto {
+  id: string
+  locationId: string
+  /** Het pad in de emmer "vestigingen". */
+  storagePath: string
+  mime: string
+  sizeBytes: number
+  width?: number
+  height?: number
+  caption?: string
+  sort: number
+  /** De foto die vooraan staat. Er is er hoogstens een per vestiging. */
+  isCover: boolean
+  uploadedBy?: string
+  uploadedByName?: string
+  uploadedAt: number
   updatedAt: number
 }
 
@@ -1588,6 +1650,7 @@ export type EntityName =
   | 'personnelPrivate' | 'documents' | 'mailbox' | 'changeRequests'
   | 'agendaItems' | 'employers' | 'employerLinks' | 'employerRules'
   | 'posRegisters' | 'posDevices' | 'posPairings' | 'posSafes' | 'posSafeMoves'
+  | 'locationPhotos'
 
 export type SyncOp = 'put' | 'delete'
 

@@ -143,6 +143,8 @@ await run(db, '0023_uitnodigen_en_uitschrijven.sql draait', sqlFile('supabase/mi
 
 await run(db, '0024_uren_en_kilometers.sql draait', sqlFile('supabase/migrations/0024_uren_en_kilometers.sql'))
 await run(db, '0025_de_kluis_en_het_koppelen_van_een_kassa.sql draait', sqlFile('supabase/migrations/0025_de_kluis_en_het_koppelen_van_een_kassa.sql'))
+await run(db, '0026_de_vestigingen_beheren.sql draait', sqlFile('supabase/migrations/0026_de_vestigingen_beheren.sql'))
+await run(db, '0027_een_foto_bij_het_artikel.sql draait', sqlFile('supabase/migrations/0027_een_foto_bij_het_artikel.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -179,6 +181,8 @@ await run(db, '0023 nogmaals', sqlFile('supabase/migrations/0023_uitnodigen_en_u
 
 await run(db, '0024 nogmaals', sqlFile('supabase/migrations/0024_uren_en_kilometers.sql'))
 await run(db, '0025 nogmaals', sqlFile('supabase/migrations/0025_de_kluis_en_het_koppelen_van_een_kassa.sql'))
+await run(db, '0027 nogmaals', sqlFile('supabase/migrations/0027_een_foto_bij_het_artikel.sql'))
+await run(db, '0026 nogmaals', sqlFile('supabase/migrations/0026_de_vestigingen_beheren.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
 const bedrijven = await db.query('select count(*)::int as n from public.companies')
@@ -1940,6 +1944,33 @@ check('en komt niet aan de kassa van de buren',
     `select printer->>'share' as s from public.pos_registers where id = 'reg_1'`))
     .rows[0].s === 'BALIE1')
 
+/* ---- de foto bij een artikel ---- */
+
+await asServer(db)
+
+check('een artikel kan een foto hebben',
+  (await botst(`update public.pos_products
+                   set image = 'data:image/jpeg;base64,/9j/4AAQSkZJRg=='
+                 where id = 'prod_koffie'`)) === null)
+
+/*
+ * De rem eronder. Zonder deze grens zet iemand ooit een foto van vier megabyte
+ * in een artikel, en sleept elke kassa die bij elke synchronisatie mee -- en
+ * dat merk je pas als het te laat is.
+ */
+const teGroot = await botst(`update public.pos_products
+                                set image = 'data:image/jpeg;base64,' || repeat('A', 200000)
+                              where id = 'prod_koffie'`)
+check('maar geen foto van tweehonderd kilobyte', teGroot !== null, String(teGroot))
+
+check('en de foto van net staat er nog',
+  (await db.query(
+    `select image from public.pos_products where id = 'prod_koffie'`))
+    .rows[0].image.startsWith('data:image/jpeg;base64,'))
+
+check('geen foto mag ook',
+  (await botst("update public.pos_products set image = null where id = 'prod_koffie'")) === null)
+
 /* ---- het bonnummer loopt mee met de bonnen ---- */
 
 check('last_seq volgt de hoogste bon die binnenkwam',
@@ -2154,6 +2185,172 @@ check('en telt dus niet mee als medewerker',
       where active and not is_device`)).rows[0].n
    < (await db.query(`
      select count(*)::int as n from public.profiles where active`)).rows[0].n)
+
+console.log('\n27. De vestigingen zelf beheren')
+
+/*
+ * Het gevaarlijkste stuk van dit blok is het wissen. Op locations hangen
+ * tweeentwintig verwijzingen en een flink deel staat op "cascade":
+ * installaties, storingen, werkbonnen, onderhoud, voorraad, overlegkanalen
+ * en de kluis. Een vestiging wissen zou die allemaal meenemen zonder een
+ * woord, en dat merk je pas als iemand een oude werkbon zoekt.
+ *
+ * De trigger hoort dat tegen te houden. Dat is wat hier wordt nagerekend.
+ */
+
+/*
+ * FORCE op pos_safes komt uit afdeling 26 -- een testgreep om de regels ook
+ * tegen de eigenaar te laten bijten. Hier worden vestigingen aangemaakt, en
+ * dan hoort de trigger die er een kluis bij zet gewoon zijn werk te doen.
+ * In productie is dat de eigenaar van de tabel, en die valt erbuiten.
+ */
+await asServer(db)
+await db.exec(`
+  alter table public.pos_safes no force row level security;
+  grant select, insert, update, delete on all tables in schema public to authenticated;
+`)
+
+/* --- een nieuwe vestiging krijgt een kluis --- */
+
+await db.exec(`
+  insert into public.locations (id, code, name, kind, address, postcode, city)
+  values ('loc_proef', 'TW-PRF', 'Proefvestiging', 'vestiging', 'Testweg 1', '1234 AB', 'Proefstad')
+  on conflict (id) do nothing;
+`)
+
+check('een nieuwe vestiging krijgt meteen een kluis',
+  (await db.query(`
+     select count(*)::int as n from public.pos_safes where location_id = 'loc_proef'`))
+    .rows[0].n === 1)
+
+/* --- wat hangt er aan een vestiging --- */
+
+check('vestiging_bezet telt de medewerkers van een bestaande vestiging',
+  Number((await db.query(`
+     select aantal from public.vestiging_bezet('loc_utr') where wat = 'medewerkers'`))
+    .rows[0].aantal) > 0)
+
+check('en bij een lege vestiging staat overal nul',
+  Number((await db.query(`
+     select coalesce(sum(aantal), 0) as n from public.vestiging_bezet('loc_proef')`))
+    .rows[0].n) === 0)
+
+/* --- wissen --- */
+
+const wissenFout = await botst(`delete from public.locations where id = 'loc_utr'`)
+
+check('een vestiging waar nog van alles aan hangt kan niet weg', wissenFout !== null)
+check('en er staat bij wat eraan hangt',
+  (wissenFout ?? '').includes('medewerkers'))
+check('met de raad om hem uit te zetten',
+  (wissenFout ?? '').toLowerCase().includes('uit'))
+check('de vestiging staat er daarna gewoon nog',
+  (await db.query(`
+     select count(*)::int as n from public.locations where id = 'loc_utr'`)).rows[0].n === 1)
+
+check('een vestiging waar niets aan hangt kan wel weg',
+  (await botst(`delete from public.locations where id = 'loc_proef'`)) === null)
+check('en zijn kluis gaat mee',
+  (await db.query(`
+     select count(*)::int as n from public.pos_safes where location_id = 'loc_proef'`))
+    .rows[0].n === 0)
+
+/* --- foto's --- */
+
+await db.exec(`
+  insert into public.location_photos (id, location_id, storage_path, mime, sort, is_cover)
+  values ('lf_1', 'loc_utr', 'loc_utr/lf_1.jpg', 'image/jpeg', 0, true)
+  on conflict (id) do nothing;
+`)
+
+check('een tweede foto vooraan kan niet',
+  (await botst(`
+     insert into public.location_photos
+       (id, location_id, storage_path, mime, sort, is_cover)
+     values ('lf_2', 'loc_utr', 'loc_utr/lf_2.jpg', 'image/jpeg', 1, true)`)) !== null)
+
+check('maar een tweede foto erachter wel',
+  (await botst(`
+     insert into public.location_photos
+       (id, location_id, storage_path, mime, sort, is_cover)
+     values ('lf_3', 'loc_utr', 'loc_utr/lf_3.jpg', 'image/jpeg', 1, false)`)) === null)
+
+check("de foto's gaan mee als de vestiging weggaat",
+  (await db.query(`
+     select confdeltype from pg_constraint
+      where conrelid = 'public.location_photos'::regclass
+        and confrelid = 'public.locations'::regclass`)).rows[0].confdeltype === 'c')
+
+/* --- wie mag dit --- */
+
+await db.exec(`
+  alter table public.locations       force row level security;
+  alter table public.location_photos force row level security;
+`)
+
+check('het management maakt een vestiging aan',
+  await magSchrijven(baas, `insert into public.locations
+     (id, code, name, kind, city) values
+     ('loc_baas', 'TW-BAA', 'Van de baas', 'vestiging', 'Baasstad');`))
+
+await magSchrijven(wasser, `insert into public.locations
+   (id, code, name, kind, city) values
+   ('loc_wasser', 'TW-WAS', 'Van de wasser', 'vestiging', 'Wasserstad');`)
+check('een wasser niet',
+  (await db.query(`
+     select count(*)::int as n from public.locations where id = 'loc_wasser'`)).rows[0].n === 0)
+
+/*
+ * Het recht locations.manage stond al in de app, maar de database keek er
+ * niet naar: daar gold alleen "management". Uitdelen had dus geen enkel
+ * effect, en dat is het soort recht waarvan je denkt dat het iets doet.
+ */
+await asServer(db)
+await db.exec(`
+  update public.profiles
+     set grants = array['locations.manage']::text[]
+   where auth_id = '${voorman}';
+`)
+
+check('wie het recht locations.manage heeft mag het ook',
+  await magSchrijven(voorman, `insert into public.locations
+     (id, code, name, kind, city) values
+     ('loc_voorman', 'TW-VRM', 'Van de voorman', 'vestiging', 'Voormanstad');`))
+
+check('en die mag er ook een foto bij zetten',
+  await magSchrijven(voorman, `insert into public.location_photos
+     (id, location_id, storage_path, mime) values
+     ('lf_5', 'loc_voorman', 'loc_voorman/lf_5.jpg', 'image/jpeg');`))
+
+await magSchrijven(wasser, `insert into public.location_photos
+   (id, location_id, storage_path, mime) values
+   ('lf_6', 'loc_utr', 'loc_utr/lf_6.jpg', 'image/jpeg');`)
+check('een wasser zet er geen foto bij',
+  (await db.query(`
+     select count(*)::int as n from public.location_photos where id = 'lf_6'`)).rows[0].n === 0)
+
+check('maar hij ziet ze wel',
+  (await countAs(wasser, 'select count(*)::int as n from public.location_photos')) > 0)
+
+/* --- de emmer --- */
+
+check('de emmer voor de vestigingsfoto’s staat er',
+  (await db.query(`select count(*)::int as n from storage.buckets where id = 'vestigingen'`))
+    .rows[0].n === 1)
+
+/*
+ * Openbaar leesbaar, anders dan de dossiers. Dat is een keuze en geen
+ * slordigheid: een foto van een wasstraat langs de snelweg staat ook op de
+ * website, en ondertekende adressen ophalen bij elk scherm maakt de lijst
+ * traag en offline leeg. Zet iemand dit ooit om, dan hoort deze controle om
+ * te vallen -- zodat het een besluit is en geen ongeluk.
+ */
+check('en die is openbaar leesbaar, anders dan de dossiers',
+  (await db.query(`select public from storage.buckets where id = 'vestigingen'`))
+    .rows[0].public === true)
+check('terwijl de dossiers dat juist niet zijn',
+  (await db.query(`select public from storage.buckets where id = 'dossiers'`))
+    .rows[0].public === false)
 
 await db.close()
 

@@ -3323,6 +3323,147 @@ console.log('\n— kassa en kluis —')
     stilte(apparaten[0], nu) === null)
 }
 
+/* ==================================================================== *
+ *  Vestigingen
+ *
+ *  Twee dingen die hier stil fout gaan. Een dubbele code merk je pas als je
+ *  een half jaar later een export opent en niet meer weet waar een werkbon
+ *  vandaan kwam. En openingstijden die in zeven regels onder elkaar staan
+ *  leest niemand, dus die worden samengetrokken -- en juist bij dat
+ *  samentrekken zit de rand: de eerste dag, de laatste dag, en de dag die
+ *  nog leeg is.
+ * ==================================================================== */
+
+console.log('\n— vestigingen —')
+
+{
+  const {
+    voorstelCode, vrijeCode, codeProbleem, tijdProbleem, standaardTijden,
+    tijdenInHetKort, nuOpen, adresRegel, bezettingInWoorden, opVolgorde,
+    coverVan,
+  } = await import('../src/lib/vestigingen')
+
+  /* --- de code --- */
+
+  check('een plaats levert een codevoorstel op',
+    voorstelCode('Utrecht') === 'TW-UTR')
+  check('het hoofdkantoor krijgt een eigen voorvoegsel',
+    voorstelCode('Amersfoort', 'hoofdkantoor') === 'HK-AME')
+  check('een plaats met een streepje wordt netjes afgekort',
+    voorstelCode('Den Bosch') === 'TW-DEN')
+  check('en zonder plaats komt er niets uit', voorstelCode('  ') === '')
+
+  check('een vrije code blijft zoals hij is',
+    vrijeCode('TW-UTR', ['TW-AMS']) === 'TW-UTR')
+  check('een bezette code krijgt er een cijfer bij',
+    vrijeCode('TW-UTR', ['TW-UTR']) === 'TW-UTR2')
+  check('en dat loopt door',
+    vrijeCode('TW-UTR', ['TW-UTR', 'TW-UTR2']) === 'TW-UTR3')
+
+  const bestaand = [
+    { id: 'l1', code: 'TW-UTR', name: 'Utrecht' },
+    { id: 'l2', code: 'TW-AMS', name: 'Amsterdam' },
+  ] as never[]
+
+  check('een lege code kan niet', codeProbleem('', bestaand) !== null)
+  check('twee tekens is te kort', codeProbleem('TW', bestaand) !== null)
+  check('spaties in een code kunnen niet',
+    codeProbleem('TW UTR', bestaand) !== null)
+  check('een bezette code botst', codeProbleem('TW-UTR', bestaand) !== null)
+  check('en dat staat er met naam bij',
+    (codeProbleem('TW-UTR', bestaand) ?? '').includes('Utrecht'))
+  check('kleine letters botsen net zo goed',
+    codeProbleem('tw-utr', bestaand) !== null)
+  check('je eigen code botst niet met jezelf',
+    codeProbleem('TW-UTR', bestaand, 'l1') === null)
+  check('een vrije code mag', codeProbleem('TW-EIN', bestaand) === null)
+
+  /* --- openingstijden --- */
+
+  check('een sluitingstijd voor de openingstijd kan niet',
+    tijdProbleem({ van: '18:00', tot: '07:00' }) !== null)
+  check('rommel in een tijdvak kan ook niet',
+    tijdProbleem({ van: 'ochtend', tot: '18:00' }) !== null)
+  check('een gewone dag mag', tijdProbleem({ van: '07:00', tot: '18:00' }) === null)
+
+  const standaard = standaardTijden()
+  check('de standaard zet zondag dicht', standaard.zo === null)
+  check('en de rest open', standaard.ma?.van === '07:00')
+
+  check('zes gelijke dagen worden samengetrokken',
+    tijdenInHetKort(standaard) === 'ma t/m za 07:00-18:00, zo dicht')
+
+  check('een afwijkende zaterdag komt er los bij',
+    tijdenInHetKort({ ...standaard, za: { van: '08:00', tot: '13:00' } })
+      === 'ma t/m vr 07:00-18:00, za 08:00-13:00, zo dicht')
+
+  check('een losse dag krijgt geen "t/m"',
+    tijdenInHetKort({ ma: { van: '07:00', tot: '18:00' } }) === 'ma 07:00-18:00')
+
+  check('niets ingevuld zegt dat ook', tijdenInHetKort({}) === 'Niet ingevuld')
+  check('en niets meegegeven ook', tijdenInHetKort(undefined) === 'Niet ingevuld')
+
+  /* --- is er nu open --- */
+
+  const utrecht = { openingHours: standaard } as never as Parameters<typeof nuOpen>[0]
+
+  // Woensdag 3 september 2025; getDay() geeft 3, dus de derde weekdag.
+  check('woensdagochtend is er open',
+    nuOpen(utrecht, new Date(2025, 8, 3, 9, 0)) === true)
+  check("'s avonds laat niet",
+    nuOpen(utrecht, new Date(2025, 8, 3, 22, 0)) === false)
+  check('precies op sluitingstijd is het dicht',
+    nuOpen(utrecht, new Date(2025, 8, 3, 18, 0)) === false)
+  check('op zondag is het dicht',
+    nuOpen(utrecht, new Date(2025, 8, 7, 12, 0)) === false)
+  check('zonder openingstijden zeggen we niets',
+    nuOpen({ openingHours: undefined } as never, new Date()) === null)
+
+  /* --- het adres --- */
+
+  check('het adres komt op een regel',
+    adresRegel({ address: 'Kanaalweg 12', postcode: '3526 KL', city: 'Utrecht' })
+      === 'Kanaalweg 12, 3526 KL Utrecht')
+  check('een half adres levert geen losse komma op',
+    adresRegel({ address: '', postcode: '', city: 'Utrecht' }) === 'Utrecht')
+
+  /* --- wat er aan een vestiging hangt --- */
+
+  check('een enkele soort staat er zonder "en"',
+    bezettingInWoorden([{ wat: 'medewerkers', aantal: 9 }]) === '9 medewerkers')
+  check('twee soorten krijgen een "en"',
+    bezettingInWoorden([
+      { wat: 'medewerkers', aantal: 9 },
+      { wat: 'installaties', aantal: 4 },
+    ]) === '9 medewerkers en 4 installaties')
+  check('en drie een komma en een "en"',
+    bezettingInWoorden([
+      { wat: 'medewerkers', aantal: 9 },
+      { wat: 'installaties', aantal: 4 },
+      { wat: "kassa's", aantal: 2 },
+    ]) === "9 medewerkers, 4 installaties en 2 kassa's")
+  check('niets levert een lege zin op', bezettingInWoorden([]) === '')
+
+  /* --- de volgorde van de foto's --- */
+
+  const fotos = [
+    { id: 'f1', locationId: 'l1', sort: 2, isCover: false, uploadedAt: 30 },
+    { id: 'f2', locationId: 'l1', sort: 0, isCover: false, uploadedAt: 10 },
+    { id: 'f3', locationId: 'l1', sort: 1, isCover: true, uploadedAt: 20 },
+  ] as never[]
+
+  check('de foto die vooraan staat komt eerst', opVolgorde(fotos)[0].id === 'f3')
+  check('en de rest op eigen volgorde',
+    opVolgorde(fotos).map((f) => f.id).join() === 'f3,f2,f1')
+  check('coverVan pakt diezelfde', coverVan(fotos)?.id === 'f3')
+  check('zonder aangewezen foto pakt hij de eerste',
+    coverVan([fotos[0], fotos[1]] as never)?.id === 'f2')
+  check('en zonder foto’s komt er niets uit', coverVan([]) === undefined)
+
+  check('opVolgorde laat het origineel met rust', fotos[0].id === 'f1')
+}
+
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

@@ -142,6 +142,35 @@ Deno.serve(async (req) => {
     return json({ error: 'Onleesbaar verzoek' }, 400)
   }
 
+  /* ---- alleen een adres opzoeken ----
+   *
+   * Voor het vestigingenscherm: is dit adres een bestaand adres, en waar
+   * ligt het? Geen route, geen geheugen -- dit gebeurt een keer als iemand
+   * een vestiging opslaat.
+   */
+  if (String(body.actie ?? '') === 'zoek') {
+    const adres = String(body.adres ?? '').trim().slice(0, 200)
+    if (!adres) return json({ error: 'Geef een adres' }, 400)
+
+    if (!ORS_KEY) {
+      return json({
+        ok: false,
+        reden: 'De kaartendienst is nog niet ingesteld. Zet ORS_API_KEY als ' +
+               'geheim bij de functies; een sleutel haal je gratis bij ' +
+               'openrouteservice.org.',
+      })
+    }
+
+    try {
+      const punt = await zoekAdres(adres)
+      if (!punt) return json({ ok: false, reden: 'Dit adres is niet gevonden.' })
+      return json({ ok: true, lat: punt.lat, lon: punt.lon, label: punt.naam })
+    } catch (e) {
+      console.error('[route] zoeken: ' + String(e))
+      return json({ ok: false, reden: 'De kaartendienst gaf geen antwoord.' })
+    }
+  }
+
   const van = String(body.van ?? '').trim().slice(0, 200)
   const naar = String(body.naar ?? '').trim().slice(0, 200)
   if (!van || !naar) return json({ error: 'Geef een begin- en eindadres' }, 400)

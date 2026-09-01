@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   CalendarRange, GraduationCap, Inbox, LayoutDashboard, LayoutGrid,
-  Briefcase, CalendarDays, Mail, MessageSquare, Monitor, Package, Receipt,
+  Briefcase, Building2, CalendarDays, Mail, MessageSquare, Monitor, Package, Receipt,
   Send, Settings, Users, Wrench,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
@@ -18,6 +18,7 @@ import Techniek from './Techniek'
 import Aanmeldingen from './Aanmeldingen'
 import Werkgevers from './Werkgevers'
 import Kassas from './Kassas'
+import Vestigingen from './Vestigingen'
 import OpleidingOverzicht from '../../components/OpleidingOverzicht'
 import BerichtVersturen from '../../components/BerichtVersturen'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
@@ -53,12 +54,13 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   agenda: { title: 'Agenda', subtitle: 'Afspraken, verjaardagen en wat er aankomt' },
   werkgevers: { title: 'Werkgevers', subtitle: 'Bedrijven waarvan de chauffeurs hier wassen' },
   kassas: { title: "Kassa's", subtitle: 'Apparaten, koppelcodes en de kluis' },
+  vestigingen: { title: 'Vestigingen', subtitle: "Adressen, foto's en openingstijden" },
   beheer: { title: 'Beheer', subtitle: 'Instellingen, rechten en gegevens' },
 }
 
 const ZONDER_PERIODE = [
   'start', 'planning', 'beheer', 'opleiding', 'aanmeldingen', 'overleg', 'postbus',
-  'agenda', 'werkgevers', 'kassas',
+  'agenda', 'werkgevers', 'kassas', 'vestigingen',
 ]
 
 export default function ManagementDashboard() {
@@ -133,6 +135,9 @@ export default function ManagementDashboard() {
     ...(perms.can('employer.view')
       ? [{ key: 'werkgevers', label: 'Werkgevers', icon: Briefcase,
            badge: cijfers.nieuweWerkgevers || undefined }]
+      : []),
+    ...(perms.can('locations.view')
+      ? [{ key: 'vestigingen', label: 'Vestigingen', icon: Building2 }]
       : []),
     ...(perms.can('pos.manage')
       ? [{ key: 'kassas', label: "Kassa's", icon: Monitor }]
@@ -245,6 +250,14 @@ export default function ManagementDashboard() {
       statLabel: ongelezen === 1 ? 'nieuw bericht' : 'nieuwe berichten',
       urgent: ongelezen > 0,
       onClick: () => setPage('overleg'),
+    }] : []),
+    ...(perms.can('locations.view') ? [{
+      key: 'vestigingen',
+      label: 'Vestigingen',
+      hint: "Adressen, foto's en openingstijden",
+      icon: Building2,
+      tint: 'neutraal' as TegelTint,
+      onClick: () => setPage('vestigingen'),
     }] : []),
     ...(perms.can('pos.manage') ? [{
       key: 'kassas',
@@ -365,6 +378,7 @@ export default function ManagementDashboard() {
       {page === 'agenda' && <Agenda />}
       {page === 'werkgevers' && <Werkgevers />}
       {page === 'kassas' && <Kassas />}
+      {page === 'vestigingen' && <Vestigingen />}
       {page === 'beheer' && <Beheer />}
 
       <BerichtVersturen open={messaging} onClose={() => setMessaging(false)} />

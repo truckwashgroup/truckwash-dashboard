@@ -3875,3 +3875,235 @@ table.data.matrix th { vertical-align: bottom; }
   font-size: .73rem; color: var(--text-2);
 }
 .coupure .aantal { font-weight: 700; color: var(--text); }
+
+/* ================================================================== *
+ *  Vestigingen
+ * ================================================================== */
+
+.vest-raster {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(258px, 1fr));
+  gap: 14px;
+}
+
+.vest-tegel {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel, var(--surface));
+  color: inherit;
+  cursor: pointer;
+  /* De schaduw hoort bij het optillen; framer doet de beweging, dit de diepte. */
+  transition: box-shadow .18s ease, border-color .18s ease;
+}
+.vest-tegel:hover {
+  border-color: var(--line-brand, var(--line));
+  box-shadow: 0 12px 28px rgba(0, 0, 0, .22);
+}
+.vest-tegel.uit { opacity: .62; }
+.vest-tegel.uit:hover { opacity: .86; }
+
+.vest-foto {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: var(--surface);
+}
+.vest-foto img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform .4s cubic-bezier(.22, .61, .36, 1);
+}
+.vest-tegel:hover .vest-foto img { transform: scale(1.045); }
+
+.vest-geenfoto {
+  display: grid; place-items: center;
+  width: 100%; height: 100%;
+  color: var(--text-3);
+  background:
+    repeating-linear-gradient(
+      135deg,
+      var(--surface) 0 10px,
+      var(--line-soft) 10px 11px
+    );
+}
+
+/* Zodat de code en de badges leesbaar blijven op een lichte foto. */
+.vest-sluier {
+  position: absolute; inset: 0;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, .48) 0%, rgba(0, 0, 0, 0) 46%);
+  pointer-events: none;
+}
+
+.vest-kop {
+  position: absolute; top: 9px; left: 10px; right: 10px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.vest-code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: .72rem; font-weight: 700; letter-spacing: .08em;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .6);
+}
+
+.vest-fotoaantal {
+  position: absolute; right: 9px; bottom: 9px;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .55);
+  color: #fff;
+  font-size: .68rem;
+}
+
+.vest-body { display: grid; gap: 5px; padding: 11px 13px 13px; }
+.vest-naam { font-size: .95rem; font-weight: 650; letter-spacing: -.01em; }
+.vest-regel {
+  display: flex; align-items: center; gap: 5px;
+  font-size: .77rem; color: var(--text-3);
+  /* Een adres dat over drie regels valt maakt de tegels ongelijk hoog. */
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.vest-voet {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 3px;
+  font-size: .74rem; color: var(--text-3);
+}
+
+.vest-open { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
+.vest-open i { width: 6px; height: 6px; border-radius: 999px; background: var(--text-3); }
+.vest-open.ja i { background: var(--ok); box-shadow: 0 0 0 3px var(--tint-ok, transparent); }
+.vest-open.nee i { background: var(--text-3); }
+
+.vest-laadt {
+  width: 100%; height: 100%;
+  background: linear-gradient(100deg, var(--surface) 30%, var(--line-soft) 50%, var(--surface) 70%);
+  background-size: 300% 100%;
+  animation: vest-glans 1.3s ease-in-out infinite;
+}
+@keyframes vest-glans {
+  from { background-position: 100% 0; }
+  to   { background-position: -100% 0; }
+}
+
+/* Wie liever geen beweging ziet krijgt hem ook niet. */
+@media (prefers-reduced-motion: reduce) {
+  .vest-laadt { animation: none; }
+  .vest-tegel:hover .vest-foto img { transform: none; }
+}
+
+/* ---------------------------- Openingstijden ---------------------- */
+
+.vest-tijden {
+  margin: 4px 0 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.vest-tijdenkop {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: var(--surface);
+  color: inherit;
+  font-size: .82rem;
+  cursor: pointer;
+}
+.vest-tijdenkop .hint { font-size: .74rem; }
+
+.vest-dag {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px;
+  border-top: 1px solid var(--line-soft);
+  font-size: .8rem;
+}
+.vest-dagnaam { width: 84px; color: var(--text-2); text-transform: capitalize; }
+.vest-dag input[type="time"] { width: 108px; }
+.vest-tot { color: var(--text-3); font-size: .74rem; }
+.vest-dagfout { color: var(--danger); font-size: .72rem; }
+
+.vest-gevonden {
+  display: flex; align-items: center; gap: 6px;
+  margin: -4px 0 10px;
+  font-size: .77rem; color: var(--ok);
+}
+
+.vest-bezet { margin: 8px 0 12px; padding-left: 18px; font-size: .84rem; }
+.vest-bezet li { margin: 3px 0; color: var(--text-2); }
+
+/* -------------------------------- Foto's -------------------------- */
+
+.vest-drop {
+  display: grid; gap: 5px; justify-items: center;
+  padding: 22px 16px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: .83rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease;
+}
+.vest-drop:hover, .vest-drop.sleept {
+  border-color: var(--brand);
+  background: var(--tint-brand-weak);
+}
+.vest-drop .hint { font-size: .73rem; }
+
+.vest-fotolijst { display: grid; gap: 8px; margin-top: 14px; list-style: none; padding: 0; }
+
+.vest-fotorij {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.vest-mini {
+  width: 76px; height: 52px;
+  flex: none;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--panel, var(--surface));
+  cursor: zoom-in;
+}
+.vest-mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.vest-bijschrift {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 1px solid transparent;
+}
+.vest-bijschrift:focus { border-color: var(--line); }
+
+.vest-lichtbak {
+  position: fixed; inset: 0; z-index: 90;
+  display: grid; place-items: center;
+  padding: 40px;
+  background: rgba(0, 0, 0, .82);
+  cursor: zoom-out;
+}
+.vest-lichtbak img {
+  max-width: min(1100px, 88vw);
+  max-height: 78vh;
+  object-fit: contain;
+  border-radius: var(--radius);
+  display: block;
+}
+.vest-lichtbak p {
+  margin: 12px 0 0;
+  color: #e8ecf4;
+  font-size: .84rem;
+  text-align: center;
+}
+.vest-dicht { position: absolute; top: 18px; right: 18px; color: #fff; }

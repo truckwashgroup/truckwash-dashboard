@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie'
 import type {
+  LocationPhoto,
   PosRegister,
   PosDevice,
   PosPairing,
@@ -50,6 +51,8 @@ class TruckwashDB extends Dexie {
   posPairings!: Table<PosPairing, string>
   posSafes!: Table<PosSafe, string>
   posSafeMoves!: Table<PosSafeMove, string>
+  locationPhotos!: Table<LocationPhoto, string>
+  media!: Table<Media, string>
   mailOutbox!: Table<WachtendeMail, number>
   signups!: Table<Signup, string>
   channels!: Table<Channel, string>
@@ -181,6 +184,12 @@ class TruckwashDB extends Dexie {
       posSafes: 'id, locationId, updatedAt',
       posSafeMoves: 'id, safeId, at, soort, updatedAt',
     })
+
+    // v17: foto's bij een vestiging, en de bestanden zelf om de hoek
+    this.version(17).stores({
+      locationPhotos: 'id, locationId, sort, updatedAt',
+      media: 'pad, at',
+    })
   }
 }
 
@@ -225,4 +234,32 @@ export function alleMensen() {
 /** En hetzelfde voor een lijst die je al hebt. */
 export function alleenMensen<T extends { isDevice?: boolean }>(lijst: T[]): T[] {
   return lijst.filter((u) => !u.isDevice)
+}
+
+/* ------------------------------------------------------------------ *
+ *  Bestanden om de hoek
+ *
+ *  Foto's van vestigingen staan bij Supabase, maar een app die op een tablet
+ *  in een wasstraat draait heeft daar niet altijd bij gekund. Wat een keer is
+ *  opgehaald blijft hier staan, zodat het scherm ook zonder verbinding een
+ *  vestiging laat zien in plaats van negentien grijze vlakken.
+ *
+ *  Bewust geen onderdeel van de synchronisatie: dit is een kopie van iets dat
+ *  ergens anders de waarheid is. Weggooien mag altijd.
+ * ------------------------------------------------------------------ */
+
+export interface Media {
+  /** Het pad in de emmer; dat is meteen de sleutel. */
+  pad: string
+  blob: Blob
+  at: number
+}
+
+/** Zeven dagen. Lang genoeg voor een week zonder verbinding. */
+const MEDIA_TERMIJN = 7 * 86_400_000
+
+export async function mediaOpruimen(nu = Date.now()) {
+  const oud = await db.media.where('at').below(nu - MEDIA_TERMIJN).primaryKeys()
+  if (oud.length) await db.media.bulkDelete(oud)
+  return oud.length
 }

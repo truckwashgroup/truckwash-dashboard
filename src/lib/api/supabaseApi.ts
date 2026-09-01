@@ -115,6 +115,7 @@ const TABLES: Record<EntityName, string> = {
   posPairings: 'pos_pairings',
   posSafes: 'pos_safes',
   posSafeMoves: 'pos_safe_moves',
+  locationPhotos: 'location_photos',
   signups: 'signups',
   channels: 'channels',
   chatMessages: 'chat_messages',

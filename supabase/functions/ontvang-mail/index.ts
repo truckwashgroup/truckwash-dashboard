@@ -293,21 +293,62 @@ async function haalBijlagenLijst(emailId: string | null): Promise<Willekeurig[]>
   }
 }
 
-/** De regel uit de lijst die bij deze bijlage hoort. */
+/**
+ * De regel uit de lijst die bij deze bijlage hoort.
+ *
+ * Hier stond een terugval op de volgorde: "die is bij één mail gelijk". Dat is
+ * niet waar, en het kostte een factuur.
+ *
+ * In de lijst van Resend staan namelijk óók de inline afbeeldingen -- het logo
+ * in de handtekening, de plaatjes uit de opmaak -- met content_disposition
+ * "inline". Die staan er meestal vóór de echte bijlage. Bij een mail met een
+ * logo en een factuur pakte de terugval op volgorde dus het logo, en dat werd
+ * onder de naam van de factuur opgeslagen. Een PDF van 197 kB werd zo een
+ * plaatje van 3 kB, met daarna in het scherm alleen "deze PDF is niet te
+ * openen".
+ *
+ * Nu wordt er alleen gekoppeld als het écht past. Past het niet, dan is er
+ * niets -- en dan zegt de bijlage waarom, in plaats van dat er stilletjes iets
+ * verkeerds op de plek van de factuur belandt.
+ */
 function zoekBijResend(
   a: Willekeurig,
   lijst: Willekeurig[],
   index: number,
 ): Willekeurig | undefined {
   const naam = String(a.filename ?? a.name ?? '').toLowerCase()
-  const contentId = String(a.content_id ?? a.contentId ?? '')
+  const contentId = String(a.content_id ?? a.contentId ?? '').replace(/^<|>$/g, '')
 
-  return (
-    (contentId && lijst.find((r) => String(r.content_id ?? '') === contentId)) ||
-    (naam && lijst.find((r) => String(r.filename ?? '').toLowerCase() === naam)) ||
-    // Geen naam om op te matchen? Dan op volgorde; die is bij één mail gelijk.
-    lijst[index]
-  )
+  // 1. Op content-id: dat is de enige echt harde koppeling.
+  if (contentId) {
+    const opId = lijst.find(
+      (r) => String(r.content_id ?? '').replace(/^<|>$/g, '') === contentId)
+    if (opId) return opId
+  }
+
+  // 2. Op bestandsnaam.
+  if (naam) {
+    const opNaam = lijst.find((r) => String(r.filename ?? '').toLowerCase() === naam)
+    if (opNaam) return opNaam
+  }
+
+  /*
+   * 3. Geen van beide. Dan alleen koppelen als er redelijkerwijs maar één
+   *    kandidaat is: een echte bijlage, geen inline plaatje. Zijn het er
+   *    meer, dan is gokken erger dan opgeven -- bij gokken krijg je het
+   *    verkeerde bestand zonder dat iemand het merkt.
+   */
+  const echteBijlagen = lijst.filter(
+    (r) => String(r.content_disposition ?? 'attachment') !== 'inline')
+
+  if (echteBijlagen.length === 1) return echteBijlagen[0]
+
+  console.warn(
+    `[ontvang-mail] bijlage ${index + 1} (${naam || 'zonder naam'}) is niet te ` +
+    `koppelen aan de lijst van Resend: ${lijst.length} regel(s), waarvan ` +
+    `${echteBijlagen.length} echte bijlage(n). Op volgorde koppelen doen we ` +
+    'niet meer -- daarmee werd het logo uit de handtekening opgeslagen als factuur.')
+  return undefined
 }
 
 async function haalVan(url: string, sleutel?: string): Promise<Uint8Array | null> {
@@ -561,8 +602,23 @@ Deno.serve(async (req) => {
   let expenseId: string | null = null
 
   if (bijlagen.length > 0) {
-    const bon = bijlagen.find((b) =>
-      b.mime === 'application/pdf' || b.mime.startsWith('image/')) ?? bijlagen[0]
+    /*
+     * Welke bijlage is de bon?
+     *
+     * Eerst een PDF, en pas als die er niet is een foto. Hier stond "een PDF
+     * óf een plaatje, de eerste de beste", en dan wint het logo uit de
+     * handtekening van de factuur die eronder hangt -- want dat logo staat
+     * meestal eerst. Wat er dan aan de kostenpost hangt is een plaatje van
+     * een paar kilobyte in plaats van de rekening.
+     *
+     * En wat er is opgeslagen gaat voor: een bijlage zonder pad is er niet.
+     */
+    const bruikbaar = bijlagen.filter((b) => b.path)
+    const bon =
+      bruikbaar.find((b) => b.mime === 'application/pdf')
+      ?? bruikbaar.find((b) => b.mime.startsWith('image/'))
+      ?? bruikbaar[0]
+      ?? bijlagen[0]
 
     expenseId = 'exp_mail_' + berichtId.slice(3, 15)
 

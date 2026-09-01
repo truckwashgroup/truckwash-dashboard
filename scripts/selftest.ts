@@ -3771,6 +3771,48 @@ console.log('\n— de administratie —')
     ).has('expenses.approve'))
 }
 
+/* ==================================================================== *
+ *  Elke rol is ook echt te kiezen
+ *
+ *  Er is een rol bij gekomen die overal klopte -- een kaart in de rolkiezer,
+ *  een set rechten, een eigen dashboard, een rondleiding -- en die toch
+ *  nergens te openen was. De rolkiezer had een eigen lijstje met de volgorde,
+ *  en daar stond hij niet in.
+ *
+ *  TypeScript zag dat niet, en dat is precies de reden dat deze controle
+ *  bestaat: een onvolledige Role[] is een geldige Role[]. Alleen een
+ *  onvolledige Record<Role, ...> valt op bij het compileren.
+ * ==================================================================== */
+
+console.log('\n— elke rol is te kiezen —')
+
+{
+  const { ROLE_LABELS, ROLE_ORDER } = await import('../src/lib/types')
+  const { ROLE_DEFAULTS } = await import('../src/lib/permissions')
+  const { RONDLEIDINGEN } = await import('../src/lib/rondleiding')
+
+  // ROLE_LABELS is een Record<Role, string>, dus dit is de volledige lijst.
+  const alleRollen = Object.keys(ROLE_LABELS)
+
+  check('er zijn rollen om te controleren', alleRollen.length >= 8)
+
+  for (const rol of alleRollen) {
+    check(`${rol} staat in de volgorde van de rolkiezer`,
+      ROLE_ORDER.includes(rol as never))
+    check(`${rol} heeft standaardrechten`,
+      Array.isArray(ROLE_DEFAULTS[rol as never]))
+    check(`${rol} heeft een rondleiding`,
+      !!RONDLEIDINGEN[rol as never])
+  }
+
+  check('de volgorde bevat geen rol die niet bestaat',
+    ROLE_ORDER.every((r) => alleRollen.includes(r)))
+  check('en niets dubbel',
+    new Set(ROLE_ORDER).size === ROLE_ORDER.length)
+  check('en is even lang als de lijst met rollen',
+    ROLE_ORDER.length === alleRollen.length)
+}
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

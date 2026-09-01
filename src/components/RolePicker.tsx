@@ -4,7 +4,7 @@ import {
   LogOut, ShieldCheck, Wrench,
 } from 'lucide-react'
 import { useAuth } from '../store/useAuth'
-import type { Role } from '../lib/types'
+import { ROLE_ORDER, type Role } from '../lib/types'
 import SyncPill from './SyncPill'
 import Logo from './Logo'
 import { useSync } from '../lib/sync'
@@ -63,8 +63,16 @@ const CARDS: Record<Role, {
   },
 }
 
-const ORDER: Role[] =
-  ['employee', 'supervisor', 'technician', 'customer', 'employer', 'management', 'developer']
+/*
+ * De volgorde komt uit types.ts en staat hier niet nog een keer.
+ *
+ * Hier stond een eigen lijstje, en dat liep uit de pas: toen de rol
+ * administratie erbij kwam, kreeg die wel een kaart en wel rechten, maar
+ * stond hij niet in dit rijtje -- en dan bestaat het dashboard wel en is het
+ * nergens te kiezen. TypeScript zag het niet: een onvolledige lijst is een
+ * geldige Role[], alleen een onvolledige Record<Role, ...> valt op.
+ */
+const ORDER: Role[] = ROLE_ORDER
 
 export default function RolePicker() {
   const { user, chooseRole, logout } = useAuth()

@@ -43,7 +43,7 @@ export interface ControleResultaat {
  * ------------------------------------------------------------------ */
 
 /** De eerste bytes waaraan je een bestandssoort herkent. */
-const HANDTEKENINGEN: { mime: string; magisch: number[]; offset?: number }[] = [
+export const HANDTEKENINGEN: { mime: string; magisch: number[]; offset?: number }[] = [
   { mime: 'application/pdf',  magisch: [0x25, 0x50, 0x44, 0x46] },              // %PDF
   { mime: 'image/jpeg',       magisch: [0xff, 0xd8, 0xff] },
   { mime: 'image/png',        magisch: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] },
@@ -64,9 +64,38 @@ const VERBODEN: { magisch: number[]; wat: string }[] = [
   { magisch: [0xd0, 0xcf, 0x11, 0xe0], wat: 'een oud Office-bestand met macro’s' },
 ]
 
-function begintMet(bytes: Uint8Array, magisch: number[], offset = 0): boolean {
+export function begintMet(bytes: Uint8Array, magisch: number[], offset = 0): boolean {
   if (bytes.length < offset + magisch.length) return false
   return magisch.every((b, i) => bytes[offset + i] === b)
+}
+
+/**
+ * Ziet dit eruit als het bestand dat het zegt te zijn?
+ *
+ * Dit is de controle die ontbrak, en het kostte een factuur. Van een PDF van
+ * 197 kB kwam er 3 kB binnen: de eerste manier gaf iéts terug, dat werd
+ * aangenomen, en de tweede manier -- die het echte bestand had gehaald --
+ * werd nooit geprobeerd. In het scherm stond daarna alleen "deze PDF is niet
+ * te openen", en niemand kon zien dat er 98 procent ontbrak.
+ */
+export function lijktEchtOp(bytes: Uint8Array, mime: string, verwacht?: number): string | null {
+  if (bytes.byteLength === 0) return 'er kwam niets terug'
+
+  const hoort = HANDTEKENINGEN.find((h) => h.mime === mime)
+  if (hoort && !begintMet(bytes, hoort.magisch, hoort.offset ?? 0)) {
+    return `de eerste bytes horen niet bij ${mime}`
+  }
+
+  /*
+   * De opgegeven grootte is een sterk signaal als hij er is. Precies gelijk
+   * hoeft niet -- een aanbieder telt soms de codering mee -- maar de helft
+   * missen betekent dat er iets is afgekapt.
+   */
+  if (verwacht && verwacht > 0 && bytes.byteLength < verwacht * 0.9) {
+    return `${bytes.byteLength} bytes terwijl er ${verwacht} was opgegeven`
+  }
+
+  return null
 }
 
 /* ------------------------------------------------------------------ *

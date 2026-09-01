@@ -6,10 +6,11 @@ import {
   Minus, Plus, ShieldX, X,
 } from 'lucide-react'
 import {
-  grootteVan, haalBytes, haalTekst, MAX_TONEN, soortVan, TeGroot,
+  grootteVan, haalBytes, haalTekst, MAX_TONEN, soortVan, TeGroot, watIsDit,
   type Bekijkbaar, type BestandSoort,
 } from '../lib/bekijken'
 import { laadPdfjs } from '../lib/pdf'
+
 import { toast } from '../store/useToasts'
 
 /* ------------------------------------------------------------------ *
@@ -24,6 +25,14 @@ import { toast } from '../store/useToasts'
  *  en niet door een lezer die er van alles mee mag; wat we niet herkennen
  *  tonen we helemaal niet, dat bieden we aan om op te slaan.
  * ------------------------------------------------------------------ */
+
+/*
+ * Een bestand dat zich voordoet als PDF maar het niet is.
+ *
+ * Een eigen soort fout, zodat de melding die erbij hoort niet wordt
+ * overschreven door het algemene "deze PDF is niet te openen".
+ */
+class GeenPdf extends Error {}
 
 interface Props {
   bestanden: Bekijkbaar[]
@@ -298,6 +307,15 @@ function PdfBlad({
       try {
         const lib = await laadPdfjs()
         const data = new Uint8Array(await (await fetch(url)).arrayBuffer())
+
+        /*
+         * Eerst kijken wat het is. pdf.js zegt bij van alles hetzelfde, en
+         * "deze PDF is niet te openen" bij een bestand dat helemaal geen PDF
+         * is stuurt je de verkeerde kant op.
+         */
+        const anders = watIsDit(data, 'pdf')
+        if (anders) throw new GeenPdf(anders)
+
         const doc = await lib.getDocument({ data }).promise
         if (weg) return
 
@@ -332,9 +350,11 @@ function PdfBlad({
       } catch (e) {
         if (!weg) {
           onFout(
-            e instanceof Error && /password/i.test(e.message)
-              ? 'Deze PDF is met een wachtwoord beveiligd.'
-              : 'Deze PDF is niet te openen. Opslaan kan wel.',
+            e instanceof GeenPdf
+              ? e.message
+              : e instanceof Error && /password/i.test(e.message)
+                ? 'Deze PDF is met een wachtwoord beveiligd.'
+                : 'Deze PDF is niet te openen. Opslaan kan wel.',
           )
         }
       } finally {

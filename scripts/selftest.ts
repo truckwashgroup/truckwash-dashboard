@@ -3938,6 +3938,55 @@ console.log('\n— wat een factuur verdacht maakt —')
     lezer.includes('gemarkeerd'))
 }
 
+/* ==================================================================== *
+ *  Wat zit er werkelijk in dat bestand
+ *
+ *  Een inkoopfactuur van 3 kB die niet openging, met als enige uitleg "deze
+ *  PDF is niet te openen". Dat is geen uitleg maar een doodlopende weg: je
+ *  weet niet of het aan de lezer ligt, aan het bestand, of aan hoe het is
+ *  opgeslagen. De eerste bytes verraden het meestal, dus zeggen we het.
+ * ==================================================================== */
+
+console.log('\n— wat zit er werkelijk in dat bestand —')
+
+{
+  const { watIsDit } = await import('../src/lib/bekijken')
+  const bytes = (t: string) => new TextEncoder().encode(t)
+
+  check('een echte PDF geeft geen klacht',
+    watIsDit(bytes('%PDF-1.7\n1 0 obj'), 'pdf') === null)
+  check('ook met rommel ervoor',
+    watIsDit(bytes('\n\n%PDF-1.4'), 'pdf') === null)
+
+  check('een leeg bestand wordt als leeg gemeld',
+    (watIsDit(bytes(''), 'pdf') ?? '').includes('leeg'))
+
+  check('JSON wordt herkend als foutmelding',
+    (watIsDit(bytes('{"message":"Not found"}'), 'pdf') ?? '').includes('JSON'))
+  check('en een array ook',
+    (watIsDit(bytes('[{"error":1}]'), 'pdf') ?? '').includes('JSON'))
+
+  check('een webpagina wordt herkend',
+    (watIsDit(bytes('<!DOCTYPE html><html>'), 'pdf') ?? '').includes('webpagina'))
+  check('xml ook',
+    (watIsDit(bytes('<?xml version="1.0"?>'), 'pdf') ?? '').includes('webpagina'))
+
+  check('een zip wordt bij naam genoemd',
+    (watIsDit(bytes('PK'), 'pdf') ?? '').includes('zip'))
+
+  /*
+   * Het geval uit het veld: iets van drie kilobyte dat geen van de bekende
+   * vormen heeft. Dan zeggen we tenminste dat het geen PDF is, met de maat
+   * erbij -- want die maat is zelf het signaal.
+   */
+  const raar = watIsDit(bytes('x'.repeat(3000)), 'pdf') ?? ''
+  check('en iets onherkenbaars heet gewoon geen PDF', raar.includes('geen PDF'))
+  check('met de grootte erbij, want die zegt iets', raar.includes('kB'))
+
+  check('bij een plaatje bemoeit hij zich nergens mee',
+    watIsDit(bytes('van alles'), 'beeld') === null)
+}
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

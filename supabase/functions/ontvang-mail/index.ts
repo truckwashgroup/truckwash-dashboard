@@ -21,7 +21,7 @@
  * =========================================================================== */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
-import { controleerBijlage } from './controle.ts'
+import { controleerBijlage, lijktEchtOp } from './controle.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -178,31 +178,32 @@ interface Bijlage {
   scanner?: string
 }
 
-/**
- * De inhoud van een bijlage te pakken krijgen.
- *
- * Drie manieren, in deze volgorde:
- *
- *  1. de inhoud zit in de webhook zelf, als base64
- *  2. er staat een adres bij waar hij te halen is
- *  3. er staat alleen een id bij; dan vragen we hem op bij Resend
- *
- * Welke van de drie het is verschilt per aanbieder en per formaat van de
- * mail. Ze alle drie proberen is goedkoper dan uitzoeken welke het deze
- * keer was.
- */
 async function haalInhoud(
   a: Willekeurig,
   vanResend: Willekeurig | undefined,
-): Promise<Uint8Array | null> {
-  // 1. Staat de inhoud er gewoon bij? Dan zijn we klaar.
+  mime: string,
+): Promise<{ bytes: Uint8Array | null; verslag: string[] }> {
+  const verslag: string[] = []
+  const verwacht = Number(a.size ?? a.content_length ?? vanResend?.size ?? 0) || undefined
+
+  /*
+   * Alle manieren proberen en de béste nemen, niet de eerste die iets
+   * teruggeeft. Dat laatste was de fout: een afgekapte inhoud in de webhook
+   * won het van het adres waar het hele bestand stond.
+   */
+  const kandidaten: { hoe: string; bytes: Uint8Array }[] = []
+
+  // 1. Staat de inhoud er gewoon bij, als base64?
   const inhoud = a.content ?? a.data ?? a.body ?? a.base64
   if (typeof inhoud === 'string' && inhoud.length > 0) {
     try {
       const schoon = inhoud.replace(/^data:[^;]+;base64,/, '')
-      return Uint8Array.from(atob(schoon), (c) => c.charCodeAt(0))
+      kandidaten.push({
+        hoe: 'inhoud uit de webhook',
+        bytes: Uint8Array.from(atob(schoon), (c) => c.charCodeAt(0)),
+      })
     } catch (e) {
-      console.warn('[ontvang-mail] inhoud niet te lezen als base64: ' + String(e))
+      verslag.push('inhoud uit de webhook was geen geldige base64: ' + String(e))
     }
   }
 
@@ -213,10 +214,33 @@ async function haalInhoud(
   if (typeof adres === 'string' && /^https:\/\//.test(adres)) {
     // Een voorondertekend adres wil de sleutel meestal niet; lukt het zonder
     // niet, dan alsnog met.
-    return (await haalVan(adres)) ?? (await haalVan(adres, RESEND_KEY))
+    const uit = (await haalVan(adres)) ?? (await haalVan(adres, RESEND_KEY))
+    if (uit) kandidaten.push({ hoe: 'opgehaald van het adres', bytes: uit })
+    else verslag.push('het adres gaf niets bruikbaars terug')
+  } else {
+    verslag.push('er stond geen adres bij om het bestand op te halen')
   }
 
-  return null
+  /* ---- kiezen ---- */
+
+  for (const k of kandidaten) {
+    const mis = lijktEchtOp(k.bytes, mime, verwacht)
+    if (!mis) {
+      console.log(`[ontvang-mail] ${k.hoe}: ${k.bytes.byteLength} bytes, ziet er goed uit`)
+      return { bytes: k.bytes, verslag }
+    }
+    verslag.push(`${k.hoe}: ${mis}`)
+    console.warn(`[ontvang-mail] ${k.hoe} afgekeurd -- ${mis}`)
+  }
+
+  /*
+   * Niets kwam er goed doorheen. Als er wél iets binnenkwam nemen we het
+   * grootste alsnog, want een half bestand met een waarschuwing erbij is
+   * beter dan niets -- maar het verslag gaat mee, zodat het scherm kan
+   * vertellen wat er mis is in plaats van alleen dat het niet lukt.
+   */
+  const grootste = kandidaten.sort((x, y) => y.bytes.byteLength - x.bytes.byteLength)[0]
+  return { bytes: grootste?.bytes ?? null, verslag }
 }
 
 /**
@@ -242,6 +266,21 @@ async function haalBijlagenLijst(emailId: string | null): Promise<Willekeurig[]>
     if (!res.ok) {
       console.warn(
         `[ontvang-mail] bijlagenlijst opvragen gaf ${res.status}: ${await res.text()}`)
+
+      /*
+       * 401 hier betekent bijna altijd hetzelfde: de sleutel mag wel mail
+       * versturen maar geen inkomende post lezen. Dat is een aparte
+       * instelling bij Resend, en omdat het versturen gewoon blijft werken
+       * merk je het nergens anders aan. Eén regel in het logboek scheelt
+       * een middag zoeken.
+       */
+      if (res.status === 401 || res.status === 403) {
+        console.error(
+          '[ontvang-mail] RESEND_API_KEY mag geen inkomende post lezen. Maak in ' +
+          'Resend een sleutel met volledige toegang en zet die als geheim; een ' +
+          'sleutel met alleen verzendrechten levert bijlagen op die half of ' +
+          'niet aankomen.')
+      }
       return []
     }
     const body = await res.json()
@@ -414,13 +453,14 @@ Deno.serve(async (req) => {
         continue
       }
 
-      const bytes = await haalInhoud(a, bijResend)
+      const { bytes, verslag } = await haalInhoud(a, bijResend, mime)
       if (!bytes) {
         mislukt(
-          'Het bestand zelf is niet opgehaald. Resend stuurt de inhoud niet ' +
-          'mee in de webhook; die moet apart worden opgevraagd, en dat lukte ' +
-          'niet. Kijk in het logboek van de functie ontvang-mail wat de ' +
-          'bijlagenlijst terugzei.',
+          'Het bestand zelf is niet opgehaald. ' +
+          (verslag.length
+            ? 'Wat er is geprobeerd: ' + verslag.join('; ') + '.'
+            : 'Resend stuurt de inhoud niet mee in de webhook; die moet apart ' +
+              'worden opgevraagd, en dat lukte niet.'),
         )
         continue
       }
@@ -466,7 +506,16 @@ Deno.serve(async (req) => {
         size: bytes.byteLength,
         path: pad,
         controle: uitkomst.uitkomst,
-        controleReden: uitkomst.reden,
+        /*
+         * Kwam er onderweg iets niet in orde -- een manier die te weinig bytes
+         * gaf, een adres dat niets teruggaf -- dan staat dat hier, ook als er
+         * uiteindelijk iets is opgeslagen. Anders zie je in het scherm een
+         * bijlage die er is maar niet klopt, zonder enige aanwijzing waarom.
+         */
+        controleReden: verslag.length
+          ? [uitkomst.reden, 'Onderweg: ' + verslag.join('; ') + '.']
+              .filter(Boolean).join(' ')
+          : uitkomst.reden,
         controleOp: nu(),
         scanner: uitkomst.scanner,
       })

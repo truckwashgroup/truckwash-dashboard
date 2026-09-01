@@ -106,6 +106,48 @@ export function soortVan(naam: string, mime?: string): BestandSoort {
   return 'onbekend'
 }
 
+/**
+ * Wat zit er werkelijk in dit bestand?
+ *
+ * Aanleiding: een inkoopfactuur van 3 kB die niet openging, met als enige
+ * uitleg "deze PDF is niet te openen". Dat is geen uitleg maar een
+ * doodlopende weg -- je weet niet of het aan de lezer ligt, aan het bestand,
+ * of aan hoe het is opgeslagen.
+ *
+ * De eerste bytes verraden het meestal. Een PDF begint met %PDF, een
+ * foutmelding van een server met { of <, en een afgekapte download met
+ * niets herkenbaars. Dat kunnen we gewoon zéggen.
+ */
+export function watIsDit(bytes: Uint8Array, verwacht: BestandSoort): string | null {
+  if (bytes.length === 0) {
+    return 'Dit bestand is leeg — er is niets opgeslagen.'
+  }
+
+  const kop = new TextDecoder('latin1').decode(bytes.subarray(0, 512))
+  const begin = kop.trimStart()
+
+  if (verwacht === 'pdf') {
+    // Een PDF begint met %PDF, eventueel na wat rommel van een mailserver.
+    if (kop.includes('%PDF')) return null
+
+    if (/^[[{]/.test(begin)) {
+      return 'Hier staat geen PDF in maar een stukje JSON. Waarschijnlijk is bij '
+           + 'het binnenhalen een foutmelding opgeslagen in plaats van de bijlage.'
+    }
+    if (/^<(!doctype|html|\?xml)/i.test(begin)) {
+      return 'Hier staat geen PDF in maar een webpagina. Dat gebeurt als het '
+           + 'ophalen van de bijlage misging en het antwoord toch is bewaard.'
+    }
+    if (begin.startsWith('PK')) {
+      return 'Dit is een zip-bestand, geen PDF. Een .docx of .xlsx ziet er zo uit.'
+    }
+    return `Dit bestand begint niet met %PDF, dus het is geen PDF — wat er ook `
+         + `boven staat. Het is ${grootteVan(bytes.length)}.`
+  }
+
+  return null
+}
+
 /** Leesbare grootte. */
 export function grootteVan(bytes?: number): string {
   if (bytes === undefined) return ''

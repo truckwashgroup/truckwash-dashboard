@@ -20,7 +20,7 @@
  * =========================================================================== */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
-import { controleerBijlage } from '../ontvang-mail/controle.ts'
+import { controleerBijlage, lijktEchtOp } from '../ontvang-mail/controle.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -104,7 +104,20 @@ async function haalBijlagen(bericht: Record<string, unknown>) {
       reden: res.status === 404
         ? 'Resend kent dit bericht niet (meer). Bijlagen worden na verloop ' +
           'van tijd opgeruimd; een oude mail is niet meer op te halen.'
-        : `Resend gaf ${res.status}. ${tekst.slice(0, 200)}`,
+        /*
+         * Dit geval kostte een middag zoeken. De sleutel werkte prima voor
+         * het versturen van mail, dus er leek niets aan de hand -- maar een
+         * sleutel met alleen verzendrechten mag inkomende post niet lezen.
+         * Het gevolg was een bijlage die half binnenkwam zonder dat iemand
+         * zag waarom. Daarom staat het antwoord van Resend er letterlijk bij.
+         */
+        : res.status === 401 || res.status === 403
+          ? 'Resend weigert deze sleutel voor inkomende post. Waarschijnlijk ' +
+            'is het een sleutel met alleen verzendrechten ("restricted to only ' +
+            'send emails"). Maak in Resend een sleutel met volledige toegang ' +
+            'en zet die als RESEND_API_KEY bij de functies. Resend zei: ' +
+            tekst.slice(0, 200)
+          : `Resend gaf ${res.status}. ${tekst.slice(0, 200)}`,
     }
   }
 
@@ -140,6 +153,16 @@ async function haalBijlagen(bericht: Record<string, unknown>) {
       if (!bestand.ok) { mislukt(`Ophalen gaf ${bestand.status}.`); continue }
 
       const bytes = new Uint8Array(await bestand.arrayBuffer())
+
+      /*
+       * Nakijken of dit werkelijk het bestand is. Zonder deze controle sla je
+       * op wat er ook maar terugkwam -- en dat was precies wat er misging: een
+       * PDF van 197 kB die als 3 kB in de opslag belandde, met in het scherm
+       * niets anders dan "deze PDF is niet te openen".
+       */
+      const mis = lijktEchtOp(bytes, mime, Number(a.size ?? 0) || undefined)
+      if (mis) { mislukt(`Wat er binnenkwam klopt niet: ${mis}.`); continue }
+
       if (bytes.byteLength > MAX_BIJLAGE) {
         mislukt(`Te groot om te bewaren (${Math.round(bytes.byteLength / 1024 / 1024)} MB).`)
         continue

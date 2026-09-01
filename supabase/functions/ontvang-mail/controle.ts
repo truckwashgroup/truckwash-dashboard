@@ -74,31 +74,74 @@ function begintMet(bytes: Uint8Array, magisch: number[], offset = 0): boolean {
  * ------------------------------------------------------------------ */
 
 /**
- * Wat er in een factuur niet hoort te staan.
+ * Wat er in een factuur echt niet hoort te staan.
  *
- * Een PDF mag JavaScript uitvoeren, bij het openen een actie starten en
- * andere bestanden insluiten. Dat is precies waar het in de praktijk misgaat,
- * en een rekening heeft het nooit nodig.
+ * Deze lijst was te lang, en dat had een gevolg dat erger was dan het kwaad
+ * dat hij moest voorkomen: gewone facturen werden tegengehouden, en dan kon
+ * niemand ze meer openen én ging de AI er niet overheen. Een controle die
+ * alles tegenhoudt is geen controle, want dan zet je hem uit.
+ *
+ * Wat eruit is, en waarom:
+ *
+ *   /OpenAction   staat in bijna elke PDF uit Word, InDesign of LaTeX. Het
+ *                 zet meestal alleen de beginweergave ("open op pagina 1,
+ *                 passend"). Alleen gevaarlijk als hij naar JavaScript of
+ *                 /Launch wijst, en dán vangen we die twee zelf al.
+ *   /AA           idem: hangt aan formuliervelden van elke invulbare factuur.
+ *   /EmbeddedFile een PDF met een ingesloten bestand is meestal een ZUGFeRD-
+ *                 of Factur-X-factuur: de Europese e-factuur, met de gegevens
+ *                 als XML erin. Dat is precies het soort factuur dat je wél
+ *                 wil hebben.
+ *   /RichMedia    ingesloten Flash of 3D. Zeldzaam en nutteloos in een
+ *                 rekening, maar er is geen lezer meer die het uitvoert.
+ *
+ * Wat blijft: het uitvoeren van code, en het starten van een programma. Daar
+ * is geen onschuldige lezing van.
  */
 const PDF_ALARM: { patroon: string; wat: string }[] = [
   { patroon: '/JavaScript', wat: 'JavaScript' },
   { patroon: '/JS',         wat: 'JavaScript' },
   { patroon: '/Launch',     wat: 'een opdracht om een programma te starten' },
-  { patroon: '/OpenAction', wat: 'een actie die bij het openen afgaat' },
-  { patroon: '/AA',         wat: 'een automatische actie' },
-  { patroon: '/EmbeddedFile', wat: 'een ingesloten bestand' },
-  { patroon: '/RichMedia',  wat: 'ingesloten media' },
 ]
 
-function pdfHeeftActieveInhoud(bytes: Uint8Array): string | null {
-  // Als tekst lezen; de sleutelwoorden staan onversleuteld in de structuur.
-  const tekst = new TextDecoder('latin1').decode(bytes)
-  for (const { patroon, wat } of PDF_ALARM) {
+/**
+ * Dingen die het vermelden waard zijn maar niets tegenhouden.
+ *
+ * Ze komen terug als opmerking bij een schone uitkomst, zodat je het ziet
+ * staan zonder dat de bijlage op slot gaat.
+ */
+const PDF_OPMERKING: { patroon: string; wat: string }[] = [
+  { patroon: '/EmbeddedFile', wat: 'een ingesloten bestand, waarschijnlijk een e-factuur' },
+  { patroon: '/RichMedia',    wat: 'ingesloten media' },
+]
+
+function zoekNamen(
+  tekst: string,
+  lijst: { patroon: string; wat: string }[],
+): string | null {
+  for (const { patroon, wat } of lijst) {
     // Het moet een naam-object zijn, dus gevolgd door een scheidingsteken.
     const regex = new RegExp(patroon.replace('/', '\\/') + '[^A-Za-z]')
     if (regex.test(tekst)) return wat
   }
   return null
+}
+
+/**
+ * Wat deze controle wel en niet is.
+ *
+ * Hij leest de ruwe bytes als tekst. De structuur van een PDF staat daar
+ * meestal leesbaar in, maar de inhoud van objecten is vaak samengeperst --
+ * dus echt verstopte code ziet hij níét. Dit is een zeef tegen het domme
+ * geval, geen virusscanner. Wie dat laatste wil, hangt er een echte scanner
+ * achter via SCANNER_URL.
+ */
+function pdfHeeftActieveInhoud(bytes: Uint8Array): string | null {
+  return zoekNamen(new TextDecoder('latin1').decode(bytes), PDF_ALARM)
+}
+
+function pdfOpmerking(bytes: Uint8Array): string | null {
+  return zoekNamen(new TextDecoder('latin1').decode(bytes), PDF_OPMERKING)
 }
 
 /* ------------------------------------------------------------------ *
@@ -193,6 +236,8 @@ export async function controleerBijlage(
 
   /* --- actieve inhoud in een PDF --- */
 
+  let opmerking: string | undefined
+
   if (gemeldMime === 'application/pdf') {
     const gevonden = pdfHeeftActieveInhoud(bytes)
     if (gevonden) {
@@ -201,6 +246,7 @@ export async function controleerBijlage(
         reden: `De PDF bevat ${gevonden}. Een factuur heeft dat niet nodig.`,
       }
     }
+    opmerking = pdfOpmerking(bytes) ?? undefined
   }
 
   /* --- en tot slot de echte scanner, als die er is --- */
@@ -208,5 +254,7 @@ export async function controleerBijlage(
   const extern = await externeScan(bytes, naam)
   if (extern) return extern
 
-  return { uitkomst: 'schoon' }
+  return opmerking
+    ? { uitkomst: 'schoon', reden: `Bevat ${opmerking}.` }
+    : { uitkomst: 'schoon' }
 }

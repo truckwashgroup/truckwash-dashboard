@@ -374,6 +374,15 @@ export interface FactuurLezing {
   /** Wat er is voorgesteld voor de velden van de kostenpost. */
   voorstelCategorie?: Expense['category']
 
+  /**
+   * Stond deze bijlage als tegengehouden in de postbus?
+   *
+   * Lezen mag dan wel -- er wordt niets uitgevoerd, de bytes gaan naar een
+   * API en komen terug als tekst -- maar je hoort te weten dat het stuk is
+   * aangemerkt voordat je de bedragen overneemt.
+   */
+  gemarkeerd?: string
+
   gelezenOp: number
   gelezenDoor?: string
   model?: string

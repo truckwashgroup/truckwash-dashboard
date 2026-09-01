@@ -2369,8 +2369,17 @@ console.log('\n— bijlagen bekijken —')
    */
   check('naam en type die elkaar tegenspreken leveren niets op',
     soortVan('vakantiefoto.png', 'application/x-msdownload') === 'onbekend')
-  check('en andersom net zo goed',
-    soortVan('rapport.pdf', 'application/octet-stream') === 'onbekend')
+  /*
+   * Hier stond dat rapport.pdf met application/octet-stream 'onbekend' moest
+   * opleveren. Die verwachting was fout, en hij hield de fout in stand: een
+   * heleboel mailprogramma's sturen octet-stream mee bij élke bijlage, dus
+   * gewone facturen waren niet te openen. Octet-stream is geen tegenspraak
+   * maar een schouderophalen.
+   */
+  check('en octet-stream spreekt niets tegen -- dat betekent "geen idee"',
+    soortVan('rapport.pdf', 'application/octet-stream') === 'pdf')
+  check('terwijl een type dat wél iets anders beweert nog steeds wint',
+    soortVan('rapport.pdf', 'application/vnd.ms-excel') === 'onbekend')
 
   check('zonder extensie mag het type het zeggen',
     soortVan('bijlage', 'image/png') === 'beeld')
@@ -3811,6 +3820,122 @@ console.log('\n— elke rol is te kiezen —')
     new Set(ROLE_ORDER).size === ROLE_ORDER.length)
   check('en is even lang als de lijst met rollen',
     ROLE_ORDER.length === alleRollen.length)
+}
+
+/* ==================================================================== *
+ *  Een PDF die gewoon een PDF is
+ *
+ *  Twee fouten hielden facturen tegen, en allebei zag je alleen aan het
+ *  gevolg: de bijlage ging niet open, en de AI las hem niet.
+ *
+ *  De eerste zat hier. De regel was "een type dat de extensie tegenspreekt
+ *  wint", en application/octet-stream werd als tegenspraak geteld. Dat is
+ *  het niet -- het betekent "ik weet het niet", en het is wat een heleboel
+ *  mailprogramma's bij elke bijlage meesturen.
+ * ==================================================================== */
+
+console.log('\n— een PDF die gewoon een PDF is —')
+
+{
+  const { soortVan, extensieVan, grootteVan } = await import('../src/lib/bekijken')
+
+  /* --- het geval waar het om ging --- */
+
+  check('een factuur die als octet-stream binnenkomt is gewoon een PDF',
+    soortVan('factuur.pdf', 'application/octet-stream') === 'pdf')
+  check('ook met hoofdletters',
+    soortVan('Factuur.PDF', 'APPLICATION/OCTET-STREAM') === 'pdf')
+  check('en met een parameter erachter',
+    soortVan('factuur.pdf', 'application/octet-stream; name="factuur.pdf"') === 'pdf')
+  check('binary/octet-stream telt net zo goed als niets',
+    soortVan('bon.pdf', 'binary/octet-stream') === 'pdf')
+  check('en een foto ook',
+    soortVan('bon.jpg', 'application/octet-stream') === 'beeld')
+  check('en een csv',
+    soortVan('uren.csv', 'application/octet-stream') === 'tekst')
+
+  /* --- zonder type, zoals het altijd al werkte --- */
+
+  check('zonder type beslist de extensie', soortVan('factuur.pdf') === 'pdf')
+  check('met het juiste type ook',
+    soortVan('factuur.pdf', 'application/pdf') === 'pdf')
+
+  /*
+   * En dit moet blijven werken: een echte tegenspraak is nog steeds een
+   * reden om niets te tonen. Daar was de regel voor bedoeld.
+   */
+  check('een .pdf die zegt een zip te zijn wordt niet getoond',
+    soortVan('factuur.pdf', 'application/zip') === 'onbekend')
+  check('een .png die zegt een uitvoerbaar bestand te zijn ook niet',
+    soortVan('logo.png', 'application/x-msdownload') === 'onbekend')
+  check('en een .txt die zegt een pdf te zijn',
+    soortVan('brief.txt', 'application/pdf') === 'onbekend')
+
+  /* --- zonder extensie mag het type het zeggen --- */
+
+  check('zonder extensie beslist het type',
+    soortVan('bijlage', 'application/pdf') === 'pdf')
+  check('maar octet-stream zonder extensie zegt niets',
+    soortVan('bijlage', 'application/octet-stream') === 'onbekend')
+
+  /* --- randjes die er al waren --- */
+
+  check('een naam zonder punt heeft geen extensie', extensieVan('bijlage') === '')
+  check('en een punt aan het eind ook niet echt', extensieVan('bijlage.') === '')
+  check('de extensie is kleine letters', extensieVan('FACTUUR.PDF') === 'pdf')
+  check('een grootte leest als mensentaal', grootteVan(2_400_000) === '2.3 MB')
+  check('en kleine bestanden in bytes', grootteVan(512) === '512 B')
+}
+
+/* ==================================================================== *
+ *  Wat een factuur wél en niet verdacht maakt
+ *
+ *  De tweede fout. De controle hield een PDF tegen zodra /OpenAction erin
+ *  stond, en dat staat in bijna elke PDF uit Word. /EmbeddedFile is nog
+ *  erger: dat is juist het kenmerk van een ZUGFeRD-factuur, de Europese
+ *  e-factuur met de gegevens als XML erin.
+ * ==================================================================== */
+
+console.log('\n— wat een factuur verdacht maakt —')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const bron = readFileSync('supabase/functions/ontvang-mail/controle.ts', 'utf8')
+
+  const alarmBlok = bron.slice(
+    bron.indexOf('const PDF_ALARM'),
+    bron.indexOf('const PDF_OPMERKING'))
+
+  /* --- wat er tegenhoudt --- */
+
+  check('JavaScript houdt een bijlage tegen', alarmBlok.includes("'/JavaScript'"))
+  check('en /JS ook', alarmBlok.includes("'/JS'"))
+  check('en het starten van een programma', alarmBlok.includes("'/Launch'"))
+
+  /* --- wat er niet meer tegenhoudt --- */
+
+  check('een beginweergave houdt niets meer tegen',
+    !alarmBlok.includes('/OpenAction'))
+  check('een automatische actie op een formulierveld ook niet',
+    !alarmBlok.includes("'/AA'"))
+  check('en een ingesloten bestand al helemaal niet -- dat is een e-factuur',
+    !alarmBlok.includes('/EmbeddedFile'))
+
+  /* --- maar het wordt wel gemeld --- */
+
+  const opmerkingBlok = bron.slice(bron.indexOf('const PDF_OPMERKING'))
+  check('een ingesloten bestand komt terug als opmerking',
+    opmerkingBlok.includes('/EmbeddedFile'))
+  check('met de uitleg dat het waarschijnlijk een e-factuur is',
+    opmerkingBlok.includes('e-factuur'))
+
+  /* --- en de AI leest ook wat is tegengehouden --- */
+
+  const lezer = readFileSync('supabase/functions/factuur-lezen/index.ts', 'utf8')
+  check('de lezer slaat een tegengehouden bijlage niet meer over',
+    !lezer.includes("if (b.controle && b.controle !== 'schoon') continue"))
+  check('maar geeft wel door dat hij was tegengehouden',
+    lezer.includes('gemarkeerd'))
 }
 
 /* ==================================================================== */

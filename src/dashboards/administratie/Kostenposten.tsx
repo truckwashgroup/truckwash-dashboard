@@ -416,6 +416,14 @@ function Lezing({ bon, lezing }: { bon: Expense; lezing: FactuurLezing }) {
         )}
       </div>
 
+      {lezing.gemarkeerd && (
+        <p className="waarschuwing">
+          De bijlagecontrole had dit bestand tegengehouden: {lezing.gemarkeerd} Het is
+          wél gelezen — daarbij wordt niets uitgevoerd — maar kijk de bedragen na
+          voordat je ze overneemt.
+        </p>
+      )}
+
       {/* --- waar het model over twijfelde --- */}
       {(lezing.twijfel?.length ?? 0) > 0 && (
         <div className="lezing-twijfel">

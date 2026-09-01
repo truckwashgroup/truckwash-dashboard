@@ -235,7 +235,7 @@ Deno.serve(async (req) => {
    * een willekeurig pad uit de emmer.
    */
   const gevraagd = tekst(body.pad, 400)
-  const kandidaten: { pad: string; naam: string; mime?: string }[] = []
+  const kandidaten: { pad: string; naam: string; mime?: string; gemarkeerd?: string }[] = []
 
   if (bon.attachment_path) {
     kandidaten.push({
@@ -253,12 +253,29 @@ Deno.serve(async (req) => {
 
     for (const b of (post?.attachments ?? []) as Record<string, unknown>[]) {
       if (!b?.path) continue
-      // Wat niet door de bijlagecontrole kwam gaat hier ook niet doorheen.
-      if (b.controle && b.controle !== 'schoon') continue
+
+      /*
+       * Een tegengehouden bijlage wordt hier wél gelezen, en dat is met opzet.
+       *
+       * Hier stond dat alles wat niet 'schoon' was werd overgeslagen. Gevolg:
+       * een factuur die de bijlagecontrole niet aanstond werd niet getoond én
+       * niet gelezen -- dubbel niets, terwijl juist zo'n bon aandacht vraagt.
+       *
+       * Lezen is ook iets anders dan openen. De bytes gaan naar een API en
+       * komen terug als tekst; er wordt niets uitgevoerd, niets geopend en
+       * niets opgeslagen. Het risico van actieve inhoud in een PDF zit in de
+       * lezer op iemands bureau, niet hier.
+       *
+       * Wat er wel gebeurt: het staat in het antwoord, zodat het scherm het
+       * erbij kan zetten.
+       */
       kandidaten.push({
         pad: String(b.path),
         naam: String(b.naam ?? 'bijlage'),
         mime: b.mime ? String(b.mime) : undefined,
+        gemarkeerd: b.controle && b.controle !== 'schoon'
+          ? String(b.controleReden ?? 'De bijlagecontrole hield dit bestand tegen.')
+          : undefined,
       })
     }
   }
@@ -398,6 +415,7 @@ Deno.serve(async (req) => {
     twijfel,
     gelezenOp: nu(),
     gelezenDoor: beller.naam,
+    gemarkeerd: gekozen.gemarkeerd,
     model: MODEL,
     bestand: gekozen.naam,
   }

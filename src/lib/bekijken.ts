@@ -53,18 +53,45 @@ export function extensieVan(naam: string): string {
  * wel mee: heet het .png maar zegt de afzender application/zip, dan tonen
  * we het niet en bieden we het aan om op te slaan.
  */
+/**
+ * Types die niets beweren.
+ *
+ * Hier zat een fout die veel bijlagen onzichtbaar maakte. De regel was: een
+ * type dat de extensie tegenspreekt wint, en dan tonen we niets. Dat is goed
+ * bedoeld -- een .png die zichzelf een zip noemt is verdacht.
+ *
+ * Alleen is application/octet-stream geen tegenspraak. Het betekent "ik weet
+ * het niet", en het is wat een heleboel mailprogramma's standaard meesturen
+ * bij élke bijlage. Een doodgewone factuur.pdf kwam daardoor binnen als
+ * onbekend bestand en werd nooit getoond -- alleen aangeboden om op te slaan.
+ *
+ * Deze types tellen dus als "geen mening": de extensie beslist.
+ */
+const GEEN_MENING = [
+  'application/octet-stream',
+  'binary/octet-stream',
+  'application/download',
+  'application/force-download',
+  'application/unknown',
+  'content/unknown',
+]
+
+function zegtNiets(mime: string): boolean {
+  return !mime || GEEN_MENING.includes(mime)
+}
+
 export function soortVan(naam: string, mime?: string): BestandSoort {
   const ext = extensieVan(naam)
-  const m = (mime ?? '').toLowerCase()
+  const m = (mime ?? '').toLowerCase().split(';')[0].trim()
 
   if (BEELD.includes(ext)) {
-    return !m || m.startsWith('image/') ? 'beeld' : 'onbekend'
+    return zegtNiets(m) || m.startsWith('image/') ? 'beeld' : 'onbekend'
   }
   if (ext === 'pdf') {
-    return !m || m.includes('pdf') ? 'pdf' : 'onbekend'
+    return zegtNiets(m) || m.includes('pdf') ? 'pdf' : 'onbekend'
   }
   if (TEKST.includes(ext)) {
-    return !m || m.startsWith('text/') || m.includes('json') || m.includes('xml')
+    return zegtNiets(m) || m.startsWith('text/') || m.includes('json') || m.includes('xml')
       ? 'tekst'
       : 'onbekend'
   }

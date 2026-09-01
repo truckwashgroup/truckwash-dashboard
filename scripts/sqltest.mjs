@@ -147,6 +147,7 @@ await run(db, '0026_de_vestigingen_beheren.sql draait', sqlFile('supabase/migrat
 await run(db, '0027_een_foto_bij_het_artikel.sql draait', sqlFile('supabase/migrations/0027_een_foto_bij_het_artikel.sql'))
 await run(db, '0028_een_kassa_is_geen_aanmelding.sql draait', sqlFile('supabase/migrations/0028_een_kassa_is_geen_aanmelding.sql'))
 await run(db, '0029_de_administratie.sql draait', sqlFile('supabase/migrations/0029_de_administratie.sql'))
+await run(db, '0030_gewone_facturen_waren_verdacht.sql draait', sqlFile('supabase/migrations/0030_gewone_facturen_waren_verdacht.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -186,6 +187,7 @@ await run(db, '0025 nogmaals', sqlFile('supabase/migrations/0025_de_kluis_en_het
 await run(db, '0027 nogmaals', sqlFile('supabase/migrations/0027_een_foto_bij_het_artikel.sql'))
 await run(db, '0028 nogmaals', sqlFile('supabase/migrations/0028_een_kassa_is_geen_aanmelding.sql'))
 await run(db, '0029 nogmaals', sqlFile('supabase/migrations/0029_de_administratie.sql'))
+await run(db, '0030 nogmaals', sqlFile('supabase/migrations/0030_gewone_facturen_waren_verdacht.sql'))
 await run(db, '0026 nogmaals', sqlFile('supabase/migrations/0026_de_vestigingen_beheren.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 

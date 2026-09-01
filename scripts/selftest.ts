@@ -2720,6 +2720,102 @@ console.log('\n— de rondleiding —')
       (a) => a.doel.length > 0 && a.titel.length > 0)))
 }
 
+/* ==================================================================== *
+ *  Dubbele mensen
+ *
+ *  Twee dossiers van dezelfde man ontstaan doordat het kantoor er een
+ *  aanmaakt op zijn werkadres en hij zich daarna zelf aanmeldt met zijn
+ *  privé-adres. Op e-mailadres zijn dat twee mensen; op naam en
+ *  telefoonnummer valt het wél op.
+ * ==================================================================== */
+
+console.log('\n— dubbele mensen —')
+
+{
+  const {
+    mogelijkDubbel, normaliseerNaam, normaliseerTelefoon, inDienst,
+  } = await import('../src/lib/personeel')
+
+  const staat = [
+    { id: 'p1', email: 'jan.jansen@truckwash1group.nl', name: 'Jan Jansen',
+      phone: '06-12345678', roles: ['employee'], active: true, updatedAt: 0 },
+    { id: 'p2', email: 'sanne@truckwash1group.nl', name: 'Sanne de Vries',
+      phone: '06-99887766', roles: ['employee'], active: true, updatedAt: 0 },
+    { id: 'p3', email: 'weg@truckwash1group.nl', name: 'Ferry Blok',
+      roles: ['employee'], active: false, archivedAt: 1, updatedAt: 0 },
+  ] as never[]
+
+  /* --- namen normaliseren --- */
+
+  check('tussenvoegsels tellen niet mee',
+    normaliseerNaam('Sanne de Vries') === normaliseerNaam('Sanne Vries'))
+  check('hoofdletters ook niet',
+    normaliseerNaam('JAN JANSEN') === normaliseerNaam('jan jansen'))
+  check('en de volgorde van voor- en achternaam niet',
+    normaliseerNaam('Jansen, Jan') === normaliseerNaam('Jan Jansen'))
+  check('accenten evenmin',
+    normaliseerNaam('José Núñez') === normaliseerNaam('Jose Nunez'))
+  check('maar twee verschillende namen blijven verschillend',
+    normaliseerNaam('Jan Jansen') !== normaliseerNaam('Jan Janssen'))
+
+  /* --- telefoonnummers --- */
+
+  check('streepjes en spaties tellen niet mee',
+    normaliseerTelefoon('06-12 34 56 78') === normaliseerTelefoon('0612345678'))
+  check('de landcode ook niet',
+    normaliseerTelefoon('+31 6 12345678') === normaliseerTelefoon('0612345678'))
+  check('geen nummer levert niets op', normaliseerTelefoon(undefined) === '')
+
+  /* --- het vangnet zelf --- */
+
+  const opAdres = mogelijkDubbel(staat, {
+    naam: 'Iemand Anders', email: 'jan.jansen@truckwash1group.nl' })
+  check('hetzelfde adres is een zekere treffer',
+    opAdres.length === 1 && opAdres[0].hard)
+  check('en zegt waarom', opAdres[0].waarom === 'zelfde e-mailadres')
+
+  const opNaam = mogelijkDubbel(staat, {
+    naam: 'jan jansen', email: 'jan@prive.nl' })
+  check('een privé-adres bij dezelfde naam valt op',
+    opNaam.length === 1 && opNaam[0].user.id === 'p1')
+  check('maar dat is een vermoeden, geen zekerheid', !opNaam[0].hard)
+  check('en het zegt waarom', opNaam[0].waarom === 'zelfde naam')
+
+  const naamEnTel = mogelijkDubbel(staat, {
+    naam: 'Jan Jansen', email: 'jan@prive.nl', telefoon: '+31612345678' })
+  check('naam én telefoonnummer maakt het wel zeker', naamEnTel[0].hard)
+  check('met beide redenen erbij',
+    naamEnTel[0].waarom === 'zelfde naam én telefoonnummer')
+
+  const alleenTel = mogelijkDubbel(staat, {
+    naam: 'Heel Iemand Anders', telefoon: '06-99887766' })
+  check('een gedeeld telefoonnummer valt ook op',
+    alleenTel.length === 1 && alleenTel[0].user.id === 'p2')
+
+  check('wie er niet op lijkt komt er niet uit',
+    mogelijkDubbel(staat, { naam: 'Piet Pietersen', email: 'piet@x.nl' }).length === 0)
+
+  check('jezelf tel je niet mee bij het bijwerken',
+    mogelijkDubbel(staat, {
+      naam: 'Jan Jansen', email: 'jan.jansen@truckwash1group.nl' }, 'p1').length === 0)
+
+  /*
+   * Het geval waar het om begon: kantoor maakt Jan aan op het werkadres, Jan
+   * meldt zich daarna zelf aan met zijn privé-adres. Dat moet opvallen.
+   */
+  const hetGeval = mogelijkDubbel(staat, {
+    naam: 'Jan  Jansen', email: 'jjansen1987@hotmail.com', telefoon: '0612345678' })
+  check('kantoor maakt hem aan, hij meldt zich zelf aan: dat valt op',
+    hetGeval.length === 1 && hetGeval[0].hard && hetGeval[0].user.id === 'p1')
+
+  /* --- uitgeschreven telt niet mee in de lijst --- */
+
+  check('wie is uitgeschreven staat niet meer in dienst',
+    inDienst(staat).length === 2)
+  check('en de rest wel',
+    inDienst(staat).every((u) => u.id !== 'p3'))
+}
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

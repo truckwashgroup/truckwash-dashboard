@@ -1,7 +1,7 @@
 {
   "name": "truckwash-dashboard",
   "productName": "Truckwash1 Dashboard",
-  "version": "1.15.1",
+  "version": "1.16.0",
   "description": "Truckwash1 Group - offline-first dashboard voor werknemers, klanten en management",
   "author": {
     "name": "Truckwash1 Group",
@@ -18,7 +18,7 @@
     "sqltest": "node scripts/sqltest.mjs",
     "functions": "npm run functions:open && npm run functions:dicht",
     "functions:open": "supabase functions deploy stuur-mail ontvang-mail --no-verify-jwt --project-ref yxsbmhavnttswxczeovt",
-    "functions:dicht": "supabase functions deploy nodig-uit melding-gesprek postbus-actie --project-ref yxsbmhavnttswxczeovt",
+    "functions:dicht": "supabase functions deploy nodig-uit melding-gesprek postbus-actie medewerker --project-ref yxsbmhavnttswxczeovt",
     "secrets": "supabase secrets list --project-ref yxsbmhavnttswxczeovt",
     "xmltest": "python scripts/xml-nakijken.py",
     "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env NODE_ENV=development node scripts/start-electron.cjs\"",

@@ -131,7 +131,8 @@ await run(db, '0018_klokken_gaat_via_de_kassa.sql draait', sqlFile('supabase/mig
 await run(db, '0019_een_bericht_gelezen_melden.sql draait', sqlFile('supabase/migrations/0019_een_bericht_gelezen_melden.sql'))
 await run(db, '0020_van_melding_naar_plan.sql draait', sqlFile('supabase/migrations/0020_van_melding_naar_plan.sql'))
 await run(db, '0021_je_eigen_dossier_en_de_rondleiding.sql draait', sqlFile('supabase/migrations/0021_je_eigen_dossier_en_de_rondleiding.sql'))
-await run(db, '0022_bijwerken_is_geen_versturen.sql draait', sqlFile('supabase/migrations/0022_bijwerken_is_geen_versturen.sql'))
+await run(db, '0022_bijwerken_is_geen_versturen.sql draait', sqlFile('supabase/migrations/0022_bijwerken_is_geen_versturen.sql'))
+await run(db, '0023_uitnodigen_en_uitschrijven.sql draait', sqlFile('supabase/migrations/0023_uitnodigen_en_uitschrijven.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -156,7 +157,8 @@ await run(db, '0018 nogmaals', sqlFile('supabase/migrations/0018_klokken_gaat_vi
 await run(db, '0019 nogmaals', sqlFile('supabase/migrations/0019_een_bericht_gelezen_melden.sql'))
 await run(db, '0020 nogmaals', sqlFile('supabase/migrations/0020_van_melding_naar_plan.sql'))
 await run(db, '0021 nogmaals', sqlFile('supabase/migrations/0021_je_eigen_dossier_en_de_rondleiding.sql'))
-await run(db, '0022 nogmaals', sqlFile('supabase/migrations/0022_bijwerken_is_geen_versturen.sql'))
+await run(db, '0022 nogmaals', sqlFile('supabase/migrations/0022_bijwerken_is_geen_versturen.sql'))
+await run(db, '0023 nogmaals', sqlFile('supabase/migrations/0023_uitnodigen_en_uitschrijven.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
 const bedrijven = await db.query('select count(*)::int as n from public.companies')

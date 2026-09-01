@@ -2,10 +2,12 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   ArrowLeft, Building2, CheckCircle2, Clock, HardHat, Inbox, Mail, MapPin,
-  MessageSquareQuote, Phone, RotateCcw, ShieldCheck, ThumbsDown, UserPlus, XCircle,
+  MessageSquareQuote, Phone, RotateCcw, ShieldCheck, ThumbsDown, UserPlus,
+  UserSearch, XCircle,
 } from 'lucide-react'
 import { db } from '../../lib/db'
 import { signups as signupRepo } from '../../lib/signups'
+import { mogelijkDubbel } from '../../lib/personeel'
 import {
   ROLE_LABELS, ROLE_ORDER, SIGNUP_KINDS,
   type Company, type Location, type Role, type Signup, type SignupStatus, type User,
@@ -184,6 +186,22 @@ function AanmeldingDetail({ signup, onBack }: { signup: Signup; onBack: () => vo
   const locaties = useLiveQuery(() => db.locations.toArray(), [], [] as Location[])
   const locatie = locaties.find((l) => l.id === signup.locationId)
 
+  /*
+   * Staat deze persoon er al?
+   *
+   * Hier ontstaan de dubbele mensen. Het kantoor maakt een dossier aan op
+   * het werkadres; diezelfde man meldt zich daarna zelf aan met zijn
+   * privé-adres. Op e-mailadres zijn dat twee verschillende mensen, dus de
+   * koppeling ziet het niet -- op naam en telefoonnummer valt het wél op.
+   */
+  const iedereen = useLiveQuery(() => db.users.toArray(), [], [] as User[])
+  const verdenkingen = useMemo(
+    () => mogelijkDubbel(iedereen, {
+      naam: signup.name, email: signup.email, telefoon: signup.phone,
+    }, signup.profileId).filter((v) => v.user.email.toLowerCase() !== signup.email.toLowerCase()),
+    [iedereen, signup],
+  )
+
   const mag = perms.can('signups.decide')
 
   return (
@@ -191,6 +209,23 @@ function AanmeldingDetail({ signup, onBack }: { signup: Signup; onBack: () => vo
       <button className="btn ghost sm" onClick={onBack} style={{ marginBottom: 14 }}>
         <ArrowLeft size={15} /> Terug naar de aanmeldingen
       </button>
+
+      {verdenkingen.length > 0 && (
+        <div className={`waarschuwing ${verdenkingen[0].hard ? '' : 'zacht'} mb`}>
+          <UserSearch size={17} />
+          <span>
+            <strong>
+              {verdenkingen[0].hard
+                ? 'Deze persoon staat er waarschijnlijk al'
+                : 'Staat deze persoon er misschien al?'}
+            </strong>{' '}
+            {verdenkingen.map((v) => `${v.user.name} (${v.waarom})`).join(', ')}.
+            {' '}Laat je hem toe, dan komt hij er een tweede keer in te staan —
+            met een tweede personeelsnummer en een tweede rooster. Kijk eerst
+            of dit dezelfde man is.
+          </span>
+        </div>
+      )}
 
       <Card>
         <div className="person-head">

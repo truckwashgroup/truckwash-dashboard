@@ -14,6 +14,7 @@ import WeekRooster from '../../components/WeekRooster'
 import PermissionEditor, { PermissionSummary } from '../../components/PermissionEditor'
 import BerichtVersturen from '../../components/BerichtVersturen'
 import Dossier from '../../components/Dossier'
+import PersoonBeheer from '../../components/PersoonBeheer'
 import { OpenWijzigingen, WijzigingAanvragen } from '../../components/Wijzigingen'
 import NieuweMedewerker from '../../components/NieuweMedewerker'
 import SmartRosterPanel from '../../components/SmartRosterPanel'
@@ -369,6 +370,10 @@ function PersonDetail({
       <Card title="Rooster" hint={canEdit ? 'Klik op een dienst of op + om te wijzigen' : undefined}>
         <WeekRooster person={person} editable={canEdit} />
       </Card>
+
+      {canEdit && person.id !== meId && (
+        <PersoonBeheer person={person} onWeg={onBack} />
+      )}
       </>}
 
       <EditPersonDialog

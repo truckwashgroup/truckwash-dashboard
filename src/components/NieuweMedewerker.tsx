@@ -2,10 +2,12 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, FileSignature,
-  FileText, Fingerprint, Loader2, ScanLine, ShieldCheck, Upload, UserPlus, X,
+  FileText, Fingerprint, Loader2, ScanLine, Send, ShieldCheck, Upload,
+  UserPlus, UserSearch, X,
 } from 'lucide-react'
 import { db } from '../lib/db'
 import { users as userRepo } from '../lib/repo'
+import { mogelijkDubbel, personeel } from '../lib/personeel'
 import { documenten, dossier as dossierRepo, DossierFout, MAX_BESTAND, TOEGESTAAN } from '../lib/dossier'
 import {
   bsnFormatteer, bsnProbleem, ibanFormatteer, ibanProbleem, leesMrz,
@@ -65,6 +67,8 @@ export default function NieuweMedewerker({
   const bestaand = useLiveQuery(() => db.users.toArray(), [], [] as User[])
 
   const [stap, setStap] = useState<Stap>('wie')
+  const [gemaaktId, setGemaaktId] = useState<string | null>(null)
+  const [uitgenodigd, setUitgenodigd] = useState(false)
   const [bezig, setBezig] = useState(false)
   const [voortgang, setVoortgang] = useState('')
 
@@ -203,6 +207,24 @@ export default function NieuweMedewerker({
 
   /* --------------------------- opslaan -------------------------- */
 
+  /** De uitnodiging versturen zodra het dossier er staat. */
+  async function nodigUit() {
+    if (!gemaaktId) return
+    setBezig(true)
+    try {
+      const uit = await personeel.uitnodigen(gemaaktId)
+      if (!uit.ok) return toast.error(uit.reden ?? 'Uitnodigen lukte niet')
+      setUitgenodigd(true)
+      toast.ok(uit.soort === 'gekoppeld'
+        ? 'Er bestond al een account op dit adres; dat is nu gekoppeld'
+        : uit.mailVerstuurd
+          ? 'De uitnodiging is verstuurd'
+          : 'Account aangemaakt, maar de mail ging niet uit — kijk bij Post')
+    } finally {
+      setBezig(false)
+    }
+  }
+
   async function opslaan() {
     setBezig(true)
     try {
@@ -285,9 +307,8 @@ export default function NieuweMedewerker({
         ? `${naam.trim()} staat erin${papieren.length ? ` met ${papieren.length} ${papieren.length === 1 ? 'document' : 'documenten'}` : ''}`
         : `${naam.trim()} staat erin, maar ${mislukt} document(en) mislukten`)
 
+      setGemaaktId(persoon.id)
       setStap('klaar')
-      onKlaar(persoon.id)
-      setTimeout(() => { alles(); onClose() }, 400)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Aanmaken mislukt')
     } finally {
@@ -297,6 +318,15 @@ export default function NieuweMedewerker({
   }
 
   /* ---------------------------------------------------------------- */
+
+  const verdenkingen = useMemo(
+    () => (naam.trim().length < 3 && !email.trim()
+      ? []
+      : mogelijkDubbel(bestaand, {
+          naam: naam.trim(), email: email.trim(), telefoon: telefoon.trim(),
+        }).slice(0, 3)),
+    [bestaand, naam, email, telefoon],
+  )
 
   const stapNummer = STAPPEN.findIndex((s) => s.key === stap)
 
@@ -321,6 +351,31 @@ export default function NieuweMedewerker({
       </div>
 
       {/* ============================ WIE ============================ */}
+
+      {/*
+        * Staat deze persoon er misschien al?
+        *
+        * Dit is het vangnet naast het uitnodigen. Twee dossiers van dezelfde
+        * man ontstaan doordat het kantoor er een aanmaakt op zijn werkadres
+        * en hij zich daarna zelf aanmeldt met zijn privé-adres. Op adres zijn
+        * dat twee mensen; op naam en telefoonnummer valt het wél op.
+        */}
+      {stap === 'wie' && verdenkingen.length > 0 && (
+        <div className={`waarschuwing ${verdenkingen[0].hard ? '' : 'zacht'} mb`}>
+          <UserSearch size={17} />
+          <span>
+            <strong>
+              {verdenkingen[0].hard
+                ? 'Deze persoon staat er al'
+                : 'Staat deze persoon er misschien al?'}
+            </strong>{' '}
+            {verdenkingen.map((v) => `${v.user.name} (${v.waarom})`).join(', ')}.
+            {verdenkingen[0].hard
+              ? ' Werk dat dossier bij in plaats van een tweede aan te maken.'
+              : ' Kijk het even na — twee dossiers van dezelfde man zijn later lastig uit elkaar te halen.'}
+          </span>
+        </div>
+      )}
 
       {stap === 'wie' && (
         <>
@@ -694,7 +749,42 @@ export default function NieuweMedewerker({
         <div className="signup-done">
           <CheckCircle2 size={40} />
           <h2>{naam.trim()} staat erin</h2>
-          <p>Je komt nu in het dossier terecht.</p>
+
+          {/*
+            * Meteen uitnodigen, want dat is de hele reden dat dit bestaat.
+            * Wie geen uitnodiging krijgt meldt zich zelf aan -- met zijn
+            * privé-adres -- en dan staan er twee dossiers van dezelfde man.
+            */}
+          {email.trim() ? (
+            uitgenodigd ? (
+              <p>
+                De uitnodiging is verstuurd naar {email.trim()}. Hij kiest bij
+                de eerste inlog zijn eigen wachtwoord.
+              </p>
+            ) : (
+              <>
+                <p>
+                  Stuur hem meteen zijn inloggegevens. Doe je dat niet, dan
+                  moet hij zich zelf aanmelden — en dan staat hij er straks
+                  twee keer in.
+                </p>
+                <button
+                  className="btn primary lg"
+                  disabled={bezig}
+                  onClick={() => void nodigUit()}
+                  style={{ marginTop: 4 }}
+                >
+                  {bezig ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
+                  Uitnodiging versturen
+                </button>
+              </>
+            )
+          ) : (
+            <p>
+              Er staat geen e-mailadres bij, dus er kan geen uitnodiging uit.
+              Vul er later een in bij het dossier en nodig hem alsnog uit.
+            </p>
+          )}
         </div>
       )}
 

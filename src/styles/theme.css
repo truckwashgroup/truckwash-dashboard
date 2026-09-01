@@ -1969,6 +1969,13 @@ table.data.matrix th { vertical-align: bottom; }
 }
 .waarschuwing svg { flex: none; margin-top: 1px; }
 
+/* Een vermoeden is geen fout: dan geel in plaats van rood. */
+.waarschuwing.zacht {
+  border-color: var(--line-warn);
+  background: var(--tint-warn-weak);
+  color: var(--text-warn);
+}
+
 /* -------------------------- Vestigingen kiezen ------------------- */
 
 .loc-picker {

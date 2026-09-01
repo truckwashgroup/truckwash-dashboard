@@ -92,6 +92,17 @@ export interface User {
    * met die rol nog eens te laten zien als er wezenlijk iets verandert.
    */
   seenTours?: string[]
+
+  /**
+   * Uitgeschreven: inlog en dossier dicht, nergens meer te kiezen.
+   *
+   * Zijn uren, wasbeurten en getekende contracten blijven staan -- dat moet
+   * ook, want loonadministratie en contracten bewaar je zeven jaar. Wissen
+   * is iets anders en staat apart.
+   */
+  archivedAt?: number
+  archivedBy?: string
+  archiveReason?: string
 }
 
 /* ------------------------------------------------------------------ *

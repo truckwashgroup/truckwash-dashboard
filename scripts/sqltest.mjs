@@ -148,6 +148,7 @@ await run(db, '0027_een_foto_bij_het_artikel.sql draait', sqlFile('supabase/migr
 await run(db, '0028_een_kassa_is_geen_aanmelding.sql draait', sqlFile('supabase/migrations/0028_een_kassa_is_geen_aanmelding.sql'))
 await run(db, '0029_de_administratie.sql draait', sqlFile('supabase/migrations/0029_de_administratie.sql'))
 await run(db, '0030_gewone_facturen_waren_verdacht.sql draait', sqlFile('supabase/migrations/0030_gewone_facturen_waren_verdacht.sql'))
+await run(db, '0031_bijwerken_is_nog_steeds_geen_aanmaken.sql draait', sqlFile('supabase/migrations/0031_bijwerken_is_nog_steeds_geen_aanmaken.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -188,6 +189,7 @@ await run(db, '0027 nogmaals', sqlFile('supabase/migrations/0027_een_foto_bij_he
 await run(db, '0028 nogmaals', sqlFile('supabase/migrations/0028_een_kassa_is_geen_aanmelding.sql'))
 await run(db, '0029 nogmaals', sqlFile('supabase/migrations/0029_de_administratie.sql'))
 await run(db, '0030 nogmaals', sqlFile('supabase/migrations/0030_gewone_facturen_waren_verdacht.sql'))
+await run(db, '0031 nogmaals', sqlFile('supabase/migrations/0031_bijwerken_is_nog_steeds_geen_aanmaken.sql'))
 await run(db, '0026 nogmaals', sqlFile('supabase/migrations/0026_de_vestigingen_beheren.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
@@ -2631,6 +2633,102 @@ check('en de wacht op die tabel zet dat niet terug',
   (await db.query(
     "select status from public.hour_requests where id = 'hr_adm'")).rows[0].status
     === 'goedgekeurd')
+
+console.log('\n29. Bijwerken is geen aanmaken')
+
+/*
+ * Dit is de vierde keer dat deze fout langskomt, dus dit keer een controle op
+ * de sóórt en niet op de gevallen.
+ *
+ * De app slaat een gewijzigde rij op met een upsert. PostgREST maakt daar
+ * "insert ... on conflict do update" van, en PostgreSQL evalueert dan de
+ * WITH CHECK van de INSERT-regel -- ook als de rij allang bestaat. Staat daar
+ * iets over eigendom in ("alleen namens jezelf"), dan faalt elke wijziging
+ * door iemand anders. Met een foutmelding over rechten, terwijl de rechten
+ * kloppen.
+ */
+
+await asServer(db)
+
+/* --- de regel zelf: eigendom in een insertcontrole vraagt om rij_bestaat --- */
+
+const insertRegels = (await db.query(`
+  select p.tablename, p.policyname, coalesce(p.with_check, '') as controle
+    from pg_policies p
+   where p.schemaname = 'public'
+     and p.cmd = 'INSERT'
+`)).rows
+
+check('er zijn insertregels om na te kijken', insertRegels.length > 10)
+
+/*
+ * Alleen tabellen die ook bijgewerkt kunnen worden lopen risico. Waar geen
+ * updateregel op staat, wordt nooit een bestaande rij opnieuw opgestuurd.
+ */
+const metUpdate = new Set((await db.query(`
+  select distinct tablename from pg_policies
+   where schemaname = 'public' and cmd in ('UPDATE', 'ALL')
+`)).rows.map((r) => r.tablename))
+
+const val = insertRegels.filter((r) =>
+  metUpdate.has(r.tablename)
+  && /my_id\(\)/.test(r.controle)
+  && !/rij_bestaat|bericht_bestaat/.test(r.controle))
+
+check('geen enkele insertregel eist eigendom zonder de upsert-uitzondering',
+  val.length === 0,
+  val.map((r) => `${r.tablename}.${r.policyname}`).join(', '))
+
+/* --- en dat het in de praktijk ook echt werkt --- */
+
+await db.exec(`
+  alter table public.tickets force row level security;
+  alter table public.change_requests force row level security;
+  grant select, insert, update, delete on all tables in schema public to authenticated;
+
+  insert into public.tickets (id, number, title, description, kind, status, reported_by, reported_by_name, reported_at)
+  values ('tk_upsert', 'M-001', 'Scanner doet raar', 'De bon komt half binnen', 'fout', 'nieuw', 'x', 'Wim', 1000)
+  on conflict (id) do nothing;
+`)
+
+/*
+ * De ontwikkelaar handelt een melding af die hij niet zelf heeft gemaakt.
+ * Dat is de handeling waar het misging: de updateregel liet het toe, maar de
+ * insertregel van de upsert eiste dat hij de melder was.
+ */
+const dev = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+await db.exec(`
+  insert into auth.users (id, email) values ('${dev}', 'bouwer@truckwash1group.nl')
+  on conflict (id) do nothing;
+  update public.profiles
+     set roles = array['developer']::text[], active = true
+   where email = 'bouwer@truckwash1group.nl';
+`)
+
+check('een ontwikkelaar werkt een melding van iemand anders bij',
+  await magSchrijven(dev, `
+    insert into public.tickets
+      (id, number, title, description, kind, status, reported_by, reported_by_name, reported_at)
+    values ('tk_upsert', 'M-001', 'Scanner doet raar', 'De bon komt half binnen',
+            'fout', 'in behandeling', 'x', 'Wim', 1000)
+    on conflict (id) do update set status = excluded.status;`))
+
+check('en de nieuwe status staat er ook echt',
+  (await db.query(
+    "select status from public.tickets where id = 'tk_upsert'")).rows[0].status === 'in behandeling')
+
+/*
+ * En de omgekeerde kant: de uitzondering geldt alleen voor rijen die er al
+ * zijn. Een nieuwe melding namens iemand anders mag nog steeds niet -- anders
+ * hadden we het slot eraf gehaald in plaats van de val eruit.
+ */
+await magSchrijven(dev, `
+  insert into public.tickets
+    (id, number, title, description, kind, status, reported_by, reported_by_name, reported_at)
+  values ('tk_namens', 'M-002', 'Namens een ander', 'Zomaar', 'fout', 'nieuw', 'x', 'Wim', 1000);`)
+check('maar een nieuwe melding namens iemand anders nog steeds niet',
+  (await db.query(
+    "select count(*)::int as n from public.tickets where id = 'tk_namens'")).rows[0].n === 0)
 
 await db.close()
 

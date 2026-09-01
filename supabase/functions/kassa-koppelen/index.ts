@@ -96,6 +96,49 @@ function id(prefix: string): string {
 
 const wacht = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/* ------------------------------------------------------------------ *
+ *  Wat een databasefout betekent
+ *
+ *  Een melding als "duplicate key value violates unique constraint
+ *  profiles_auth_id_key" is voor iemand achter een balie geen melding. Hij
+ *  weet niet wat een constraint is, hij weet alleen dat de kassa niet
+ *  opstart -- en de naam van de index zegt niets over wat er nu moet gebeuren.
+ *
+ *  Dus zetten we de gevallen die we kennen om in een zin die zegt wat er is en
+ *  wat eraan te doen valt. Wat we niet kennen komt er letterlijk bij, want een
+ *  onbekende fout verzwijgen is erger dan een lelijke fout laten zien.
+ * ------------------------------------------------------------------ */
+
+function legUit(wat: string, melding: string): string {
+  const m = melding.toLowerCase()
+
+  if (m.includes('profiles_auth_id_key')) {
+    return 'Aan dit inlogaccount hing al een ander dossier. Dat is een restant ' +
+           'van een eerdere koppelpoging die halverwege afbrak. Probeer het nog ' +
+           'een keer -- deze functie ruimt het nu zelf op. Blijft het staan, laat ' +
+           'dan het apparaat in het dashboard intrekken en maak een nieuwe code.'
+  }
+
+  if (m.includes('pos_devices_register_key')) {
+    return 'Op deze kassa staat al een ander apparaat. Trek dat eerst in het ' +
+           'dashboard in; dan stuurt het eerst zijn wachtrij leeg en komt deze ' +
+           'kassa daarna vrij.'
+  }
+
+  if (m.includes('violates foreign key') && m.includes('location')) {
+    return 'De vestiging van deze kassa bestaat niet meer. Zet die in het ' +
+           'dashboard goed en maak dan een nieuwe code.'
+  }
+
+  if (m.includes('column') && m.includes('does not exist')) {
+    return 'De database mist een kolom die deze functie nodig heeft. Draai ' +
+           'supabase/setup.sql opnieuw in de SQL-editor; dat mag altijd. ' +
+           '(' + melding + ')'
+  }
+
+  return `Het ${wat} van deze kassa kon niet worden opgeslagen: ${melding}`
+}
+
 /* ================================================================== *
  *  Het inwisselen
  * ================================================================== */
@@ -274,9 +317,44 @@ async function koppel(req: Request): Promise<Response> {
    * Nodig, want daar hangt de vestiging aan, en daarmee wat dit apparaat mag
    * zien. is_device houdt hem uit het personeel: geen rooster, geen uren, en
    * niet in de lijst waaruit je aan de kassa iemand kiest.
+   *
+   * Welk dossier dat is, zoeken we op via het inlogaccount en niet via
+   * pos_devices. Dat is het verschil tussen werken en niet werken:
+   *
+   * Deze functie doet vier dingen achter elkaar -- account, dossier, apparaat,
+   * code afstrepen -- en er kan er één misgaan. Struikelt hij bij het derde,
+   * dan bestaan het account en het dossier al. Keek de volgende poging dan
+   * alleen in pos_devices (leeg, want dat derde stuk was juist wat misging),
+   * dan verzon hij een nieuw dossier-id en hing dat aan hetzelfde
+   * inlogaccount -- en daar staat een unieke index op. Wat je dan te zien
+   * krijgt is "duplicate key value violates unique constraint
+   * profiles_auth_id_key", en dat is een melding waar niemand iets aan heeft.
+   *
+   * Nu kan elke poging opnieuw: hij vindt wat er al is en werkt dat bij.
    */
 
-  const profielId = bestaande?.profile_id ?? id('dev')
+  const { data: bestaandProfiel } = await admin
+    .from('profiles')
+    .select('id, is_device')
+    .eq('auth_id', authId)
+    .maybeSingle()
+
+  /*
+   * Eén rem. Hoort dit inlogaccount bij een mens, dan houden we op: dan zouden
+   * we het dossier van een collega omzetten in een kassa. Dat kan alleen als
+   * iemand een medewerker heeft aangemaakt op het adres dat wij voor apparaten
+   * gebruiken, maar juist dat soort ding gaat een keer gebeuren.
+   */
+  if (bestaandProfiel && bestaandProfiel.is_device === false) {
+    return json({
+      ok: false,
+      reden: `Het inlogaccount ${email} hoort bij een medewerker en niet bij een ` +
+             'apparaat. Laat dat dossier in het dashboard nakijken; deze kassa ' +
+             'kan er niet op gekoppeld worden.',
+    }, 409)
+  }
+
+  const profielId = bestaandProfiel?.id ?? bestaande?.profile_id ?? id('dev')
 
   const { error: profielFout } = await admin.from('profiles').upsert({
     id: profielId,
@@ -290,10 +368,7 @@ async function koppel(req: Request): Promise<Response> {
   }, { onConflict: 'id' })
 
   if (profielFout) {
-    return json({
-      ok: false,
-      reden: 'Het dossier van dit apparaat kon niet worden opgeslagen: ' + profielFout.message,
-    }, 500)
+    return json({ ok: false, reden: legUit('dossier', profielFout.message) }, 500)
   }
 
   /* ---- het apparaat in de lijst ---- */
@@ -317,10 +392,7 @@ async function koppel(req: Request): Promise<Response> {
   }, { onConflict: 'id' })
 
   if (apparaatFout) {
-    return json({
-      ok: false,
-      reden: 'Het apparaat kon niet in de lijst worden gezet: ' + apparaatFout.message,
-    }, 500)
+    return json({ ok: false, reden: legUit('apparaat', apparaatFout.message) }, 500)
   }
 
   /* ---- de code is op ---- */

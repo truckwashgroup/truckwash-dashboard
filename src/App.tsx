@@ -15,6 +15,7 @@ import WachtwoordWijzigen from './components/WachtwoordWijzigen'
 import CarwashAnimation from './components/CarwashAnimation'
 import RolePicker from './components/RolePicker'
 import Toasts from './components/Toasts'
+import Titelbalk from './components/Titelbalk'
 import UpdateBanner from './components/UpdateBanner'
 import { useDeviceNotifications } from './components/NotificationCenter'
 import EmployeeDashboard from './dashboards/employee/EmployeeDashboard'
@@ -111,6 +112,7 @@ export default function App() {
   if (booting) {
     return (
       <div className="boot">
+        <Titelbalk />
         <Truck size={34} color="var(--brand)" />
         <div className="row" style={{ gap: 8 }}>
           <Loader2 size={15} className="spin" />
@@ -152,6 +154,7 @@ export default function App() {
      * Hiermee luistert elke beweging in de app naar dezelfde knop.
      */
     <MotionConfig reducedMotion={rustig ? 'always' : 'never'}>
+      <Titelbalk />
       {!user ? (
         <Login />
       ) : user.mustChangePassword ? (

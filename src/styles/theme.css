@@ -4107,3 +4107,77 @@ table.data.matrix th { vertical-align: bottom; }
   text-align: center;
 }
 .vest-dicht { position: absolute; top: 18px; right: 18px; color: #fff; }
+
+/* ================================================================== *
+ *  De eigen titelbalk
+ *
+ *  Alleen in de Windows-app; in de browser en op Android bestaat hij niet.
+ *  Het venster heeft daar geen rand van Windows meer omheen, dus dit is wat
+ *  je bovenaan ziet.
+ * ================================================================== */
+
+.titelbalk {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  /* Boven alles, ook boven een dialoog. Een titelbalk waar je niet bij
+     kunt omdat er een venster overheen ligt is geen titelbalk. */
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding-left: 12px;
+  background: linear-gradient(180deg, var(--bg-2), var(--bg));
+  border-bottom: 1px solid var(--line-soft);
+  /* Hieraan sleep je het venster. */
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.titelbalk svg { flex: none; }
+.titelbalk-versie {
+  font-size: .68rem;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.titelbalk-sleep { flex: 1; height: 100%; }
+
+/*
+ * -webkit-app-region: drag maakt alles eronder onklikbaar -- een knop in het
+ * sleepgebied zou niet reageren. Dus staat hij hier expliciet weer uit.
+ */
+.titelbalk-knoppen {
+  display: flex;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.titelbalk-knoppen button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.titelbalk-knoppen button:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+.titelbalk-knoppen button.sluit:hover {
+  /* De enige knop waar je spijt van kunt krijgen, dus de enige met kleur. */
+  background: var(--danger);
+  color: #fff;
+}
+
+/*
+ * De app schuift een balk naar beneden. Er was al een maat voor precies dit
+ * -- de inkeping van een telefoon -- en de zijbalk en de bovenbalk houden er
+ * al rekening mee. Dus zetten we die, in plaats van overal iets nieuws.
+ */
+:root.eigen-titelbalk { --safe-top: 34px; }
+:root.eigen-titelbalk .boot { padding-top: 34px; }

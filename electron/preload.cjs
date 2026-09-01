@@ -12,4 +12,25 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.on('update:status', handler)
     return () => ipcRenderer.removeListener('update:status', handler)
   },
+
+  /*
+   * Het venster bedienen.
+   *
+   * Het venster heeft geen rand meer van Windows, dus de app tekent zijn
+   * eigen knoppen -- en die moeten iets kunnen. Dit is de hele lijst; er is
+   * met opzet niets bij om het venster te verplaatsen of van formaat te
+   * veranderen, want dat doet Windows zelf al via het sleepgebied en de
+   * randen.
+   */
+  venster: {
+    minimaliseren: () => ipcRenderer.invoke('venster:minimaliseren'),
+    maximaliseren: () => ipcRenderer.invoke('venster:maximaliseren'),
+    sluiten: () => ipcRenderer.invoke('venster:sluiten'),
+    isMax: () => ipcRenderer.invoke('venster:is-max'),
+    onMax: (cb) => {
+      const handler = (_e, max) => cb(max)
+      ipcRenderer.on('venster:max', handler)
+      return () => ipcRenderer.removeListener('venster:max', handler)
+    },
+  },
 })

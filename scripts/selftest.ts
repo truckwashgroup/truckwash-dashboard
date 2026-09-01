@@ -3521,6 +3521,66 @@ console.log('\n— vooruit en achteruit kijken —')
     nogGeldig(nu + 30_000, nu) === 'zo meteen')
 }
 
+/* ==================================================================== *
+ *  De brug naar het venster
+ *
+ *  De knoppen rechtsboven -- minimaliseren, maximaliseren, sluiten -- praten
+ *  via kanaalnamen met het venster. Staat er aan de ene kant een letter
+ *  anders dan aan de andere, dan gebeurt er niets. Geen foutmelding, geen
+ *  waarschuwing: je drukt op sluiten en het venster blijft staan.
+ *
+ *  Dat is precies het soort fout dat je pas ontdekt als het bij iemand op
+ *  het bureau staat, want de app draait in de browser gewoon door. Vandaar
+ *  deze controle: alles wat de ene kant vraagt moet de andere kant
+ *  aanbieden.
+ * ==================================================================== */
+
+console.log('\n— de brug naar het venster —')
+
+{
+  const { readFileSync } = await import('node:fs')
+
+  const main = readFileSync('electron/main.cjs', 'utf8')
+  const preload = readFileSync('electron/preload.cjs', 'utf8')
+
+  const alle = (tekst: string, patroon: RegExp) =>
+    [...tekst.matchAll(patroon)].map((m) => m[1])
+
+  const geregistreerd = alle(main, /ipcMain\.handle\(\s*'([^']+)'/g)
+  const gevraagd = alle(preload, /ipcRenderer\.invoke\(\s*'([^']+)'/g)
+  const gestuurd = alle(main, /send\(\s*'([^']+)'/g)
+  const geluisterd = alle(preload, /ipcRenderer\.on\(\s*'([^']+)'/g)
+
+  const ontbreekt = gevraagd.filter((k) => !geregistreerd.includes(k))
+  check('elk verzoek van de app komt bij het venster aan',
+    ontbreekt.length === 0, ontbreekt.join(', '))
+
+  const doof = geluisterd.filter((k) => !gestuurd.includes(k))
+  check('en elk bericht van het venster wordt gehoord',
+    doof.length === 0, doof.join(', '))
+
+  /* --- de knoppen die er echt moeten zijn --- */
+
+  for (const knop of ['minimaliseren', 'maximaliseren', 'sluiten']) {
+    check(`het venster kan ${knop}`, geregistreerd.includes(`venster:${knop}`))
+  }
+  check('en de app kan vragen of het al groot is',
+    geregistreerd.includes('venster:is-max'))
+  check('en hoort het als dat verandert',
+    gestuurd.includes('venster:max') && geluisterd.includes('venster:max'))
+
+  /* --- het venster heeft geen rand van Windows meer --- */
+
+  check('het venster staat zonder rand', /\bframe:\s*false\b/.test(main))
+
+  /*
+   * Zonder menu vallen Ctrl+R, F12 en Ctrl+plus weg. Het menu wordt niet
+   * meer getekend, maar het hoort te blijven staan -- juist daarvoor.
+   */
+  check('het menu blijft bestaan voor de sneltoetsen',
+    main.includes('Menu.setApplicationMenu'))
+}
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

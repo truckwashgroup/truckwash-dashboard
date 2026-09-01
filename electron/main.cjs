@@ -51,7 +51,24 @@ function createWindow() {
     minHeight: 680,
     show: false,
     backgroundColor: '#0b1220',
-    titleBarStyle: 'default',
+
+    /*
+     * Geen rand van Windows.
+     *
+     * De grijze balk met het kleine icoontje en het menu "Bestand / Beeld"
+     * was het enige stuk van het scherm dat er niet uitzag alsof het bij
+     * Truckwash1 hoorde. De app tekent nu zijn eigen balk; zie
+     * src/components/Titelbalk.tsx.
+     *
+     * Slepen en van formaat veranderen blijven gewoon werken -- dat regelt
+     * Windows nog steeds, via het sleepgebied in die balk en de randen van
+     * het venster. Wat je wél kwijtraakt zijn de Snap Layouts: het menuutje
+     * dat verschijnt als je op de knop Maximaliseren blijft hangen. Dat zit
+     * vast aan de echte knop van Windows. Slepen naar een schermrand en de
+     * sneltoetsen (Windows-toets met een pijl) doen het wel.
+     */
+    frame: false,
+
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -61,6 +78,16 @@ function createWindow() {
   })
 
   mainWindow.once('ready-to-show', () => mainWindow.show())
+
+  /*
+   * De knop moet weten of het venster al groot is: verkleinen of vergroten
+   * is niet hetzelfde plaatje. Maximaliseren kan ook zonder die knop -- door
+   * te dubbelklikken of het venster naar de bovenrand te slepen -- dus komt
+   * het van hier en niet van de klik.
+   */
+  const meldStand = () => send('venster:max', mainWindow.isMaximized())
+  mainWindow.on('maximize', meldStand)
+  mainWindow.on('unmaximize', meldStand)
 
   // externe links in de systeembrowser openen
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -108,6 +135,19 @@ ipcMain.handle('notify:show', (_e, { title, body }) => {
   return true
 })
 
+/* ---- het venster bedienen ---- */
+
+ipcMain.handle('venster:minimaliseren', () => mainWindow && mainWindow.minimize())
+
+ipcMain.handle('venster:maximaliseren', () => {
+  if (!mainWindow) return
+  if (mainWindow.isMaximized()) mainWindow.unmaximize()
+  else mainWindow.maximize()
+})
+
+ipcMain.handle('venster:sluiten', () => mainWindow && mainWindow.close())
+ipcMain.handle('venster:is-max', () => !!mainWindow && mainWindow.isMaximized())
+
 ipcMain.handle('update:install', () => {
   if (autoUpdater) autoUpdater.quitAndInstall(false, true)
 })
@@ -127,6 +167,12 @@ if (!gotLock) {
   })
 
   app.whenReady().then(() => {
+    /*
+     * Het menu wordt niet meer getekend -- het venster heeft geen rand -- maar
+     * het blijft wel staan. De sneltoetsen die eraan hangen werken namelijk
+     * ook zonder zichtbare balk, en zonder menu zou Ctrl+R, F12 en Ctrl+plus
+     * er opeens niet meer zijn.
+     */
     Menu.setApplicationMenu(
       Menu.buildFromTemplate([
         {

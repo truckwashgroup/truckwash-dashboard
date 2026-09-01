@@ -23,6 +23,20 @@ export type UpdateState =
   | 'idle' | 'checking' | 'up-to-date' | 'available'
   | 'downloading' | 'ready' | 'error'
 
+/**
+ * Het venster bedienen.
+ *
+ * Staat als optioneel in de brug: een oudere geïnstalleerde app heeft deze
+ * nog niet, en die hoort niet om te vallen op een titelbalk.
+ */
+export interface VensterBrug {
+  minimaliseren(): Promise<void>
+  maximaliseren(): Promise<void>
+  sluiten(): Promise<void>
+  isMax(): Promise<boolean>
+  onMax(cb: (max: boolean) => void): () => void
+}
+
 interface DesktopBridge {
   platform: string
   isElectron: true
@@ -31,6 +45,7 @@ interface DesktopBridge {
   installUpdate(): Promise<void>
   notify?(title: string, body: string): Promise<boolean>
   onUpdateStatus(cb: (p: any) => void): () => void
+  venster?: VensterBrug
 }
 
 declare global {

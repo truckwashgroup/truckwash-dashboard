@@ -116,6 +116,8 @@ export default function NieuweMedewerker({
   const [idScan, setIdScan] = useState<IdScan | null>(null)
   const [pasScan, setPasScan] = useState<PasScan | null>(null)
   const [scanBezig, setScanBezig] = useState<'id' | 'pas' | null>(null)
+  const [idVoor, setIdVoor] = useState<File | null>(null)
+  const [idAchter, setIdAchter] = useState<File | null>(null)
   const [scanStand, setScanStand] = useState('')
 
   const [geboortedatum, setGeboortedatum] = useState('')
@@ -143,6 +145,7 @@ export default function NieuweMedewerker({
     setPapieren([]); setMrz(null); setMrzTekst(''); setContract(null)
     setContractFout(null); setOvernemen(new Set())
     setIdScan(null); setPasScan(null); setScanBezig(null); setScanStand('')
+    setIdVoor(null); setIdAchter(null)
     setGeboortedatum(''); setGeboorteplaats(''); setNationaliteit('')
     setDocNummer(''); setDocVerloopt(''); setGemaaktId(null); setUitgenodigd(false)
   }
@@ -172,11 +175,12 @@ export default function NieuweMedewerker({
   function voegPapierToe(
     bestand: File,
     soort: Papier['soort'],
+    titel?: string,
   ) {
     const papier: Papier = {
       bestand,
       soort,
-      titel: bestand.name.replace(/\.[a-z0-9]+$/i, ''),
+      titel: titel ?? bestand.name.replace(/\.[a-z0-9]+$/i, ''),
       tekenen: soort === 'contract',
     }
     setPapieren((p) => [...p.filter((x) => x.soort !== soort || soort === 'overig'), papier])
@@ -244,12 +248,25 @@ export default function NieuweMedewerker({
    * controlecijfers voordat het hier terechtkomt, en daarna kijk jij er nog
    * naar. Een verkeerd overgenomen BSN is erger dan een leeg veld.
    */
-  async function scanId(bestand: File) {
-    voegPapierToe(bestand, 'identiteitsbewijs')
+  async function scanId(kant: 'voor' | 'achter', bestand: File) {
+    voegPapierToe(
+      bestand,
+      'identiteitsbewijs',
+      kant === 'voor' ? 'Identiteitsbewijs (voorkant)' : 'Identiteitsbewijs (achterkant)',
+    )
+
+    const voor = kant === 'voor' ? bestand : idVoor
+    const achter = kant === 'achter' ? bestand : idAchter
+    if (kant === 'voor') setIdVoor(bestand)
+    else setIdAchter(bestand)
+
+    // Zonder voorkant valt er nog niets samen te voegen; wachten dus.
+    if (!voor) return
+
     setScanBezig('id')
     setScanStand('Motor klaarzetten…')
     try {
-      const scan = await scanIdentiteitsbewijs(bestand, (v) =>
+      const scan = await scanIdentiteitsbewijs(voor, achter ?? undefined, (v) =>
         setScanStand(`${v.stap}… ${Math.round(v.deel * 100)}%`))
       setIdScan(scan)
 
@@ -266,6 +283,10 @@ export default function NieuweMedewerker({
 
       if (!m && !scan.bsn) {
         toast.info('Er viel niets te lezen — typ de twee regels onderaan over')
+      } else if (!achter && scan.gemist.length > 0) {
+        toast.info(
+          `${voorstellenUitId(scan).length} gegevens overgenomen — voeg de ` +
+          'achterkant toe, daar staat de rest op')
       } else {
         toast.ok(`${voorstellenUitId(scan).length} gegevens overgenomen`)
       }
@@ -721,19 +742,58 @@ export default function NieuweMedewerker({
               )}
             </div>
 
-            <input
-              className="input"
-              type="file"
-              accept={TOEGESTAAN.join(',')}
-              disabled={scanBezig !== null}
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (!f) return
-                // Een foto lezen we uit; een PDF alleen bewaren.
-                if (f.type.startsWith('image/')) void scanId(f)
-                else voegPapierToe(f, 'identiteitsbewijs')
-              }}
-            />
+            {/*
+              * Twee kanten, want op een Nederlandse identiteitskaart staat de
+              * ene helft voor en de andere achter: naam en documentnummer aan
+              * de voorkant, het burgerservicenummer en de machineleesbare
+              * regels aan de achterkant. Eén kant levert dus altijd een half
+              * dossier op. En je hebt ze allebei toch nodig -- een kopie van
+              * alleen de voorkant is voor de loonadministratie niet genoeg.
+              */}
+            <div className="grid cols-2">
+              <Field label="Voorkant" help={idVoor ? idVoor.name : 'Foto of scan'}>
+                <input
+                  className="input"
+                  type="file"
+                  accept={TOEGESTAAN.join(',')}
+                  disabled={scanBezig !== null}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (!f) return
+                    if (f.type.startsWith('image/')) void scanId('voor', f)
+                    else voegPapierToe(f, 'identiteitsbewijs')
+                  }}
+                />
+              </Field>
+              <Field
+                label="Achterkant"
+                help={idAchter ? idAchter.name : 'Hier staat het BSN en de MRZ'}
+              >
+                <input
+                  className="input"
+                  type="file"
+                  accept={TOEGESTAAN.join(',')}
+                  disabled={scanBezig !== null}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (!f) return
+                    if (f.type.startsWith('image/')) void scanId('achter', f)
+                    else voegPapierToe(f, 'identiteitsbewijs', 'Identiteitsbewijs (achterkant)')
+                  }}
+                />
+              </Field>
+            </div>
+
+            {idVoor && !idAchter && (
+              <div className="waarschuwing zacht" style={{ marginTop: 10 }}>
+                <AlertTriangle size={17} />
+                <span>
+                  Alleen de voorkant. Op een identiteitskaart staan het BSN en
+                  de machineleesbare regels aan de achterkant — voeg die toe,
+                  dan is het dossier ook meteen compleet.
+                </span>
+              </div>
+            )}
 
             {scanBezig === 'id' && (
               <div className="scan-bezig">

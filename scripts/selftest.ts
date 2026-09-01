@@ -3090,8 +3090,19 @@ console.log('\n— pasjes uitlezen —')
   /* --- wat er wordt voorgesteld --- */
 
   const voorstellen = voorstellenUitId({
-    mrz: gelezen, bsn: echt, tekst: '', gemist: [],
+    mrz: gelezen, bsn: echt, tekst: '', gemist: [], kanten: 2,
   })
+
+  /*
+   * Het geval waar het misging: alleen de voorkant. Op een ID-kaart staan
+   * het BSN en de machineleesbare regels achterop, dus dan mist de helft --
+   * en dat hoort er ook bij te staan.
+   */
+  const halfDossier = { mrz: undefined, bsn: undefined, tekst: '',
+    gemist: ['de twee regels onderaan het document', 'het burgerservicenummer'],
+    kanten: 1 }
+  check('met één kant mist er van alles', halfDossier.gemist.length === 2)
+  check('en dat is te zien aan het aantal kanten', halfDossier.kanten === 1)
   check('er komen voorstellen uit een scan', voorstellen.length >= 3)
   check('het BSN zit erbij', voorstellen.some((v) => v.veld === 'bsn'))
   check('met de mededeling dat de elfproef klopt',

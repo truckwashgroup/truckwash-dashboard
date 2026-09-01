@@ -277,9 +277,38 @@ export function vindGegevens(tekst: string): Omit<ContractGegevens, 'tekst' | 'b
 }
 
 /** Alles in één keer: tekst ophalen en uitlezen. */
-export async function leesContract(bestand: Blob): Promise<ContractGegevens> {
-  const { tekst, bladzijden } = await leesPdfTekst(bestand)
-  return { ...vindGegevens(tekst), tekst, bladzijden }
+/**
+ * Een contract uitlezen.
+ *
+ * Eerst de tekstlaag: dat is snel en foutloos. Zit die er niet in -- een
+ * contract dat is ingescand of geprint-en-getekend is een plaatje in een
+ * omslag -- dan gaat de leesmotor eroverheen. Dat is trager en niet perfect,
+ * maar het alternatief was dat je alles alsnog overtypte.
+ *
+ * Is het helemaal geen PDF maar een foto, dan meteen de leesmotor.
+ */
+export async function leesContract(
+  bestand: Blob,
+  onVoortgang?: (v: { stap: string; deel: number }) => void,
+): Promise<ContractGegevens> {
+  const isPdf = bestand.type === 'application/pdf'
+
+  if (isPdf) {
+    try {
+      const { tekst, bladzijden } = await leesPdfTekst(bestand)
+      return { ...vindGegevens(tekst), tekst, bladzijden }
+    } catch (e) {
+      if (!(e instanceof GeenTekstlaag)) throw e
+    }
+  }
+
+  const { leesPdfAlsPlaatje, leesTekstUitPlaatje } = await import('./scannen')
+  const tekst = isPdf
+    ? await leesPdfAlsPlaatje(bestand, onVoortgang)
+    : await leesTekstUitPlaatje(bestand, onVoortgang)
+
+  if (tekst.replace(/\s/g, '').length < 40) throw new GeenTekstlaag()
+  return { ...vindGegevens(tekst), tekst, bladzijden: 1 }
 }
 
 /** Hoeveel er is gevonden, voor een korte samenvatting. */

@@ -32,6 +32,8 @@ export interface IdScan {
   tekst: string
   /** Wat er niet gevonden is, in gewone woorden. */
   gemist: string[]
+  /** Hoeveel kanten er zijn gelezen; één is bij een ID-kaart te weinig. */
+  kanten?: number
 }
 
 export interface PasScan {
@@ -137,6 +139,63 @@ async function klaarmaken(bestand: File | Blob, maxBreedte = 1600): Promise<Blob
   })
 }
 
+/**
+ * Gewone tekst uit een plaatje, zonder beperkt alfabet.
+ *
+ * Voor een contract dat als foto of als scan binnenkomt. Daar staat gewone
+ * Nederlandse tekst in, dus alles moet meedoen -- ook de euro's, de punten
+ * en de komma's, want daar hangt het bedrag aan.
+ */
+export async function leesTekstUitPlaatje(
+  bestand: File | Blob,
+  onVoortgang?: (v: ScanVoortgang) => void,
+): Promise<string> {
+  return lees(bestand, undefined, onVoortgang)
+}
+
+/**
+ * Een PDF zonder tekstlaag alsnog lezen.
+ *
+ * Een contract dat is ingescand of geprint-en-getekend heeft geen tekst in
+ * zich; het is een plaatje in een omslag. Tot nu toe hield het daar op en
+ * stond je alsnog alles over te typen. Nu tekenen we de bladzijden en laten
+ * we de leesmotor erover gaan.
+ *
+ * Vier bladzijden is genoeg: wat je zoekt -- salaris, uren, ingangsdatum --
+ * staat op de eerste, en meer bladzijden kost op een tablet minuten.
+ */
+export async function leesPdfAlsPlaatje(
+  bestand: Blob,
+  onVoortgang?: (v: ScanVoortgang) => void,
+  maxBladzijden = 4,
+): Promise<string> {
+  const { laadPdfjs } = await import('./pdf')
+  const lib = await laadPdfjs()
+  const doc = await lib.getDocument({ data: new Uint8Array(await bestand.arrayBuffer()) }).promise
+
+  const aantal = Math.min(doc.numPages, maxBladzijden)
+  const stukken: string[] = []
+
+  for (let i = 1; i <= aantal; i++) {
+    onVoortgang?.({ stap: `Bladzijde ${i} van ${aantal}`, deel: (i - 1) / aantal })
+
+    const bladzijde = await doc.getPage(i)
+    // Twee keer zo groot als het scherm: kleiner leest de motor niet goed.
+    const vak = bladzijde.getViewport({ scale: 2 })
+    const doek = document.createElement('canvas')
+    doek.width = vak.width
+    doek.height = vak.height
+    const ctx = doek.getContext('2d')
+    if (!ctx) continue
+
+    await bladzijde.render({ canvas: doek, canvasContext: ctx, viewport: vak }).promise
+    const blob = await new Promise<Blob | null>((k) => doek.toBlob(k, 'image/png'))
+    if (blob) stukken.push(await lees(blob, undefined, onVoortgang))
+  }
+
+  return stukken.join('\n')
+}
+
 /** De motor loslaten op een plaatje, met een beperkt alfabet. */
 async function lees(
   bestand: File | Blob,
@@ -220,27 +279,86 @@ export function vindBsn(tekst: string): string | undefined {
   return undefined
 }
 
-export async function scanIdentiteitsbewijs(
+/** Eén kant van een document lezen: de MRZ-regels én de gewone tekst. */
+async function leesKant(
   bestand: File,
   onVoortgang?: (v: ScanVoortgang) => void,
-): Promise<IdScan> {
-  const gemist: string[] = []
-
+): Promise<{ mrz?: MrzResultaat; bsn?: string; tekst: string }> {
   /*
-   * Twee keer lezen. Eén keer met alleen de MRZ-tekens -- dat maakt die
-   * regels veel betrouwbaarder -- en één keer gewoon, voor het BSN dat er in
-   * leesbare cijfers naast staat.
+   * Twee keer over hetzelfde plaatje. Eén keer met alleen de MRZ-tekens --
+   * dat maakt die regels veel betrouwbaarder, want de motor hoeft dan niet te
+   * kiezen tussen een 0 en een O -- en één keer gewoon, voor het BSN dat er
+   * in leesbare cijfers naast staat.
    */
   const mrzTekst = await lees(bestand, MRZ_TEKENS, onVoortgang)
   const regels = vindMrzRegels(mrzTekst)
   const mrz = regels ? leesMrz(regels) ?? undefined : undefined
-  if (!mrz) gemist.push('de twee regels onderaan het document')
 
   const vrijeTekst = await lees(bestand, undefined, onVoortgang)
-  const bsn = vindBsn(vrijeTekst)
+
+  return {
+    mrz,
+    bsn: vindBsn(vrijeTekst) ?? vindBsn(mrzTekst),
+    tekst: [mrzTekst, vrijeTekst].join('\n').trim(),
+  }
+}
+
+/**
+ * Een identiteitsbewijs lezen, allebei de kanten.
+ *
+ * Op een Nederlandse identiteitskaart staat de ene helft voor en de andere
+ * achter: naam, foto en documentnummer aan de voorkant, het burgerservice-
+ * nummer en de twee machineleesbare regels aan de achterkant. Eén kant
+ * scannen levert dus altijd een half dossier op -- precies wat er misging.
+ *
+ * En de werkgever heeft ze allebei toch nodig: een kopie van alleen de
+ * voorkant is voor de loonadministratie niet genoeg.
+ *
+ * Bij een paspoort staat alles op dezelfde pagina. Dan blijft de tweede kant
+ * gewoon leeg en werkt het net zo goed.
+ */
+export async function scanIdentiteitsbewijs(
+  voorkant: File,
+  achterkant?: File,
+  onVoortgang?: (v: ScanVoortgang) => void,
+): Promise<IdScan> {
+  const kanten: { kant: string; uit: Awaited<ReturnType<typeof leesKant>> }[] = []
+
+  kanten.push({
+    kant: 'voorkant',
+    uit: await leesKant(voorkant, (v) =>
+      onVoortgang?.({ ...v, stap: `Voorkant — ${v.stap.toLowerCase()}` })),
+  })
+
+  if (achterkant) {
+    kanten.push({
+      kant: 'achterkant',
+      uit: await leesKant(achterkant, (v) =>
+        onVoortgang?.({ ...v, stap: `Achterkant — ${v.stap.toLowerCase()}` })),
+    })
+  }
+
+  /*
+   * Samenvoegen: pak wat er gevonden is, ongeacht op welke kant het stond.
+   * Een MRZ die door zijn controlecijfers komt gaat voor op een die dat niet
+   * doet -- twee kanten leveren soms twee lezingen op, en dan wil je de
+   * nagerekende.
+   */
+  const kandidaten = kanten.map((k) => k.uit.mrz).filter(Boolean) as MrzResultaat[]
+  const mrz = kandidaten.find((m) => m.betrouwbaar) ?? kandidaten[0]
+  const bsn = kanten.map((k) => k.uit.bsn).find(Boolean)
+
+  const gemist: string[] = []
+  if (!mrz) gemist.push('de twee regels onderaan het document')
   if (!bsn) gemist.push('het burgerservicenummer')
 
-  return { mrz, bsn, tekst: `${mrzTekst}\n${vrijeTekst}`.trim(), gemist }
+  return {
+    mrz,
+    bsn,
+    tekst: kanten.map((k) => `[${k.kant}]\n${k.uit.tekst}`).join('\n\n'),
+    gemist,
+    kanten: kanten.length,
+  }
 }
 
 /* ------------------------------------------------------------------ *

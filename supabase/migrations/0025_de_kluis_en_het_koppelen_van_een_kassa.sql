@@ -222,28 +222,37 @@ grant execute on function public.pos_munt_waarde(text) to authenticated;
 --  src/lib/kluis.ts, en die moet het offline kunnen -- vandaar dat het op
 --  twee plekken staat. De regel is dezelfde: vanaf de laatste telling
 --  optellen, en zonder telling vanaf nul.
+--
+--  Waarom er op (at, id) gesorteerd wordt en niet alleen op at: twee boekingen
+--  kunnen in dezelfde milliseconde vallen. Stond hier alleen `at > telling.at`,
+--  dan viel een boeking van hetzelfde moment als de telling uit het saldo --
+--  geen fout, alleen een bedrag dat niet klopt. Het id erbij maakt de volgorde
+--  overal dezelfde. Willekeurig, maar overal op dezelfde manier willekeurig, en
+--  dat is precies wat hier nodig is.
 -- ---------------------------------------------------------------------------
 
 create or replace function public.pos_kluis_saldo(kluis text)
 returns numeric language sql stable security definer set search_path = public as $$
   with laatste as (
-    select at, coalesce(counted_totaal, 0) as basis
-      from (
-        select at,
-               (select sum((value)::numeric * public.pos_munt_waarde(key))
-                  from jsonb_each_text(counted)) as counted_totaal
-          from public.pos_safe_moves
-         where safe_id = kluis and soort = 'telling' and counted is not null
-         order by at desc
-         limit 1
-      ) t
+    -- Op tijd én id, want twee boekingen kunnen in dezelfde milliseconde
+    -- vallen. Zie de kanttekening hieronder.
+    select at, id,
+           coalesce((select sum((value)::numeric * public.pos_munt_waarde(key))
+                       from jsonb_each_text(m.counted)), 0) as basis
+      from public.pos_safe_moves m
+     where m.safe_id = kluis and m.soort = 'telling' and m.counted is not null
+     order by m.at desc, m.id desc
+     limit 1
   )
   select coalesce((select basis from laatste), 0)
        + coalesce((
-           select sum(amount) from public.pos_safe_moves m
+           select sum(m.amount) from public.pos_safe_moves m
             where m.safe_id = kluis
               and m.soort <> 'telling'
-              and m.at > coalesce((select at from laatste), 0)
+              and (
+                not exists (select 1 from laatste)
+                or (m.at, m.id) > (select at, id from laatste)
+              )
          ), 0);
 $$;
 

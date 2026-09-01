@@ -142,7 +142,7 @@ await run(db, '0022_bijwerken_is_geen_versturen.sql draait', sqlFile('supabase/m
 await run(db, '0023_uitnodigen_en_uitschrijven.sql draait', sqlFile('supabase/migrations/0023_uitnodigen_en_uitschrijven.sql'))
 
 await run(db, '0024_uren_en_kilometers.sql draait', sqlFile('supabase/migrations/0024_uren_en_kilometers.sql'))
-await run(db, '0024_de_kluis_en_het_koppelen_van_een_kassa.sql draait', sqlFile('supabase/migrations/0024_de_kluis_en_het_koppelen_van_een_kassa.sql'))
+await run(db, '0025_de_kluis_en_het_koppelen_van_een_kassa.sql draait', sqlFile('supabase/migrations/0025_de_kluis_en_het_koppelen_van_een_kassa.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -178,7 +178,7 @@ await run(db, '0022 nogmaals', sqlFile('supabase/migrations/0022_bijwerken_is_ge
 await run(db, '0023 nogmaals', sqlFile('supabase/migrations/0023_uitnodigen_en_uitschrijven.sql'))
 
 await run(db, '0024 nogmaals', sqlFile('supabase/migrations/0024_uren_en_kilometers.sql'))
-await run(db, '0024 nogmaals', sqlFile('supabase/migrations/0024_de_kluis_en_het_koppelen_van_een_kassa.sql'))
+await run(db, '0025 nogmaals', sqlFile('supabase/migrations/0025_de_kluis_en_het_koppelen_van_een_kassa.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
 const bedrijven = await db.query('select count(*)::int as n from public.companies')
@@ -1774,6 +1774,25 @@ await db.exec(`
 `)
 check('wat na de telling komt telt weer mee', (await saldo()) === 360)
 
+/*
+ * Twee boekingen in dezelfde milliseconde. Stond er alleen `at > telling.at`,
+ * dan viel de boeking van hetzelfde moment als de telling uit het saldo -- geen
+ * fout, alleen een bedrag dat niet klopt. De kassa had dezelfde fout; die is
+ * daar op dezelfde manier rechtgezet.
+ */
+await db.exec(`
+  insert into public.pos_safe_moves
+    (id, safe_id, location_id, soort, counted, amount, at)
+  values ('kl_ms_a', 'kluis_loc_utr', 'loc_utr', 'telling',
+          '{"b50":2}'::jsonb, 0, 9000);
+  insert into public.pos_safe_moves
+    (id, safe_id, location_id, soort, coins, amount, at)
+  values ('kl_ms_b', 'kluis_loc_utr', 'loc_utr', 'uitgave',
+          '{"b50":1}'::jsonb, -50, 9000);
+`)
+check('een boeking van hetzelfde moment als de telling valt niet weg',
+  (await saldo()) === 50, String(await saldo()))
+
 check('een kluisboeking kan niet meer gewijzigd worden',
   (await botst("update public.pos_safe_moves set amount = 1 where id = 'kl_1'"))
     ?.includes('vast') === true)
@@ -1799,8 +1818,16 @@ await db.exec(`
   grant select, insert, update, delete on all tables in schema public to authenticated;
 `)
 
-check('een werknemer op de vestiging ziet de kluisboekingen',
-  (await countAs(wasser, 'select count(*)::int as n from public.pos_safe_moves')) === 4)
+/*
+ * Niet tegen een vast aantal aan meten. Hier stond "=== 4", en de eerste keer
+ * dat er een controle bij kwam die een boeking toevoegde, viel deze om -- op
+ * een aantal, niet op de beveiliging waar hij over gaat.
+ */
+const alleBoekingen = (await db.query(
+  'select count(*)::int as n from public.pos_safe_moves')).rows[0].n
+check('een werknemer op de vestiging ziet alle kluisboekingen',
+  (await countAs(wasser, 'select count(*)::int as n from public.pos_safe_moves'))
+    === alleBoekingen)
 check('een klant ziet er niets van',
   (await countAs(klant, 'select count(*)::int as n from public.pos_safe_moves')) === 0)
 check('een werknemer kan een boeking maken',

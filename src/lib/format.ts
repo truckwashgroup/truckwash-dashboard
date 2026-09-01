@@ -27,10 +27,39 @@ export function duration(ms: number) {
 
 export function relative(ts: number) {
   const diff = Date.now() - ts
+  // Een tijdstip dat nog moet komen hoort hier niet; die zou anders stil
+  // "zojuist" opleveren. Zie nogGeldig() hieronder.
+  if (diff < 0) return binnenkort(-diff)
   if (diff < 60_000) return 'zojuist'
   if (diff < 3_600_000) return Math.round(diff / 60_000) + ' min geleden'
   if (diff < 86_400_000) return Math.round(diff / 3_600_000) + ' uur geleden'
-  return Math.round(diff / 86_400_000) + ' dagen geleden'
+  return dagen(diff / 86_400_000) + ' geleden'
+}
+
+/** "1 dag" of "6 dagen" -- er stond overal "1 dagen". */
+function dagen(n: number) {
+  const afgerond = Math.round(n)
+  return afgerond + (afgerond === 1 ? ' dag' : ' dagen')
+}
+
+/** "over 12 min", "over 3 uur", "over 6 dagen" */
+function binnenkort(ms: number) {
+  if (ms < 60_000) return 'zo meteen'
+  if (ms < 3_600_000) return 'over ' + Math.round(ms / 60_000) + ' min'
+  if (ms < 86_400_000) return 'over ' + Math.round(ms / 3_600_000) + ' uur'
+  return 'over ' + dagen(ms / 86_400_000)
+}
+
+/**
+ * Hoe lang iets nog geldig is.
+ *
+ * Bestaat apart omdat relative() achteruit kijkt: die rekent uit hoe lang
+ * geleden iets was. Een koppelcode die nog een week meegaat kwam daar als
+ * "zojuist" uit -- niet fout gerekend, wel het tegenovergestelde van wat er
+ * aan de hand was. Wie dat leest maakt een nieuwe code, en dan staan er twee.
+ */
+export function nogGeldig(tot: number, nu = Date.now()) {
+  return tot <= nu ? 'verlopen' : binnenkort(tot - nu)
 }
 
 export const initials = (name: string) =>

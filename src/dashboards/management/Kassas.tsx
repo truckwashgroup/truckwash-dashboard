@@ -17,7 +17,7 @@ import {
   type Location, type PosDevice, type PosPairing, type PosRegister,
   type PosSafe, type PosSafeMove,
 } from '../../lib/types'
-import { dateTime, duration, money, relative } from '../../lib/format'
+import { dateTime, duration, money, nogGeldig, relative } from '../../lib/format'
 import { Badge, Card, Empty, Field, Modal, Stat } from '../../components/ui'
 import { useAuth } from '../../store/useAuth'
 import { usePerms } from '../../store/useNav'
@@ -216,7 +216,7 @@ function KassaRegel({
           {open.map((c) => (
             <div className="code-regel" key={c.id}>
               <span className="cijfers-groot">{toonCode(c.code)}</span>
-              <span className="tot">verloopt {relative(c.expiresAt)}</span>
+              <span className="tot">verloopt {nogGeldig(c.expiresAt)}</span>
               <button
                 className="btn ghost sm"
                 onClick={() => {
@@ -450,7 +450,7 @@ function KoppelcodeDialoog({
         <>
           <div className="koppelcode-groot">
             <span className="code">{toonCode(gemaakt.code)}</span>
-            <span className="tot">Verloopt {relative(gemaakt.expiresAt)}</span>
+            <span className="tot">Verloopt {nogGeldig(gemaakt.expiresAt)}</span>
           </div>
 
           <div className="signup-note">

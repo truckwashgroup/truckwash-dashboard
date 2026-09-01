@@ -3464,6 +3464,63 @@ console.log('\n— vestigingen —')
 }
 
 
+/* ==================================================================== *
+ *  Vooruit en achteruit kijken
+ *
+ *  relative() rekent uit hoe lang geleden iets was. Wie er een tijdstip in
+ *  stopt dat nog moet komen, kreeg "zojuist" -- niet fout gerekend, wel het
+ *  tegenovergestelde van wat er aan de hand was. Een koppelcode die nog een
+ *  week meeging las als "verloopt zojuist", en wie dat leest maakt een
+ *  nieuwe. Dan staan er twee codes voor één kassa.
+ * ==================================================================== */
+
+console.log('\n— vooruit en achteruit kijken —')
+
+{
+  const { relative, nogGeldig } = await import('../src/lib/format')
+
+  const nu = Date.now()
+  const MIN = 60_000
+  const UUR = 3_600_000
+  const DAG = 86_400_000
+
+  /* --- achteruit, zoals het altijd al werkte --- */
+
+  check('net gebeurd heet zojuist', relative(nu - 10_000) === 'zojuist')
+  check('een half uur terug staat in minuten',
+    relative(nu - 30 * MIN) === '30 min geleden')
+  check('vanochtend staat in uren', relative(nu - 5 * UUR) === '5 uur geleden')
+  check('vorige week in dagen', relative(nu - 6 * DAG) === '6 dagen geleden')
+  check('en gisteren in enkelvoud', relative(nu - DAG) === '1 dag geleden')
+
+  /* --- vooruit, waar het misging --- */
+
+  check('een uur vooruit is niet "zojuist"', relative(nu + UUR) !== 'zojuist')
+  check('en leest als "over 1 uur"', relative(nu + UUR) === 'over 1 uur')
+  check('een week vooruit ook niet', relative(nu + 7 * DAG) === 'over 7 dagen')
+
+  /* --- hoe lang iets nog geldig is --- */
+
+  check('een code van een uur gaat nog een uur mee',
+    nogGeldig(nu + UUR, nu) === 'over 1 uur')
+  check('een code van een dag',
+    nogGeldig(nu + DAG, nu) === 'over 1 dag')
+  check('een code van een week',
+    nogGeldig(nu + 7 * DAG, nu) === 'over 7 dagen')
+  check('twintig minuten staat in minuten',
+    nogGeldig(nu + 20 * MIN, nu) === 'over 20 min')
+
+  check('een code die net is verlopen heet verlopen',
+    nogGeldig(nu - 1000, nu) === 'verlopen')
+  check('en precies op het moment zelf ook',
+    nogGeldig(nu, nu) === 'verlopen')
+  check('een ingetrokken code leest als verlopen',
+    nogGeldig(nu - 1000, nu) === 'verlopen')
+
+  check('vlak voor het einde staat er niet dat hij al weg is',
+    nogGeldig(nu + 30_000, nu) === 'zo meteen')
+}
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

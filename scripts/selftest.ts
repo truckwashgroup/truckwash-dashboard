@@ -3495,18 +3495,18 @@ console.log('\n— vooruit en achteruit kijken —')
 
   /* --- achteruit, zoals het altijd al werkte --- */
 
-  check('net gebeurd heet zojuist', relative(nu - 10_000) === 'zojuist')
+  check('net gebeurd heet zojuist', relative(nu - 10_000, nu) === 'zojuist')
   check('een half uur terug staat in minuten',
-    relative(nu - 30 * MIN) === '30 min geleden')
-  check('vanochtend staat in uren', relative(nu - 5 * UUR) === '5 uur geleden')
-  check('vorige week in dagen', relative(nu - 6 * DAG) === '6 dagen geleden')
-  check('en gisteren in enkelvoud', relative(nu - DAG) === '1 dag geleden')
+    relative(nu - 30 * MIN, nu) === '30 min geleden')
+  check('vanochtend staat in uren', relative(nu - 5 * UUR, nu) === '5 uur geleden')
+  check('vorige week in dagen', relative(nu - 6 * DAG, nu) === '6 dagen geleden')
+  check('en gisteren in enkelvoud', relative(nu - DAG, nu) === '1 dag geleden')
 
   /* --- vooruit, waar het misging --- */
 
-  check('een uur vooruit is niet "zojuist"', relative(nu + UUR) !== 'zojuist')
-  check('en leest als "over 1 uur"', relative(nu + UUR) === 'over 1 uur')
-  check('een week vooruit ook niet', relative(nu + 7 * DAG) === 'over 7 dagen')
+  check('een uur vooruit is niet "zojuist"', relative(nu + UUR, nu) !== 'zojuist')
+  check('en leest als "over 1 uur"', relative(nu + UUR, nu) === 'over 1 uur')
+  check('een week vooruit ook niet', relative(nu + 7 * DAG, nu) === 'over 7 dagen')
 
   /* --- hoe lang iets nog geldig is --- */
 

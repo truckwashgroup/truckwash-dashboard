@@ -245,6 +245,53 @@ export function mogelijkDubbel(
   return uit.sort((a, b) => Number(b.hard) - Number(a.hard))
 }
 
+/**
+ * Bestaan deze mensen nog wel echt?
+ *
+ * De dubbelcontrole kijkt in de lokale kopie, en daar kan iemand in staan die
+ * op de server allang weg is. Dat gebeurde: een gewiste medewerker bleef in
+ * beeld, en de controle blokkeerde daarmee het opnieuw aanmaken van precies
+ * die persoon. De melding klopte niet en er was geen weg omheen.
+ *
+ * Dus vragen we het na voordat we iemand tegenhouden. Eén vraag voor de hele
+ * lijst, en wie er niet meer is wordt meteen lokaal opgeruimd -- dan is het
+ * de laatste keer dat hij in de weg zit.
+ *
+ * Zonder verbinding gebeurt er niets. Dan wéten we het niet, en dan is een
+ * onterechte waarschuwing beter dan stilletjes een dossier weggooien.
+ */
+export async function zonderSpoken(verdacht: Verdenking[]): Promise<Verdenking[]> {
+  if (!verdacht.length) return verdacht
+  if (!supabaseConfigured) return verdacht
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return verdacht
+
+  const ids = verdacht.map((v) => v.user.id)
+
+  try {
+    const { data, error } = await supabase()
+      .from('profiles')
+      .select('id')
+      .in('id', ids)
+
+    // Geen duidelijk antwoord? Dan blijft alles staan zoals het was.
+    if (error || !data) return verdacht
+
+    const bestaat = new Set(data.map((r) => String(r.id)))
+    const spoken = ids.filter((id) => !bestaat.has(id))
+
+    for (const id of spoken) {
+      await db.users.delete(id)
+      await db.personnelPrivate.delete(id)
+      const wachtend = await db.outbox.where('recordId').equals(id).primaryKeys()
+      if (wachtend.length) await db.outbox.bulkDelete(wachtend)
+    }
+
+    return verdacht.filter((v) => bestaat.has(v.user.id))
+  } catch {
+    return verdacht
+  }
+}
+
 /** Iedereen die niet is uitgeschreven. */
 export function inDienst(alle: User[]): User[] {
   return alle.filter((u) => !u.archivedAt)

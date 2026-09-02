@@ -25,8 +25,17 @@ export function duration(ms: number) {
   return h > 0 ? h + 'u ' + String(m).padStart(2, '0') + 'm' : m + 'm'
 }
 
-export function relative(ts: number) {
-  const diff = Date.now() - ts
+/**
+ * Hoe lang geleden iets was.
+ *
+ * Het tweede argument bestaat alleen voor de controles. Zonder dat kan een
+ * test die "30 min geleden" verwacht omvallen omdat de klok tijdens het
+ * draaien net over een afrondingsgrens tikt -- en een controle die af en toe
+ * omvalt zonder dat er iets mis is, is erger dan geen controle: die leer je
+ * negeren.
+ */
+export function relative(ts: number, nu = Date.now()) {
+  const diff = nu - ts
   // Een tijdstip dat nog moet komen hoort hier niet; die zou anders stil
   // "zojuist" opleveren. Zie nogGeldig() hieronder.
   if (diff < 0) return binnenkort(-diff)

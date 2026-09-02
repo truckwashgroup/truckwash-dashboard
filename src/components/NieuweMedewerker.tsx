@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, CreditCard,
@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { db, alleMensen } from '../lib/db'
 import { users as userRepo } from '../lib/repo'
-import { mogelijkDubbel, personeel } from '../lib/personeel'
+import { mogelijkDubbel, personeel, zonderSpoken, type Verdenking } from '../lib/personeel'
 import {
   scanBankpas, scanIdentiteitsbewijs, voorstellenUitId, voorstellenUitPas,
   type IdScan, type PasScan,
@@ -440,7 +440,7 @@ export default function NieuweMedewerker({
 
   /* ---------------------------------------------------------------- */
 
-  const verdenkingen = useMemo(
+  const vermoedens = useMemo(
     () => (naam.trim().length < 3 && !email.trim()
       ? []
       : mogelijkDubbel(bestaand, {
@@ -448,6 +448,34 @@ export default function NieuweMedewerker({
         }).slice(0, 3)),
     [bestaand, naam, email, telefoon],
   )
+
+  /*
+   * Voordat we iemand tegenhouden: bestaat die persoon nog wel?
+   *
+   * De lijst hierboven komt uit de lokale kopie, en daar kan iemand in staan
+   * die op de server allang weg is. Dat gebeurde ook: een gewiste medewerker
+   * bleef in beeld en blokkeerde daarmee het opnieuw aanmaken van precies die
+   * persoon. Navragen ruimt hem meteen op, dus het is de laatste keer.
+   */
+  const [verdenkingen, setVerdenkingen] = useState<Verdenking[]>([])
+
+  useEffect(() => {
+    if (!vermoedens.length) { setVerdenkingen([]); return }
+
+    let levend = true
+    // Even wachten: anders gaat er een vraag uit bij elke toetsaanslag.
+    const wacht = setTimeout(() => {
+      void zonderSpoken(vermoedens).then((echt) => {
+        if (levend) setVerdenkingen(echt)
+      })
+    }, 400)
+
+    // Tot het antwoord er is tonen we wat we lokaal weten; anders knippert de
+    // waarschuwing weg en terug bij elke letter.
+    setVerdenkingen(vermoedens)
+
+    return () => { levend = false; clearTimeout(wacht) }
+  }, [vermoedens])
 
   const stapNummer = STAPPEN.findIndex((s) => s.key === stap)
 

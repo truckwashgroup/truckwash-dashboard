@@ -169,6 +169,47 @@ export async function ensureBackendMatches(): Promise<boolean> {
   return stored !== null
 }
 
+/**
+ * Alles opnieuw ophalen.
+ *
+ * Er was geen enkele manier om de lokale kopie schoon te vegen, en dat bleek
+ * te ontbreken toen een gewiste medewerker overal bleef staan. Het ophalen
+ * vraagt om wat er is veranderd, en wie op de server weg is verandert nooit
+ * meer -- zonder deze knop blijft zo iemand dus voor altijd in beeld.
+ *
+ * Wat er NIET wordt weggegooid is de wachtrij. Daar staat werk in dat nog
+ * niet is verstuurd; dat weggooien om een lijst op te frissen zou het
+ * middel erger maken dan de kwaal.
+ */
+export async function haalAllesOpnieuw(): Promise<void> {
+  const wachtrij = await db.outbox.count()
+
+  await Promise.all([
+    db.locations.clear(), db.users.clear(), db.companies.clear(), db.washJobs.clear(),
+    db.inventory.clear(), db.stockMovements.clear(), db.expenses.clear(),
+    db.timeEntries.clear(), db.shifts.clear(),
+    db.notifications.clear(), db.courses.clear(), db.courseProgress.clear(),
+    db.assets.clear(), db.faults.clear(), db.workOrders.clear(),
+    db.maintenancePlans.clear(), db.tickets.clear(),
+    db.ticketMessages.clear(), db.logEvents.clear(), db.devPlans.clear(),
+    db.hourRequests.clear(), db.trips.clear(),
+    db.posRegisters.clear(), db.posDevices.clear(), db.posPairings.clear(),
+    db.posSafes.clear(), db.posSafeMoves.clear(), db.locationPhotos.clear(),
+    db.signups.clear(), db.channels.clear(),
+    db.chatMessages.clear(), db.channelReads.clear(), db.emailLog.clear(),
+    db.personnelPrivate.clear(), db.documents.clear(), db.mailbox.clear(),
+    db.changeRequests.clear(), db.agendaItems.clear(),
+    db.employers.clear(), db.employerLinks.clear(), db.employerRules.clear(),
+  ])
+
+  await setMeta(LAST_SYNC, 0)
+  useSync.setState({ lastSyncAt: null })
+  logLive('sync', 'Lokale kopie gewist, alles wordt opnieuw opgehaald' +
+    (wachtrij ? ` (${wachtrij} wachtende wijziging(en) blijven staan)` : ''))
+
+  await useSync.getState().sync()
+}
+
 /* ------------------------------------------------------------------ *
  *  Outbox
  * ------------------------------------------------------------------ */

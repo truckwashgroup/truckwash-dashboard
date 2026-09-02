@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  Bell, BellOff, Check, Monitor, Moon, Sparkles, Sun, Wind,
+  Bell, BellOff, Check, Loader2, Monitor, Moon, RefreshCw, Sparkles, Sun, Wind,
 } from 'lucide-react'
 import { Modal } from './ui'
 import {
@@ -10,6 +10,7 @@ import {
 import { useAuth } from '../store/useAuth'
 import { initials } from '../lib/format'
 import { useUpdates } from '../lib/updates'
+import { haalAllesOpnieuw, useSync } from '../lib/sync'
 import { notifyPermissionState, requestNotifyPermission } from '../lib/notify'
 import { toast } from '../store/useToasts'
 
@@ -41,6 +42,8 @@ export default function Instellingen({
   onClose: () => void
 }) {
   const me = useAuth((s) => s.user)
+  const wachtrij = useSync((s) => s.pending)
+  const [bezigMetHerladen, setBezigMetHerladen] = useState(false)
   const version = useUpdates((s) => s.version)
   const { thema, beweging, setThema, setBeweging } = useTheme()
   const [melding, setMelding] = useState(notifyPermissionState())
@@ -147,6 +150,46 @@ export default function Instellingen({
               <Bell size={14} /> Aanzetten
             </button>
           )}
+        </div>
+      </div>
+
+      {/* ------------------------- De gegevens ---------------------- */}
+
+      <div className="inst-groep">
+        <div className="inst-kop">De gegevens op dit apparaat</div>
+        <div className="setting-row">
+          <div>
+            <div className="setting-label">Alles opnieuw ophalen</div>
+            <div className="setting-hint">
+              De app haalt alleen op wat er is veranderd, en dat is bijna altijd
+              genoeg. Maar iets dat op de server is weggehaald verandert nooit
+              meer, dus dat kan hier blijven staan — een medewerker die er niet
+              meer is, bijvoorbeeld. Hiermee wordt de kopie weggegooid en
+              helemaal opnieuw opgebouwd.
+              {wachtrij > 0 && (
+                <> Wat nog niet verstuurd is ({wachtrij}) blijft staan.</>
+              )}
+            </div>
+          </div>
+          <button
+            className="btn sm"
+            disabled={bezigMetHerladen}
+            onClick={async () => {
+              setBezigMetHerladen(true)
+              try {
+                await haalAllesOpnieuw()
+                toast.ok('Alles is opnieuw opgehaald.')
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : 'Opnieuw ophalen lukte niet')
+              } finally {
+                setBezigMetHerladen(false)
+              }
+            }}
+          >
+            {bezigMetHerladen
+              ? <><Loader2 size={14} className="spin" /> Bezig…</>
+              : <><RefreshCw size={14} /> Opnieuw ophalen</>}
+          </button>
         </div>
       </div>
 

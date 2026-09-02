@@ -335,7 +335,7 @@ async function koppel(req: Request): Promise<Response> {
 
   const { data: bestaandProfiel } = await admin
     .from('profiles')
-    .select('id, email, is_device')
+    .select('id, email, is_device, grants')
     .eq('auth_id', authId)
     .maybeSingle()
 
@@ -369,12 +369,36 @@ async function koppel(req: Request): Promise<Response> {
 
   const profielId = bestaandProfiel?.id ?? bestaande?.profile_id ?? id('dev')
 
+  /*
+   * Klokken mag, en dat moet erop staan.
+   *
+   * Dit is het recht dat ontbrak toen een inklokking verdween. De regel in de
+   * database is `is_management() or heeft_recht('hours.clock')`, en heeft_recht
+   * kijkt in profiles.grants. Een kassa kreeg een dossier met een rol en een
+   * vestiging en verder niets -- dus geen hours.clock, dus geweigerd. In de app
+   * werd gekeken of degene die er staat mag klokken; de database kijkt naar het
+   * apparaat dat het verzoek stuurt. Beide horen te kloppen.
+   *
+   * Alleen dit recht. Alles wat de kassa verder wegschrijft -- bonnen,
+   * kasmutaties, kluisboekingen, wasopdrachten, voorraad -- komt al langs op
+   * is_staff() plus de eigen vestiging. pos.manage krijgt hij niet: dan zouden
+   * de inloggegevens van een tablet achter de balie genoeg zijn om prijzen te
+   * wijzigen.
+   */
+  const NODIG = ['hours.clock']
+  const grants = [...new Set([...(bestaandProfiel?.grants ?? []), ...NODIG])]
+
   const { error: profielFout } = await admin.from('profiles').upsert({
     id: profielId,
     auth_id: authId,
     email,
     name: `Kassa ${kassa.code}`,
     roles: ['employee'],
+    /*
+     * Samengevoegd en niet overschreven. Heeft iemand dit apparaat met opzet
+     * meer gegeven, dan hoort opnieuw koppelen dat niet stil weg te halen.
+     */
+    grants,
     location_id: locatieId,
     active: true,
     is_device: true,

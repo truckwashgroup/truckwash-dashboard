@@ -166,6 +166,7 @@ await run(db, '0032_wat_weg_is_moet_ook_weg_blijven.sql draait', sqlFile('supaba
 await run(db, '0033_de_vestiging_vult_de_website.sql draait', sqlFile('supabase/migrations/0033_de_vestiging_vult_de_website.sql'))
 await run(db, '0034_anon_hoort_hier_niet_bij_te_kunnen.sql draait', sqlFile('supabase/migrations/0034_anon_hoort_hier_niet_bij_te_kunnen.sql'))
 await run(db, '0035_de_achttien_vestigingen_komen_naar_binnen.sql draait', sqlFile('supabase/migrations/0035_de_achttien_vestigingen_komen_naar_binnen.sql'))
+await run(db, '0029_een_kassa_mag_klokken.sql draait', sqlFile('supabase/migrations/0029_een_kassa_mag_klokken.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -204,6 +205,7 @@ await run(db, '0024 nogmaals', sqlFile('supabase/migrations/0024_uren_en_kilomet
 await run(db, '0025 nogmaals', sqlFile('supabase/migrations/0025_de_kluis_en_het_koppelen_van_een_kassa.sql'))
 await run(db, '0027 nogmaals', sqlFile('supabase/migrations/0027_een_foto_bij_het_artikel.sql'))
 await run(db, '0028 nogmaals', sqlFile('supabase/migrations/0028_een_kassa_is_geen_aanmelding.sql'))
+await run(db, '0029 nogmaals', sqlFile('supabase/migrations/0029_een_kassa_mag_klokken.sql'))
 await run(db, '0029 nogmaals', sqlFile('supabase/migrations/0029_de_administratie.sql'))
 await run(db, '0030 nogmaals', sqlFile('supabase/migrations/0030_gewone_facturen_waren_verdacht.sql'))
 await run(db, '0031 nogmaals', sqlFile('supabase/migrations/0031_bijwerken_is_nog_steeds_geen_aanmaken.sql'))
@@ -3114,6 +3116,117 @@ const bestaandeNamen = new Set(
 const spoken = [...ANON_MAG.keys()].filter((n) => !bestaandeNamen.has(n))
 check('en de uitzonderingenlijst bevat geen functies die niet bestaan',
   spoken.length === 0, spoken.length ? `onbekend: ${spoken.join(', ')}` : undefined)
+
+
+console.log('\n28. Een kassa mag klokken, en verder niet meer dan nodig')
+
+/*
+ * Dit is de weigering die een inklokking kostte. De medewerker zag "is
+ * ingeklokt" en stond onder "Nu aan het werk"; de urenregel kwam nooit in de
+ * administratie, want insert op time_entries vraagt hours.clock en het
+ * apparaataccount had geen enkel recht toegekend.
+ *
+ * De kassa gooit zo'n geweigerde regel sinds 0.10.0 niet meer weg. Hier wordt
+ * de andere helft vastgelegd: dat hij niet meer geweigerd wórdt.
+ */
+
+await asServer(db)
+
+// Een apparaatdossier zoals kassa-koppelen het neerzet, met een eigen inlog.
+await db.exec(`
+  insert into auth.users (id, email, raw_user_meta_data)
+  values ('bbbbbbbb-0000-0000-0000-000000000001',
+          'kassa.kas-utr-9@apparaat.truckwash1group.nl',
+          '{"kassa":"KAS-UTR-9","apparaat":true}'::jsonb)
+  on conflict (id) do nothing;
+
+  insert into public.profiles
+    (id, auth_id, email, name, roles, active, location_id, is_device)
+  values ('dev_klok', 'bbbbbbbb-0000-0000-0000-000000000001',
+          'kassa.kas-utr-9@apparaat.truckwash1group.nl', 'Kassa KAS-UTR-9',
+          array['employee'], true, 'loc_utr', true);
+`)
+
+check('een apparaatdossier krijgt hours.clock erbij',
+  (await db.query(
+    `select 'hours.clock' = any(grants) as n from public.profiles where id = 'dev_klok'`
+  )).rows[0].n === true)
+
+const apparaat = 'bbbbbbbb-0000-0000-0000-000000000001'
+
+await db.exec('alter table public.time_entries force row level security;')
+
+/*
+ * Let op de id: te_klok_kassa en niet te_kassa. Die tweede was al in gebruik in
+ * afdeling 23, en toen viel deze controle om op een dubbele sleutel -- niet op
+ * de beveiliging waar hij over gaat. Het scheelde een half uur zoeken naar een
+ * recht dat er wel was.
+ */
+check('en kan dus iemand inklokken',
+  await magSchrijven(apparaat, `insert into public.time_entries
+     (id, user_id, user_name, started_at, location_id)
+     values ('te_klok_kassa', 'u_joris', 'Joris Peters', 100, 'loc_utr')`))
+
+check('en die urenregel staat er ook echt',
+  (await db.query(
+    "select count(*)::int as n from public.time_entries where id = 'te_klok_kassa'"
+  )).rows[0].n === 1)
+
+/*
+ * Uitklokken is een update, en daar kijkt deze controle naar de uitkomst en
+ * niet naar een foutmelding: een update die door de beveiliging geen enkele
+ * rij ziet, slaagt -- hij raakt alleen niets.
+ */
+await magSchrijven(apparaat,
+  "update public.time_entries set ended_at = 200 where id = 'te_klok_kassa'")
+
+check('en ook weer uitklokken',
+  Number((await db.query(
+    "select ended_at from public.time_entries where id = 'te_klok_kassa'"
+  )).rows[0].ended_at) === 200)
+
+/*
+ * En niet meer dan nodig. Prijzen horen bij het kantoor; zou een kassa ze
+ * mogen wijzigen, dan zijn de inloggegevens van een tablet achter de balie
+ * genoeg om ze te wijzigen.
+ */
+await db.exec('alter table public.pos_products force row level security;')
+
+const prijsVoor = (await db.query(
+  `select price_incl from public.pos_products where id = 'prod_koffie'`)).rows[0].price_incl
+
+await magSchrijven(apparaat,
+  `update public.pos_products set price_incl = 1 where id = 'prod_koffie'`)
+
+check('maar komt niet aan de prijzen',
+  (await db.query(
+    `select price_incl from public.pos_products where id = 'prod_koffie'`
+  )).rows[0].price_incl === prijsVoor)
+
+/* ---- en een mens houdt zijn eigen rechten ---- */
+
+await asServer(db)
+await db.exec(`
+  update public.profiles set grants = array['expenses.viewTeam']
+   where email = 'wasser@truckwash1group.nl';
+`)
+check('een gewoon dossier krijgt hours.clock niet ongevraagd',
+  (await db.query(
+    `select 'hours.clock' = any(grants) as n from public.profiles
+      where email = 'wasser@truckwash1group.nl'`)).rows[0].n === false)
+
+/*
+ * En als iemand een apparaat met opzet meer heeft gegeven, mag dat blijven
+ * staan. De aanvulling voegt toe en overschrijft niet.
+ */
+await db.exec(`
+  update public.profiles set grants = array['pos.manage'] where id = 'dev_klok';
+`)
+check('een recht dat het kantoor er zelf op zette blijft staan',
+  (await db.query(
+    `select 'pos.manage' = any(grants) and 'hours.clock' = any(grants) as n
+       from public.profiles where id = 'dev_klok'`)).rows[0].n === true)
+
 
 await db.close()
 

@@ -6238,6 +6238,122 @@ end;
 $$;
 
 -- ===========================================================================
+--  Een kassa mag klokken
+--
+--  Wat er gebeurde: iemand klokte in op de kassa, zag "is ingeklokt", stond
+--  onder "Nu aan het werk" -- en de urenregel kwam nooit in de administratie.
+--  De database weigerde hem, en de kassa gooide hem na acht pogingen weg.
+--
+--  Dat weggooien is in de kassa rechtgezet (versie 0.10.0: zo'n weigering
+--  verbruikt geen pogingen meer en er komt een melding aan de balie). Dit is
+--  de andere helft: de weigering zelf.
+--
+--  Waarom hij geweigerd werd
+--  -------------------------
+--
+--  Sinds 0018 gaat klokken via de kassa, en de regel daar is:
+--
+--      insert on time_entries: is_management() or heeft_recht('hours.clock')
+--
+--  heeft_recht() kijkt in profiles.grants. Een gekoppelde kassa krijgt sinds
+--  0025 zijn eigen inlogaccount met een dossier erbij -- rol employee, een
+--  vestiging, en verder niets. Geen grants dus, en dus geen hours.clock.
+--
+--  De rechten van de kassa en de rechten van de medewerker zijn twee
+--  verschillende dingen, en dat is precies waar dit misging. In de app wordt
+--  gekeken of degene die er staat mag klokken; de database kijkt naar het
+--  apparaat dat het verzoek stuurt. Beide horen te kloppen, en van die tweede
+--  was niemand zich bewust.
+--
+--  Waarom juist dit recht, en niet meer
+--  ------------------------------------
+--
+--  Klokken is het enige wat een kassa doet en wat niet elders kan: mensen
+--  klokken in bij het apparaat waar ze langslopen. Alles wat de kassa verder
+--  wegschrijft -- bonnen, kasmutaties, kluisboekingen, wasopdrachten, voorraad
+--  -- komt al langs op is_staff() plus de eigen vestiging, en dat heeft dit
+--  dossier.
+--
+--  pos.manage krijgt hij níet. Dat zou betekenen dat de inloggegevens van een
+--  tablet achter de balie genoeg zijn om prijzen te wijzigen. Wat daar nog wél
+--  aan vastzit staat onderaan dit bestand.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  De kassa's die er al staan
+-- ---------------------------------------------------------------------------
+
+update public.profiles
+   set grants = (
+     select array_agg(distinct g)
+       from unnest(coalesce(grants, array[]::text[]) || array['hours.clock']) as g
+   )
+ where is_device
+   and not ('hours.clock' = any(coalesce(grants, array[]::text[])));
+
+-- ---------------------------------------------------------------------------
+--  En de kassa's die er nog bij komen
+--
+--  De serverfunctie kassa-koppelen zet dit recht ook zelf op het dossier. Deze
+--  trigger is de rem eronder: hij vult het aan als het er niet op staat.
+--
+--  Twee plekken voor hetzelfde is meestal een fout, hier niet. De functie is de
+--  gewone weg; deze trigger vangt de gevallen die daar niet langskomen -- een
+--  dossier dat met de hand op is_device wordt gezet, of een kassa die gekoppeld
+--  is met een oudere versie van de functie. Een kassa waarvan de uren stil
+--  wegvallen is te duur om van één plek af te laten hangen.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.apparaat_mag_klokken()
+returns trigger language plpgsql as $$
+begin
+  if new.is_device
+     and not ('hours.clock' = any(coalesce(new.grants, array[]::text[])))
+  then
+    new.grants := coalesce(new.grants, array[]::text[]) || array['hours.clock'];
+  end if;
+  return new;
+end;
+$$;
+
+/*
+ * Vóór profiles_apparaat, want die controleert wat er op het dossier staat en
+ * deze vult het aan. Triggers met dezelfde tijd lopen op alfabet, en
+ * "profiles_apparaat_klokken" komt na "profiles_apparaat" -- dus krijgt hij een
+ * naam die eerder komt. Dat is lelijk en het staat er daarom bij.
+ */
+drop trigger if exists profiles_a_klokken on public.profiles;
+create trigger profiles_a_klokken before insert or update on public.profiles
+  for each row execute function public.apparaat_mag_klokken();
+
+-- ---------------------------------------------------------------------------
+--  Wat de kassa hierna nog steeds niet mag, en waarom dat een keuze is
+--
+--  Twee schermen in de kassa schrijven naar tabellen die mag_kassa_beheren()
+--  vragen, en dat heeft een apparaataccount niet:
+--
+--    Beheer -> Artikelen        pos_products
+--    Beheer -> Nummers, badges  pos_pins
+--
+--  Die blijven dus weigeren. Dat is geen vergissing maar het is ook niet af:
+--  een scherm dat invoer aanneemt en het daarna niet kan opslaan, is dezelfde
+--  soort fout als de inklokking die verdween -- alleen valt hij nu wél op,
+--  want de kassa laat sinds 0.10.0 zien wat er in de wachtrij vastzit.
+--
+--  Er zijn twee eerlijke uitkomsten, en het is een keuze welke:
+--
+--    1. Prijzen en badges horen bij het kantoor, zoals vestigingen, kassa's en
+--       kluizen. Dan gaan die twee schermen uit de kassa en komen ze in het
+--       dashboard.
+--    2. De kassa mag het. Dan krijgt het apparaataccount pos.manage, en zijn de
+--       inloggegevens van een tablet achter de balie genoeg om prijzen te
+--       wijzigen.
+--
+--  Zolang die keuze niet gemaakt is, doet deze migratie het minste van de twee:
+--  klokken werkt, en prijzen blijven waar ze zijn.
+-- ---------------------------------------------------------------------------
+
+-- ===========================================================================
 --  Gewone facturen stonden als verdacht in de postbus
 --
 --  De bijlagecontrole hield een PDF tegen zodra er /OpenAction, /AA,
@@ -6533,3 +6649,523 @@ comment on column public.deletion_log.record_id is
 drop policy if exists deletion_log_select on public.deletion_log;
 create policy deletion_log_select on public.deletion_log for select to authenticated
   using (true);
+
+-- ===========================================================================
+--  De vestiging vult de website
+--
+--  De vestigingen staan in de app: adres, telefoon, openingstijden, foto's,
+--  het aantal wasstraten. Op de website staan dezelfde achttien vestigingen
+--  nog een keer, met de hand geschreven, in gegenereerde HTML.
+--
+--  Dat is één keer bijhouden te veel. Verhuist een vestiging of gaat er een
+--  uur af op zaterdag, dan klopt de ene plek en de andere niet -- en de plek
+--  die niet klopt is precies de plek waar de chauffeur kijkt.
+--
+--  Hier komen de velden bij die een openbare pagina nodig heeft en die er nog
+--  niet waren. De rest -- adres, openingstijden, foto's -- staat er al sinds
+--  0026.
+--
+--  Wat hier NIET gebeurt
+--  ---------------------
+--
+--  De dienstenlijst van de app (buitenwas, cabine binnen, combi,
+--  tankreiniging, polijsten) blijft ongemoeid. Dat is wat de wasstraat boekt
+--  en afrekent, en dat type wordt letterlijk naar de kassa-repo gekopieerd --
+--  daar iets aan veranderen raakt negentien kassa's.
+--
+--  Wat je verkoopt is een andere lijst en langer: veertien, met truckparking,
+--  catering, HACCP en de wasboxen erbij. Die krijgt een eigen veld.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  Welke pagina op de website hoort hierbij
+--
+--  Expliciet, en niet op naam raden. De site heeft vaste paden (/locaties/
+--  utrecht/), de app heeft namen die iemand kan wijzigen. Koppelen op naam
+--  betekent dat één hernoeming een pagina breekt zonder dat iemand het ziet.
+-- ---------------------------------------------------------------------------
+
+alter table public.locations add column if not exists website_slug text;
+
+-- Twee vestigingen op dezelfde pagina kan niet: dan is het maar net welke de
+-- lijst als eerste ziet, en dat verschilt per keer.
+create unique index if not exists locations_slug_idx
+  on public.locations (website_slug) where website_slug is not null;
+
+-- ---------------------------------------------------------------------------
+--  De tekst op de pagina
+--
+--  Drie soorten, want ze horen op verschillende plekken en hebben een
+--  verschillend publiek:
+--
+--    intro       de alinea bovenaan de pagina -- waarom je hier komt
+--    bereikbaar  hoe je er komt: de afrit, de oprit, waar de ingang zit.
+--                Dit is het stukje waar een chauffeur die er nog nooit is
+--                geweest werkelijk iets aan heeft.
+--    bijzonder   wat hier anders is dan elders. Mag leeg blijven.
+--
+--  Losse velden en geen groot tekstvak: dan staat op elke pagina hetzelfde
+--  soort informatie op dezelfde plek, en hoeft niemand na te denken over
+--  opmaak.
+-- ---------------------------------------------------------------------------
+
+alter table public.locations add column if not exists intro      text;
+alter table public.locations add column if not exists bereikbaar text;
+alter table public.locations add column if not exists bijzonder  text;
+
+-- ---------------------------------------------------------------------------
+--  Wat kan hier
+--
+--  De sleutels komen overeen met de mappen op de website, zodat de pagina
+--  rechtstreeks kan doorlinken naar de dienst. Vandaar de streepjes.
+-- ---------------------------------------------------------------------------
+
+alter table public.locations add column if not exists diensten text[] not null default '{}';
+
+comment on column public.locations.diensten is
+  'Sleutels van de diensten op de website: alcoa-velgen-reinigen, bus-wasstraat, '
+  'camper-wasstraat, catering-op-locatie, haal-en-brengservice, '
+  'haccp-certificaat-en-behandeling, interieur-reinigen, nao-wasplaats, '
+  'truck-shop, truckparking, vogelgriep, vrachtwagen-polijsten, wasboxen, '
+  'wegrestaurant-a2. Los van SERVICES in de app -- dat is wat de kassa boekt.';
+
+-- ---------------------------------------------------------------------------
+--  Hoort deze vestiging op de website
+--
+--  Niet elke vestiging is een publiek adres. Het hoofdkantoor hoort er niet
+--  op, en een locatie die net is aangekocht ook nog niet. Standaard uit, want
+--  per ongeluk iets publiceren is erger dan per ongeluk iets weglaten.
+-- ---------------------------------------------------------------------------
+
+alter table public.locations add column if not exists op_website boolean not null default false;
+
+-- ---------------------------------------------------------------------------
+--  Wat er publiek te zien is
+--
+--  Een openbare bezoeker heeft geen inlog, dus die kan de tabel locations niet
+--  lezen -- en dat hoort ook zo: daar staat de vestigingsmanager in, de
+--  interne notitie en welke vestigingen uit staan.
+--
+--  Deze functie geeft precies de velden terug die op een openbare pagina
+--  horen, en alleen van vestigingen die daarvoor zijn aangewezen. Zo staat op
+--  één plek in de database wat er naar buiten mag, en niet verspreid over de
+--  code die het opvraagt.
+-- ---------------------------------------------------------------------------
+
+/*
+ * Eerst weg, dan opnieuw -- en niet "create or replace".
+ *
+ * Postgres weigert een vervanging zodra de teruggegeven kolommen veranderen:
+ * "cannot change return type of existing function". Dat is precies wat er
+ * gebeurde toen 0035 er een kolom bij zette. Bij de eerste keer draaien merk
+ * je dat niet; bij de TWEEDE keer wel, want dan komt dit bestand langs terwijl
+ * de functie al de nieuwe vorm heeft, en dan valt supabase/bijwerken.sql
+ * halverwege om. En dat bestand belooft juist dat opnieuw draaien altijd mag.
+ */
+drop function if exists public.website_vestigingen();
+
+create function public.website_vestigingen()
+returns table (
+  slug        text,
+  naam        text,
+  adres       text,
+  postcode    text,
+  plaats      text,
+  telefoon    text,
+  email       text,
+  lat         double precision,
+  lon         double precision,
+  wasstraten  integer,
+  openingstijden jsonb,
+  intro       text,
+  bereikbaar  text,
+  bijzonder   text,
+  diensten    text[]
+)
+language sql stable security definer set search_path = public as $$
+  select
+    l.website_slug, l.name, l.address, l.postcode, l.city,
+    l.phone, l.email, l.lat, l.lon, l.bays,
+    l.opening_hours, l.intro, l.bereikbaar, l.bijzonder, l.diensten
+  from public.locations l
+  where l.op_website
+    and l.active
+    and l.website_slug is not null
+  order by l.name;
+$$;
+
+/*
+ * Hoeveel mensen er werken.
+ *
+ * Voor de vacaturepagina: "sluit je aan bij de andere zoveel". Eén getal, en
+ * verder niets -- geen namen, geen verdeling over vestigingen. Dat laatste is
+ * een landkaart van waar het bedrijf dun bezet is.
+ *
+ * Apparaten tellen niet mee. Een kassa is geen collega.
+ */
+create or replace function public.website_aantal_medewerkers()
+returns integer
+language sql stable security definer set search_path = public as $$
+  select count(*)::integer
+    from public.profiles
+   where active
+     and not coalesce(is_device, false)
+     and archived_at is null
+     and 'customer' <> all(coalesce(roles, array[]::text[]))
+     and 'employer' <> all(coalesce(roles, array[]::text[]));
+$$;
+
+/*
+ * Uitvoerrecht.
+ *
+ * Eerst intrekken, dan uitdelen -- en die volgorde is het hele punt.
+ *
+ * Postgres geeft het uitvoerrecht op een nieuwe functie uit zichzelf aan
+ * PUBLIC. Alleen "grant to service_role" laat die standaard gewoon staan:
+ * iedereen kan de functie dan aanroepen. En omdat het security definer-
+ * functies zijn, stapt zo'n aanroep dwars door de beveiligingsregels op
+ * locations en profiles heen. Dat is het omgekeerde van wat hierboven staat.
+ *
+ * Waarom anon en authenticated er apart bij staan
+ * -----------------------------------------------
+ *
+ * Omdat "revoke from public" ze op Supabase NIET raakt. Supabase zet in elk
+ * project een standaardregel klaar:
+ *
+ *   alter default privileges in schema public
+ *     grant execute on functions to anon, authenticated, service_role;
+ *
+ * Daardoor krijgt elke nieuwe functie een EIGEN recht voor anon en
+ * authenticated, en niet een recht via PUBLIC. Intrekken bij PUBLIC haalt die
+ * eigen rechten er niet af. Gemeten op de echte database:
+ *
+ *   anon=X/postgres | authenticated=X/postgres | service_role=X/postgres
+ *
+ * De eerste versie van deze migratie trok alleen bij PUBLIC in en leek te
+ * werken, want in de test (PGlite) bestaat die standaardregel niet en erft
+ * anon wél via PUBLIC. De test stond groen en het gat stond open. De stub in
+ * scripts/sqltest.mjs bootst die regel nu na, zodat dit verschil niet meer
+ * tussen wal en schip valt.
+ *
+ * De website haalt dit op via een serverfunctie met de servicesleutel. Anon
+ * uitvoerrecht geven kan later alsnog, maar dan als besluit en niet als
+ * bijvangst van een standaardinstelling.
+ */
+revoke execute on function public.website_vestigingen()        from public, anon, authenticated;
+revoke execute on function public.website_aantal_medewerkers() from public, anon, authenticated;
+
+grant execute on function public.website_vestigingen() to service_role;
+grant execute on function public.website_aantal_medewerkers() to service_role;
+
+-- ===========================================================================
+--  Anon hoort hier niet bij te kunnen
+--
+--  Aanleiding: bij het nameten van 0033 bleek dat een bezoeker zonder inlog,
+--  met alleen de publieke sleutel, twee functies kon aanroepen die daar niet
+--  voor bedoeld zijn. Gemeten via de REST-laag, zonder enige sessie:
+--
+--    POST /rest/v1/rpc/pos_kluis_saldo  {"kluis":"..."}   -> 200, een bedrag
+--    POST /rest/v1/rpc/vestiging_bezet  {"loc":"..."}     -> 200, een lijst
+--
+--  Dat is geen bewuste keuze geweest. In 0025 en 0026 staat letterlijk:
+--
+--    grant execute on function public.pos_kluis_saldo(text)  to authenticated;
+--    grant execute on function public.vestiging_bezet(text)  to authenticated;
+--
+--  "to authenticated" betekent: ingelogd, en verder niemand. Maar Supabase
+--  zet in elk project deze standaardregel klaar:
+--
+--    alter default privileges in schema public
+--      grant execute on functions to anon, authenticated, service_role;
+--
+--  Daardoor krijgt elke nieuwe functie er anon gratis bij. De grant erna
+--  bevestigt alleen wat er al stond; hij neemt niets weg. Deze migratie laat
+--  de code dus doen wat er al stond -- ze verandert geen bedoeling.
+--
+--  Waarom dit veilig is
+--  --------------------
+--
+--  Beide functies zijn security definer: ze draaien met de rechten van de
+--  eigenaar en stappen dwars door de regels op de onderliggende tabellen
+--  heen. Precies daarom moet de deur ervoor kloppen.
+--
+--  Nagekeken voordat dit werd ingetrokken:
+--
+--    - Geen van beide komt voor in een beveiligingsregel (using / with check).
+--      Zat er wel een in, dan zou intrekken bij anon elke anonieme aanvraag op
+--      die tabel een foutmelding geven in plaats van een lege lijst.
+--    - Geen van beide apps roept ze aan. De enige rpc-aanroep in het dashboard
+--      en de kassa samen is server_time_ms.
+--    - vestiging_bezet wordt wel gebruikt binnen een trigger (0026, regel
+--      196). Een trigger draait onder de eigenaar en heeft dit recht niet
+--      nodig.
+--
+--  authenticated houdt zijn recht. Alleen anon gaat eraf.
+--
+--  LET OP: pos_kluis_saldo hoort bij de kassa (0025). Dit raakt geen enkele
+--  regel van die functie zelf -- alleen wie hem mag aanroepen, en dat wordt
+--  wat er in 0025 al als bedoeling staat.
+-- ===========================================================================
+
+-- Waarom PUBLIC er ook bij staat, en niet alleen anon
+-- --------------------------------------------------
+--
+-- Er zitten twee rechten op deze functies, en je moet ze allebei weghalen:
+--
+--   =X/postgres        het recht van PUBLIC -- van Postgres zelf
+--   anon=X/postgres    het eigen recht van anon -- van Supabase' standaardregel
+--
+-- anon is lid van PUBLIC. Trek je alleen het eigen recht in, dan kan anon het
+-- nog steeds via PUBLIC. Trek je alleen bij PUBLIC in, dan kan anon het nog
+-- steeds via zijn eigen recht. Precies die eerste helft ging in de eerste
+-- versie van 0033 mis, en de tweede helft in de eerste versie van dit
+-- bestand. Allebei betrapt door de controle in scripts/sqltest.mjs.
+--
+-- authenticated raakt zijn recht via PUBLIC hier ook kwijt, en krijgt het
+-- daarom hieronder expliciet terug. Dat is meteen netter: dan staat er in de
+-- rechten wie het mag in plaats van "iedereen behalve".
+
+revoke execute on function public.pos_kluis_saldo(text) from public, anon;
+revoke execute on function public.vestiging_bezet(text) from public, anon;
+
+-- En teruggeven wat de bedoeling was, zodat opnieuw draaien altijd mag.
+grant execute on function public.pos_kluis_saldo(text) to authenticated;
+grant execute on function public.vestiging_bezet(text) to authenticated;
+
+-- ===========================================================================
+--  De achttien vestigingen komen naar binnen
+--
+--  Tot nu toe stonden de vestigingen op twee plekken, en geen van beide was
+--  compleet. De app kende er twee -- het hoofdkantoor en een proefinvoer met
+--  het adres "kasweg 2112". De website kende er achttien, met echte adressen,
+--  telefoonnummers en openingstijden, maar die stonden in met de hand
+--  geschreven HTML.
+--
+--  Vanaf hier is de app de bron. Deze migratie zet de achttien erin, precies
+--  zoals ze op de site staan, zodat de site er daarna hetzelfde uitziet en
+--  alleen zijn gegevens ergens anders vandaan haalt. Wie voortaan een adres
+--  wijzigt of een uur van zaterdag afhaalt, doet dat op een plek.
+--
+--  Waar de gegevens vandaan komen
+--  ------------------------------
+--
+--  Uit bouw/site.json van het merksiteproject. Dat bestand is destijds van
+--  truckwash1group.nl geschraapt en is de bron waaruit de achttien
+--  vestigingspagina's worden gegenereerd. Adres, postcode, plaats, telefoon,
+--  e-mail, coordinaten, openingstijden, de introtekst en de routebeschrijving
+--  zijn een-op-een overgenomen.
+--
+--  Wat NIET is overgenomen, en waarom
+--  ----------------------------------
+--
+--    het aantal wasstraten   staat nergens op de site. Elke vestiging krijgt
+--                            de standaardwaarde. Dit is het enige veld dat
+--                            met de hand moet worden nagelopen, en tot dat
+--                            gebeurd is hoort het niet op de site te staan.
+--
+--    de foto's               de site verwijst naar afbeeldingen op
+--                            truckwash1group.nl. Die kopieren hoort bij het
+--                            fotoscherm van de vestiging, niet bij een
+--                            migratie.
+--
+--  Opnieuw draaien mag
+--  -------------------
+--
+--  "on conflict do nothing", en niet "do update". Dat is met opzet: dit
+--  bestand komt in supabase/bijwerken.sql terecht, en dat mag altijd opnieuw.
+--  Met "do update" zou een tweede keer draaien alles terugzetten naar wat de
+--  site ooit zei -- en daarmee elke wijziging wissen die daarna in de app is
+--  gemaakt. Een importmigratie hoort een keer te importeren en zich daarna
+--  stil te houden.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  De punten op de vestigingspagina
+--
+--  Per vestiging staat er een lijstje op de site: "500 meter vanaf Flora
+--  Holland", "Handwash met spons", "Haal en brengservice". Dat is geen
+--  dienstenlijst maar het rijtje redenen om juist hier te stoppen, en het
+--  verschilt echt per vestiging -- van de achttien lijsten zijn er twaalf
+--  verschillend.
+--
+--  Los van de kolom diensten. Die bevat sleutels die naar een dienstpagina
+--  wijzen; dit is vrije tekst die alleen op deze pagina staat.
+-- ---------------------------------------------------------------------------
+
+alter table public.locations
+  add column if not exists punten text[] not null default '{}';
+
+comment on column public.locations.punten is
+  'Opsomming op de vestigingspagina van de website. Vrije tekst, een regel per '
+  'punt. Los van de kolom diensten -- dat zijn sleutels naar een dienstpagina.';
+
+-- ---------------------------------------------------------------------------
+--  De achttien
+-- ---------------------------------------------------------------------------
+
+insert into public.locations (
+  id, code, name, address, postcode, city, phone, email, lat, lon,
+  opening_hours, website_slug, intro, bereikbaar, bijzonder, diensten, punten,
+  kind, active, op_website
+)
+select
+  v.id, v.code, v.name, v.address, v.postcode, v.city, v.phone, v.email,
+  v.lat, v.lon, v.opening_hours, v.website_slug, v.intro, v.bereikbaar,
+  v.bijzonder, v.diensten, v.punten,
+  'vestiging', true, true
+from (values
+  ('loc_aalsmeer', 'TW-AAL', 'Truckwash Aalsmeer', 'Afmijnstraat 4', '1187 ZZ', 'Amstelveen', '0203035112', 'aalsmeer@truckwash1group.nl', 52.2606023, 4.7997808, '{"ma":{"van":"07:00","tot":"19:00"},"di":{"van":"07:00","tot":"19:00"},"wo":{"van":"07:00","tot":"19:00"},"do":{"van":"07:00","tot":"21:00"},"vr":{"van":"07:00","tot":"21:00"},"za":{"van":"07:00","tot":"15:00"},"zo":null}'::jsonb, 'aalsmeer', 'Je vindt Truckwash 1 Aalsmeer op het bedrijventerrein Greenpoort aan de Afmijnstraat 4 in Amstelveen, langs de N201. Truckwash Aalsmeer is vanaf de A4 makkelijk te bereiken.', 'Vanuit Amsterdam neem je afslag 3 richting Hoofddorp en vervolgens via de N201. Vanuit Den Haag neem je ook afslag 3 richting Aalsmeer en vervolgens via de N201.', null, array['alcoa-velgen-reinigen', 'haccp-certificaat-en-behandeling', 'nao-wasplaats']::text[], array['500 meter vanaf Flora Holland bloemenveiling', '5 minuten vanaf Schiphol Airport', '8 minuten vanaf snelweg A4', 'Alcoa / Dura Bright behandeling', 'Handwash met spons', 'Het reinigen van alle aluminium onderdelen', 'Het inwendig reinigen van uw laadruimtes (HACCP & NAO)', 'Ontsmetten en/of desinfecteren']::text[]),
+  ('loc_amsterdam', 'TW-AMS', 'Truckwash Amsterdam', 'Galwin 4', '1046AW', 'Amsterdam', '0203035135', 'amsterdam@truckwash1group.nl', 52.3956631, 4.8003185, '{"ma":{"van":"08:00","tot":"18:00"},"di":{"van":"08:00","tot":"18:00"},"wo":{"van":"08:00","tot":"18:00"},"do":{"van":"08:00","tot":"18:00"},"vr":{"van":"08:00","tot":"21:00"},"za":{"van":"08:00","tot":"13:00"},"zo":null}'::jsonb, 'amsterdam', 'Welkom bij Truckwash 1 Amsterdam, dé toonaangevende bestemming voor het grondig reinigen van vrachtwagens. Je vindt onze wasstraat aan Galwin 4 op bedrijventerrein Sloterdijk, nabij industriewijk Westpoort. Vanaf de A5 neem je afslag 3 Amsterdam-Westpoort.', 'Met twee moderne wasstraten is Truckwash 1 Amsterdam perfect uitgerust voor het reinigen van alle soorten vrachtwagens en bestelwagens. Onze wasstraten voldoen aan strenge normen en maken gebruik van de nieuwste reinigingsprogramma’s, waardoor je voertuig weer in optimale staat wordt gebracht. Terwijl ons gespecialiseerde personeel aan de slag gaat, kun je een kop koffie nuttigen in de wachtruimte.', null, array['alcoa-velgen-reinigen', 'haal-en-brengservice', 'haccp-certificaat-en-behandeling', 'nao-wasplaats']::text[], array['Alcoa / Dura Bright behandeling', 'Handwash met spons', 'Het reinigen van alle aluminium onderdelen', 'Het inwendig reinigen van uw laadruimtes (HACCP & NAO)', 'Ontsmetten en/of desinfecteren', 'Haal en brengservice (informeer contactpersoon)', 'Wassen op afspraak (informeer contactpersoon)', 'Alcoa reiniging']::text[]),
+  ('loc_asten', 'TW-AST', 'Truckwash Asten', 'Nobisweg 5', '5721 VA', 'Asten', '+31(0)493 670242', 'asten@truckwash1group.nl', 51.4162996, 5.7567305, '{"ma":{"van":"08:00","tot":"18:00"},"di":{"van":"08:00","tot":"18:00"},"wo":{"van":"08:00","tot":"18:00"},"do":{"van":"08:00","tot":"18:00"},"vr":{"van":"08:00","tot":"21:00"},"za":{"van":"08:00","tot":"14:00"},"zo":null}'::jsonb, 'asten', 'Je vindt Truckwash 1 Asten direct langs de A67 in Asten, op het terrein van truckstop Nobis aan de Nobisweg 5.', 'Truckwash 1 Asten beschikt over 2 professionele wasstraten, geschikt voor alle soorten vrachtwagens en bestelwagens. Onze wasstraten voldoen aan de hoogste eisen en beschikken over de modernste reinigingsprogramma’s om jou wagen weer spik en span te maken.', null, array['alcoa-velgen-reinigen']::text[], array['Alcoa / Dura Bright behandeling', 'Handwash met spons', 'Het reinigen van alle aluminium onderdelen', 'Velgen reinigen', 'Alcoa reiniging', 'Velgen reiniging', 'Zuren / Ontvetten', 'Wassen met spons']::text[]),
+  ('loc_bodegraven', 'TW-BOD', 'Truckwash Bodegraven', 'Europaweg 1e', '2411 NE', 'Bodegraven', '0172619499', 'bodegraven@truckwash1group.nl', 52.0698105, 4.7445157, '{"ma":{"van":"08:00","tot":"19:00"},"di":{"van":"08:00","tot":"19:00"},"wo":{"van":"08:00","tot":"19:00"},"do":{"van":"08:00","tot":"21:00"},"vr":{"van":"07:00","tot":"21:00"},"za":{"van":"07:00","tot":"13:00"},"zo":null}'::jsonb, 'bodegraven', 'Je vindt Truckwash 1 Bodegraven op het bedrijven terrein Broekvelden aan de Europaweg 1e in Bodegraven, naast Goedhart Motoren. Truckwash Bodegraven is het beste te bereiken vanaf de A12 afslag 12a of afslag 12 Reeuwijk of vanaf de N11 afslag Bodegraven. Truckwash Bodegraven beschikt over 3 moderne wasstraten waarvan 1 LZV straat.', 'Twee straten zijn voorzien van een onderwasser voor de onderkant van jouw wagen. Elke straat is voorzien van een warmwatercleaner zodat we in elke hal de trailer inwendig kunnen reinigen. Door de drie straten en het efficiënt reinigen van jouw voertuigen verlagen wij de wachttijden tot een minimum.', null, array['alcoa-velgen-reinigen', 'haal-en-brengservice', 'haccp-certificaat-en-behandeling', 'nao-wasplaats']::text[], array['Alcoa / Dura Bright behandeling', 'Handwash met spons', 'Het reinigen van alle aluminium onderdelen', 'Het inwendig reinigen van uw laadruimtes (HACCP & NAO)', 'Ontsmetten en/of desinfecteren', 'Haal en brengservice (informeer contactpersoon)', 'Wassen op afspraak (informeer contactpersoon)', 'Alcoa reiniging']::text[]),
+  ('loc_hazeldonk', 'TW-HAZ', 'Truckwash Hazeldonk', 'Hazeldonk 6005', '4836 LA', 'Breda', '076 596 3278', 'breda@truckwash1group.nl', 51.4902708, 4.7441562, '{"ma":{"van":"08:00","tot":"18:00"},"di":{"van":"08:00","tot":"18:00"},"wo":{"van":"08:00","tot":"18:00"},"do":{"van":"08:00","tot":"18:00"},"vr":{"van":"08:00","tot":"21:00"},"za":{"van":"08:00","tot":"12:00"},"zo":null}'::jsonb, 'hazeldonk', 'Truckwash 1 Hazeldonk is gevestigd in de voormalige Truckwash Hazeldonk locatie aan de Hazeldonk 6005, naast de Q8.
+De Truckwash 1 locatie ligt strategisch gelegen aan de A16, bij de grens tussen België en Nederland.', 'De Truckwash wordt compleet gerenoveerd en krijgt een nieuwe machine, en word ingericht op de mogelijkheid om te kunnen voorwassen zodat het proces efficiënt verloopt.', null, array['alcoa-velgen-reinigen', 'haal-en-brengservice', 'haccp-certificaat-en-behandeling']::text[], array['We zullen van Maandag t/m Zaterdag geopend zijn', 'We accepteren alle betaalmogelijkheden die u van ons gewend bent', 'We bieden speciale behandelingen aan zoals een alcoa behandeling', 'Chauffeurs kunnen sparen voor leuke truck accessoires', 'Haal en brengservice (informeer contactpersoon)', 'Wassen op afspraak (informeer contactpersoon)', 'Alcoa reiniging', 'HACCP reiniging']::text[]),
+  ('loc_doetinchem', 'TW-DOE', 'Truckwash Doetinchem', 'Braamtseweg 10', '7007 CK', 'Doetinchem', '088-0600 100', 'doetinchem@truckwash1group.nl', 51.9463034, 6.2834481, '{"ma":{"van":"08:00","tot":"18:00"},"di":{"van":"08:00","tot":"18:00"},"wo":{"van":"08:00","tot":"18:00"},"do":{"van":"08:00","tot":"18:00"},"vr":{"van":"08:00","tot":"21:00"},"za":{"van":"08:00","tot":"13:00"},"zo":null}'::jsonb, 'doetinchem', 'De nieuwe vestiging in Doetinchem ligt direct aan de A18 (afslag 3), een van de belangrijkste oost-westas voor het vrachtverkeer in de Achterhoek en het grensgebied met Duitsland. De locatie is daarmee ideaal bereikbaar voor transporteurs die rijden op de corridors richting het Ruhrgebied, Münster en verder.', 'Route plannen 
+ Openingstijden 
+ Vandaag geopend van 08.00 - 18.00', null, array['alcoa-velgen-reinigen', 'haal-en-brengservice', 'haccp-certificaat-en-behandeling', 'nao-wasplaats']::text[], array['Ontsmetten en/of desinfecteren', 'Handwash met spons', 'Alcoa / Dura Bright behandeling', 'Het reinigen van alle aluminium onderdelen', 'Het inwendig reinigen van laadruimtes (HACCP & NAO)', 'Haal en brengservice (informeer contactpersoon)', 'Wassen op afspraak (informeer contactpersoon)', 'Alcoa reiniging']::text[]),
+  ('loc_ede', 'TW-EDE', 'Truckwash Ede', 'Francis Baconstraat 2', '6718 XA', 'Ede', '0318452282', 'ede@truckwash1group.nl', 52.0356369, 5.6076683, '{"ma":{"van":"08:00","tot":"18:00"},"di":{"van":"08:00","tot":"18:00"},"wo":{"van":"08:00","tot":"18:00"},"do":{"van":"08:00","tot":"18:00"},"vr":{"van":"08:00","tot":"21:00"},"za":{"van":"08:00","tot":"13:00"},"zo":null}'::jsonb, 'ede', 'Je vindt Truckwash 1 Ede op het bedrijventerrein BT A12 op een A locatie op nog geen 5 minuten van de A12 (knooppunt Maanderbroek), en maar 2 minuten van de afslag 1 van de A30 (achter het Plantion).', 'Truckwash Ede beschikt over 2 moderne wasstraten en in 1 straat een onderwas voor de onderkant van jouw wagen. Door de twee straten en het efficiënt reinigen van jouw voertuigen verlagen wij de wachttijden tot een minimum. Je kunt ook een bezoek brengen aan onze shop of natuurlijk een kop koffie nuttigen.', null, array['alcoa-velgen-reinigen', 'haal-en-brengservice', 'haccp-certificaat-en-behandeling', 'nao-wasplaats', 'vogelgriep']::text[], array['Alcoa / Dura Bright behandeling', 'Handwash met spons', 'Het reinigen van alle aluminium onderdelen', 'Het inwendig reinigen van jouw laadruimtes (HACCP & NAO)', 'Ontsmetten en/of desinfecteren', 'Bodemreiniging', 'Vogelgriep reiniging en desinfectie', 'Haal en brengservice (informeer contactpersoon)']::text[]),
+  ('loc_eindhoven', 'TW-EIN', 'Truckwash Eindhoven', 'Het Schakelplein 30', '5651 GR', 'Eindhoven', '+31 (0) 40 262 02 22', 'eindhoven@truckwash1group.nl', 51.4659684, 5.4186163, '{"ma":{"van":"08:00","tot":"18:00"},"di":{"van":"08:00","tot":"18:00"},"wo":{"van":"08:00","tot":"18:00"},"do":{"van":"08:00","tot":"18:00"},"vr":{"van":"08:00","tot":"21:00"},"za":{"van":"08:00","tot":"12:00"},"zo":null}'::jsonb, 'eindhoven', 'Je vindt Truckwash 1 Eindhoven vlak bij de A2 (afrit 29, Eindhoven Airport/acht) en Eindhoven Airport (volg de N2). Op het bedrijventerrein Eindhoven-acht.', 'Truckwash 1 Eindhoven beschikt over 3 moderne wasstraten, speciaal voor vrachtwagens en bestelwagens, die voldoen aan de hoogste eisen. Kan je bedrijfswagen weer een wasbeurt gebruiken? Rij dan door de modernste wasstraat van Eindhoven en terwijl je wagen wordt gewassen, kun je een gratis kopje koffie halen bij ons restaurant. Of je nu het chassis, de buitenzijde of de binnenkant van de oplegger wilt laten reinigen: bij ons is (bijna) alles mogelijk. Onze wasstraat is bijzonder milieuvriendelijk.', null, array['alcoa-velgen-reinigen', 'haccp-certificaat-en-behandeling', 'nao-wasplaats']::text[], array['Alcoa / Dura Bright behandeling', 'Handwash met spons', 'Het reinigen van alle aluminium onderdelen', 'Het inwendig reinigen van jouw laadruimtes (HACCP & NAO)', 'Ontsmetten en/of desinfecteren', 'Alcoa reiniging', 'HACCP reiniging', 'Velgen reiniging']::text[]),
+  ('loc_groenlo', 'TW-GRO', 'Truckwash Groenlo', 'Noordgang 8', '7141JP', 'Groenlo', '0544745006', 'groenlo@truckwash1group.nl', 52.0616814, 6.6250053, '{"ma":{"van":"08:00","tot":"18:00"},"di":{"van":"08:00","tot":"18:00"},"wo":{"van":"08:00","tot":"18:00"},"do":{"van":"08:00","tot":"18:00"},"vr":{"van":"08:00","tot":"21:00"},"za":{"van":"08:00","tot":"14:00"},"zo":null}'::jsonb, 'groenlo', 'Truckwash 1 Groenlo is uitstekend bereikbaar via de N18 (Twenteroute) en vormt een logische stop voor chauffeurs in de Achterhoek en richting Duitsland. Dankzij de ligging vlak bij deze hoofdroute ben je snel van de weg af en eenvoudig weer onderweg.', 'Route plannen 
+ Openingstijden 
+ Vandaag geopend van 08.00 - 18.00', null, array['alcoa-velgen-reinigen', 'haal-en-brengservice', 'haccp-certificaat-en-behandeling', 'nao-wasplaats']::text[], array['Ontsmetten en/of desinfecteren', 'Handwash met spons', 'Alcoa / Dura Bright behandeling', 'Het reinigen van alle aluminium onderdelen', 'Het inwendig reinigen van laadruimtes (HACCP & NAO)', 'Haal en brengservice (informeer contactpersoon)', 'Wassen op afspraak (informeer contactpersoon)', 'Alcoa reiniging']::text[]),
+  ('loc_holten', 'TW-HOL', 'Truckwash Holten', 'Handelsweg 34', '7451PJ', 'Holten', '0548855574', 'holten@truckwash1group.nl', 52.2755805, 6.4011927, '{"ma":{"van":"07:00","tot":"18:00"},"di":{"van":"07:00","tot":"18:00"},"wo":{"van":"07:00","tot":"18:00"},"do":{"van":"07:00","tot":"18:00"},"vr":{"van":"07:00","tot":"21:00"},"za":{"van":"07:00","tot":"13:00"},"zo":null}'::jsonb, 'holten', 'Welkom bij Truckwash 1 Holten, dé toonaangevende bestemming in Twente voor het grondig reinigen van vrachtwagens. Je vindt onze vrachtwagen wasstraat aan de Handelsweg 34, aan de N332.', 'Truckwash 1 Holten is uitgerust met maar liefst 5 banen. Drie moderne wasstraten voor het reinigen van alle soorten vrachtwagens en bestelwagens. Daarnaast hebben we nog twee plaatsen voor het uitspuiten van de binnenkant. Onze wasstraten voldoen aan strenge normen en maken gebruik van effectieve reinigingsprogramma’s, waardoor je voertuig weer in optimale staat wordt gebracht. Terwijl ons gespecialiseerde personeel aan de slag gaat, kun je in onze wachtruimte genieten van een kop koffie.', null, array['alcoa-velgen-reinigen', 'haal-en-brengservice', 'haccp-certificaat-en-behandeling', 'nao-wasplaats']::text[], array['Ontsmetten en/of desinfecteren', 'Handwash met spons', 'Alcoa / Dura Bright behandeling', 'Het reinigen van alle aluminium onderdelen', 'Het inwendig reinigen van je laadruimtes (HACCP & NAO)', 'Haal en brengservice (informeer contactpersoon)', 'Wassen op afspraak (informeer contactpersoon)', 'Alcoa reiniging']::text[]),
+  ('loc_maasvlakte', 'TW-MAA', 'Truckwash Maasvlakte', 'Luzonstraat 10', '3199 KX', 'Maasvlakte', '0181 44 25 60', 'maasvlakte@truckwash1group.nl', 51.9276713, 4.023263, '{"ma":{"van":"08:00","tot":"21:00"},"di":{"van":"08:00","tot":"21:00"},"wo":{"van":"08:00","tot":"21:00"},"do":{"van":"08:00","tot":"21:00"},"vr":{"van":"08:00","tot":"21:00"},"za":{"van":"08:00","tot":"13:00"},"zo":null}'::jsonb, 'maasvlakte', 'Je vindt Truckwash 1 Maasvlakte op de Maasvlakte Plaza in Rotterdam aan de Luzonstraat 10. Truckwash Maasvlakte is de grootste Truckwash van Europa en is het beste te bereiken via de A15 naar de N15. Naast ons terrein zit de Maasvlakte Plaza, chauffeur restaurant genaamd Routiers, en de Maasvlakte Plaza Truckparking.', 'Truckwash 1 Maasvlakte beschikt over 6 wasstraten. Door de vier straten en het efficiënt reinigen van jouw voertuigen verlagen wij de wachttijden tot een minimum.', 'Op zondag alleen op afspraak.', array['alcoa-velgen-reinigen', 'haal-en-brengservice', 'haccp-certificaat-en-behandeling', 'nao-wasplaats', 'truckparking', 'wegrestaurant-a2']::text[], array['Alcoa / Dura Bright behandeling', 'Handwash met spons', 'Het reinigen van alle aluminium onderdelen', 'Het inwendig reinigen van je laadruimtes (HACCP & NAO)', 'Ontsmetten en/of desinfecteren', 'Haal en brengservice (informeer contactpersoon)', 'Wassen op afspraak (informeer contactpersoon)', 'Alcoa reiniging']::text[]),
+  ('loc_rilland', 'TW-RIL', 'Truckwash Rilland', 'De Poort 24a', '4411PA', 'Rilland', '0113560028', 'rilland@truckwash1group.nl', 51.4222148, 4.1914538, '{"ma":{"van":"08:00","tot":"18:00"},"di":{"van":"08:00","tot":"18:00"},"wo":{"van":"08:00","tot":"18:00"},"do":{"van":"08:00","tot":"21:00"},"vr":{"van":"08:00","tot":"21:00"},"za":{"van":"07:00","tot":"16:00"},"zo":null}'::jsonb, 'rilland', 'Je vindt Truckwash 1 Rilland op het bedrijventerrein De Poort, naast het tankstation De Meeuw. Onze locatie is het best te bereiken via de A58. We zijn gevestigd op De Poort 24a.', 'We beschikken over 2 moderne wasstraten en 1 hal in het midden die gebruikt kan worden voor het inwendig reinigen van trailers en/of zelfservice.', null, array['alcoa-velgen-reinigen', 'haal-en-brengservice', 'haccp-certificaat-en-behandeling', 'nao-wasplaats']::text[], array['Alcoa / Dura Bright behandeling', 'Handwash met spons', 'Het reinigen van alle aluminium onderdelen', 'Het inwendig reinigen van uw laadruimtes (HACCP & NAO)', 'Ontsmetten en/of desinfecteren', 'Haal en brengservice (informeer contactpersoon)', 'Wassen op afspraak (informeer contactpersoon)', 'Alcoa reiniging']::text[]),
+  ('loc_roosendaal', 'TW-ROO', 'Truckwash Roosendaal', 'Stepvelden 23', '4704RM', 'Roosendaal', '0165529496', 'roosendaal@truckwash1group.nl', 51.5539283, 4.4635791, '{"ma":{"van":"07:00","tot":"21:00"},"di":{"van":"07:00","tot":"21:00"},"wo":{"van":"07:00","tot":"21:00"},"do":{"van":"07:00","tot":"21:00"},"vr":{"van":"07:00","tot":"21:00"},"za":{"van":"07:00","tot":"16:00"},"zo":null}'::jsonb, 'roosendaal', 'Je vindt Truckwash 1 Roosendaal op het bedrijventerrein de Borchwerf aan de Stepvelden 23, Roosendaal. Jouw locatie is het best te bereiken via de A17 afslag 20. We beschikken over 2 moderne wasstraten van 35 meter lang. Alle voertuigen die niet in een normale wasstraat passen kunnen bij ons terecht.', 'Ben je op zoek naar een truckwash in de buurt van Hazeldonk (Breda )? Dan is Truckwash 1 in Roosendaal het dichtste bij jou in de buurt.', null, array['alcoa-velgen-reinigen', 'haal-en-brengservice', 'haccp-certificaat-en-behandeling', 'nao-wasplaats']::text[], array['Alcoa / Dura Bright behandeling', 'Handwash met spons', 'Het reinigen van alle aluminium onderdelen', 'Het inwendig reinigen van jouw laadruimtes (HACCP & NAO)', 'Ontsmetten en/of desinfecteren', 'Stickerverwijdering in trailers', 'Haal en brengservice (informeer contactpersoon)', 'Wassen op afspraak (informeer contactpersoon)']::text[]),
+  ('loc_rotterdam', 'TW-ROT', 'Truckwash Rotterdam', 'Tweedweg 20', '3197 LM', 'Rotterdam-Botlek', '0102967764', 'rotterdam@truckwash1group.nl', 51.8734417, 4.2631194, '{"ma":{"van":"07:00","tot":"21:00"},"di":{"van":"07:00","tot":"21:00"},"wo":{"van":"07:00","tot":"21:00"},"do":{"van":"07:00","tot":"21:00"},"vr":{"van":"07:00","tot":"21:00"},"za":{"van":"07:00","tot":"16:00"},"zo":null}'::jsonb, 'rotterdam', 'Truckwash 1 Rotterdam zit in de Botlek aan de Tweedweg 20. Bereikbaar via de A15 (afslag 15). Met 4 wasstraten is dit een van onze grootste locaties. Naast het terrein: een ADR truckparking (betaald), truckerrestaurant Routiers, een Q8 truck-tankstation en een gratis parkeerplaats. Kortom alles op één plek. Geen afspraak nodig.', 'Door de vier straten en het efficiënt reinigen van je voertuigen verlagen we de wachttijden tot een minimum. Elke hal beschikt over een warmwater cleaner zodat we op iedere baan ook de trailer inwendig kunnen reinigen. Moet je even wachten? Dan kun je gebruik maken van de stofzuiger om je cabine schoon te maken. Je kunt ook een bezoek brengen aan onze shop of natuurlijk een kop koffie nuttigen. Lang onderweg geweest? Je kunt bij ons gebruik maken van de douches.', null, array['alcoa-velgen-reinigen', 'haal-en-brengservice', 'haccp-certificaat-en-behandeling', 'nao-wasplaats', 'truckparking', 'wegrestaurant-a2']::text[], array['Alcoa / Dura Bright behandeling', 'Handwash met spons', 'Het reinigen van alle aluminium onderdelen', 'Het inwendig reinigen van uw laadruimtes (HACCP & NAO)', 'Ontsmetten en/of desinfecteren', 'Haal en brengservice (informeer contactpersoon)', 'Wassen op afspraak (informeer contactpersoon)', 'Alcoa reiniging']::text[]),
+  ('loc_steenwijk', 'TW-STE', 'Truckwash Steenwijk', 'Oostermeentherand 8', '8332JZ', 'Steenwijk', '0521745003', 'Steenwijk@truckwash1group.nl', 52.7974282, 6.1293435, '{"ma":{"van":"08:00","tot":"18:00"},"di":{"van":"08:00","tot":"18:00"},"wo":{"van":"08:00","tot":"18:00"},"do":{"van":"08:00","tot":"18:00"},"vr":{"van":"08:00","tot":"18:00"},"za":{"van":"08:00","tot":"13:00"},"zo":null}'::jsonb, 'steenwijk', 'Truckwash 1 Steenwijk ligt op korte afstand van de A32 (afslag Steenwijk) en is daarmee ideaal bereikbaar voor chauffeurs die rijden tussen Zwolle, Meppel en Leeuwarden. De aanrijroute is overzichtelijk en geschikt voor zwaar transport.', 'Door de combinatie van moderne apparatuur en een vlot werkend team kun je hier rekenen op een snelle doorloop zonder concessies te doen aan kwaliteit. Efficiënt wassen met een schoon en representatief resultaat.', null, array['alcoa-velgen-reinigen', 'haal-en-brengservice', 'haccp-certificaat-en-behandeling', 'nao-wasplaats']::text[], array['Ontsmetten en/of desinfecteren', 'Handwash met spons', 'Alcoa / Dura Bright behandeling', 'Het reinigen van alle aluminium onderdelen', 'Het inwendig reinigen van laadruimtes (HACCP & NAO)', 'Haal en brengservice (informeer contactpersoon)', 'Wassen op afspraak (informeer contactpersoon)', 'Alcoa reiniging']::text[]),
+  ('loc_utrecht', 'TW-UTR', 'Truckwash Utrecht', 'Reactorweg 27', '3542 AD', 'Utrecht', '0307740744', 'utrecht@truckwash1group.nl', 52.10574, 5.0633264, '{"ma":{"van":"08:00","tot":"18:00"},"di":{"van":"08:00","tot":"18:00"},"wo":{"van":"08:00","tot":"18:00"},"do":{"van":"08:00","tot":"18:00"},"vr":{"van":"08:00","tot":"21:00"},"za":{"van":"08:00","tot":"13:00"}}'::jsonb, 'utrecht', 'Je vindt Truckwash 1 Utrecht op het bedrijventerrein Lage Weide aan de Reactorweg 27. Lage Weide is het best te bereiken vanaf de A2 afslag 7. (In het pand van Van Leeuwen Trucks & vans). Truckwash Utrecht beschikt over 2 moderne wasstraten.', 'Door de twee straten en het efficiënt reinigen van je voertuigen verlagen we de wachttijden tot een minimum. Moet je even wachten? Dan kun je gebruik maken van de stofzuiger om je cabine schoon te maken. Je kunt ook een bezoek brengen aan onze shop of natuurlijk een kop koffie nuttigen.', null, array['alcoa-velgen-reinigen', 'haal-en-brengservice', 'haccp-certificaat-en-behandeling', 'nao-wasplaats']::text[], array['Alcoa / Dura Bright behandeling', 'Handwash met spons', 'Het reinigen van alle aluminium onderdelen', 'Het inwendig reinigen van je laadruimtes (HACCP & NAO):', 'Ontsmetten en/of desinfecteren', 'Haal en brengservice (informeer contactpersoon)', 'Wassen op afspraak (informeer contactpersoon)', 'Alcoa reiniging']::text[]),
+  ('loc_venlo', 'TW-VEN', 'Truckwash Venlo', 'Columbusweg 47', '5928LA', 'Venlo', '0773230405', 'venlo@truckwash1group.nl', 51.3958245, 6.0898586, '{"ma":{"van":"08:00","tot":"19:00"},"di":{"van":"08:00","tot":"19:00"},"wo":{"van":"08:00","tot":"19:00"},"do":{"van":"08:00","tot":"21:00"},"vr":{"van":"08:00","tot":"21:00"},"za":{"van":"08:00","tot":"13:00"},"zo":null}'::jsonb, 'venlo', 'Welkom bij Truckwash 1 Venlo, dé toonaangevende bestemming in Venlo en omstreken voor het grondig reinigen van vrachtwagens. Je vindt onze wasstraat aan de Columbusweg 47 op bedrijventerrein Trade Port West. Vanaf de A67 neem je afslag 39 Sevenum.', 'Truckwash 1 Venlo is uitgerust met twee moderne wasstraten voor het reinigen van alle soorten vrachtwagens en bestelwagens. Onze wasstraten voldoen aan strenge normen en maken gebruik van de nieuwste reinigingsprogramma’s, waardoor uw voertuig weer in optimale staat wordt gebracht. Wassen gebeurt bovendien op een duurzame manier . Terwijl ons gespecialiseerde personeel aan de slag gaat, kun je in onze wachtruimte genieten van een kop koffie.', null, array['alcoa-velgen-reinigen', 'haal-en-brengservice', 'haccp-certificaat-en-behandeling', 'nao-wasplaats']::text[], array['Ontsmetten en/of desinfecteren', 'Handwash met spons', 'Alcoa / Dura Bright behandeling', 'Het reinigen van alle aluminium onderdelen', 'Het inwendig reinigen van uw laadruimtes (HACCP & NAO)', 'Haal en brengservice (informeer contactpersoon)', 'Wassen op afspraak (informeer contactpersoon)', 'Alcoa reiniging']::text[]),
+  ('loc_wehl', 'TW-WEH', 'Truckwash Wehl', 'Kryptonstraat 6A', '7031GG', 'Wehl', '088-0600100', 'holten@truckwash1group.nl', 51.9464915, 6.2251281, '{"ma":{"van":"08:00","tot":"18:00"},"di":{"van":"08:00","tot":"18:00"},"wo":{"van":"08:00","tot":"18:00"},"do":{"van":"08:00","tot":"18:00"},"vr":{"van":"08:00","tot":"21:00"},"za":{"van":"08:00","tot":"16:00"},"zo":null}'::jsonb, 'wehl', 'Truckwash 1 Wehl is goed bereikbaar via de A18 (afslag Wehl/Doetinchem) en ligt centraal in de Achterhoek. De ligging maakt deze locatie een vaste stop voor transportbewegingen in Oost-Nederland en richting Duitsland.', 'De locatie is volledig ingericht op efficiënt werken, met aandacht voor kwaliteit en zorgvuldige reiniging. Zo vervolg je je route met een schone vrachtwagen en minimale tijd van de weg.', null, array['alcoa-velgen-reinigen', 'haal-en-brengservice', 'haccp-certificaat-en-behandeling', 'nao-wasplaats']::text[], array['Ontsmetten en/of desinfecteren', 'Handwash met spons', 'Alcoa / Dura Bright behandeling', 'Het reinigen van alle aluminium onderdelen', 'Het inwendig reinigen van laadruimtes (HACCP & NAO)', 'Haal en brengservice (informeer contactpersoon)', 'Wassen op afspraak (informeer contactpersoon)', 'Alcoa reiniging']::text[])
+) as v (
+  id, code, name, address, postcode, city, phone, email, lat, lon,
+  opening_hours, website_slug, intro, bereikbaar, bijzonder, diensten, punten
+)
+on conflict (code) do nothing;
+
+-- ---------------------------------------------------------------------------
+--  De proefinvoer bijwerken
+--
+--  Er stond al een "Truckwash Utrecht" met de code TW-UTR en het adres
+--  "kasweg 2112". Die code botst met de echte Utrecht-vestiging hierboven, dus
+--  die is door "do nothing" overgeslagen -- en dan bleef de proefinvoer staan
+--  met het verkeerde adres erin.
+--
+--  Bijwerken en niet weggooien: er kunnen al uren, wasbeurten of roosters aan
+--  deze vestiging hangen, en die verwijzen naar dit id. Een nieuwe rij naast
+--  de oude zou Utrecht twee keer in elke keuzelijst zetten.
+--
+--  De voorwaarde op het adres maakt dit eenmalig. Heeft iemand het adres al
+--  goedgezet -- met de hand of door deze migratie -- dan gebeurt er niets meer,
+--  en blijft alles wat daarna in de app is gewijzigd gewoon staan.
+-- ---------------------------------------------------------------------------
+
+update public.locations bestaand
+   set name          = echt.name,
+       address       = echt.address,
+       postcode      = echt.postcode,
+       city          = echt.city,
+       phone         = echt.phone,
+       email         = echt.email,
+       lat           = echt.lat,
+       lon           = echt.lon,
+       opening_hours = echt.opening_hours,
+       website_slug  = echt.website_slug,
+       intro         = echt.intro,
+       bereikbaar    = echt.bereikbaar,
+       diensten      = echt.diensten,
+       punten        = echt.punten,
+       op_website    = true,
+       updated_at    = public.now_ms()
+  from public.locations echt
+ where bestaand.code = 'TW-UTR'
+   and echt.id       = 'loc_utrecht'
+   and bestaand.id  <> echt.id
+   and lower(trim(coalesce(bestaand.address, ''))) = 'kasweg 2112';
+
+-- De rij waaruit is overgenomen mag daarna weg: hij is nooit in gebruik
+-- geweest en zou Utrecht anders dubbel in de lijst zetten.
+delete from public.locations
+ where id = 'loc_utrecht'
+   and exists (
+     select 1 from public.locations b
+      where b.code = 'TW-UTR' and b.id <> 'loc_utrecht'
+        and b.website_slug = 'utrecht');
+
+-- ---------------------------------------------------------------------------
+--  Hoeveel mensen er werken
+--
+--  De telling voor de vacaturepagina zat er naast. Hij sloot iedereen uit met
+--  de rol "klant" of "werkgever", en dat is te streng: rollen stapelen in dit
+--  systeem. Wie werknemer is en daarnaast een klantaccount heeft, is nog
+--  steeds gewoon een collega. Gemeten op de echte database gaf dat 1 in plaats
+--  van 6 -- en 1 is een getal dat je niet op een vacaturepagina wilt zetten
+--  voor een bedrijf met negentien vestigingen.
+--
+--  De nieuwe regel is eenvoudiger en zegt wat hij bedoelt: iedereen die de rol
+--  werknemer heeft, actief is, niet is uitgeschreven, en geen kassa is.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.website_aantal_medewerkers()
+returns integer
+language sql stable security definer set search_path = public as $$
+  select count(*)::integer
+    from public.profiles
+   where active
+     and archived_at is null
+     and not coalesce(is_device, false)
+     and 'employee' = any(coalesce(roles, array[]::text[]));
+$$;
+
+-- ---------------------------------------------------------------------------
+--  De punten mee naar buiten
+--
+--  website_vestigingen() gaf ze nog niet terug, en zonder die lijst kan de
+--  site de vestigingspagina niet maken zoals hij nu is.
+-- ---------------------------------------------------------------------------
+
+drop function if exists public.website_vestigingen();
+
+create function public.website_vestigingen()
+returns table (
+  slug        text,
+  naam        text,
+  adres       text,
+  postcode    text,
+  plaats      text,
+  telefoon    text,
+  email       text,
+  lat         double precision,
+  lon         double precision,
+  wasstraten  integer,
+  openingstijden jsonb,
+  intro       text,
+  bereikbaar  text,
+  bijzonder   text,
+  diensten    text[],
+  punten      text[]
+)
+language sql stable security definer set search_path = public as $$
+  select
+    l.website_slug, l.name, l.address, l.postcode, l.city,
+    l.phone, l.email, l.lat, l.lon, l.bays,
+    l.opening_hours, l.intro, l.bereikbaar, l.bijzonder, l.diensten, l.punten
+  from public.locations l
+  where l.op_website
+    and l.active
+    and l.website_slug is not null
+  order by l.name;
+$$;
+
+/*
+ * De rechten opnieuw zetten.
+ *
+ * "drop function" gooit ook de rechten weg, en de nieuwe functie krijgt van
+ * Supabase weer automatisch anon en authenticated erbij -- zie 0033 en 0034.
+ * Zonder deze twee regels staat het gat dat daar is gedicht meteen weer open.
+ */
+revoke execute on function public.website_vestigingen()        from public, anon, authenticated;
+revoke execute on function public.website_aantal_medewerkers() from public, anon, authenticated;
+
+grant execute on function public.website_vestigingen()        to service_role;
+grant execute on function public.website_aantal_medewerkers() to service_role;

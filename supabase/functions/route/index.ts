@@ -35,10 +35,27 @@ const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
 
 const nu = () => Date.now()
 
+/*
+ * Kopregels waarmee een browser deze functie mag aanroepen.
+ *
+ * Zonder dit bestaat de functie wel en is hij onbereikbaar zodra de app in
+ * een browser draait op een eigen adres: de browser stuurt eerst een
+ * vooraf-vraag (OPTIONS), krijgt geen toestemming terug, en doet het echte
+ * verzoek niet eens. Je ziet dan een knop die niets doet.
+ *
+ * Allow-Origin op * kan hier: wie deze functie aanroept moet nog steeds een
+ * geldig token meesturen, en dat token geeft de browser niet zomaar weg.
+ */
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...CORS, 'Content-Type': 'application/json' },
   })
 }
 
@@ -130,6 +147,8 @@ async function wieBelt(req: Request) {
  * ------------------------------------------------------------------ */
 
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
+
   if (req.method !== 'POST') return json({ error: 'Alleen POST' }, 405)
 
   const beller = await wieBelt(req)

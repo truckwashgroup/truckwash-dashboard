@@ -28,6 +28,35 @@
   "name": "truckwash-dashboard",
   "compatibility_date": "2026-09-02",
 
+  /*
+   * Het eigen adres.
+   *
+   * Dit hier zetten en niet in het scherm van Cloudflare: dan staat het in de
+   * repo en is het na een verhuizing of een nieuw project met één commando
+   * terug. Wat je in een scherm klikt is nergens terug te lezen.
+   *
+   * Cloudflare maakt het DNS-record zelf aan. Stond er al iets op deze naam --
+   * en dat was zo, er gaf iets een 401 -- dan neemt dit het over.
+   */
+  "routes": [
+    { "pattern": "truckwash-workspace.com", "custom_domain": true }
+  ],
+
+  /*
+   * Geen voorbeeld-adressen.
+   *
+   * Cloudflare waarschuwde hier zelf voor bij de uitrol: zonder deze regel
+   * krijgt elke tak en elke versie een eigen openbaar adres. Voor een intern
+   * gereedschap betekent dat een handvol adressen waar het inlogscherm van
+   * Truckwash 1 op staat, zonder dat iemand ze bijhoudt.
+   *
+   * workers_dev staat bewust nog aan. Dat is het vangnet: gaat er iets mis met
+   * het eigen adres, dan is de app nog bereikbaar op het workers.dev-adres.
+   * Zet hem op false zodra truckwash-workspace.com het doet.
+   */
+  "preview_urls": false,
+  "workers_dev": true,
+
   "assets": {
     "directory": "./dist",
 

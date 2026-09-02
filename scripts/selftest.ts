@@ -141,6 +141,45 @@ await sync()
 check('offline sync meldt een fout', useSync.getState().lastError !== null)
 check('wachtrij blijft intact na mislukte sync', (await db.outbox.count()) === 4)
 
+/*
+ * En blijft intact als de SERVER hem weigert, hoe vaak dat ook gebeurt.
+ *
+ * Dit is een ander geval dan hierboven. Offline komt het niet eens tot een
+ * poging: de ronde stopt bij ping() en de teller blijft op nul. Weigert de
+ * server daarentegen het record zelf, dan werd er wél geteld -- en na acht
+ * keer werd de wijziging weggegooid.
+ *
+ * Dat kostte een nieuwe medewerker: aangemaakt, in de wachtrij gezet, acht
+ * keer geweigerd, weg. Het scherm zei "staat erin", de lijst toonde hem, en
+ * de server kende hem niet. Bij het uitnodigen was er niets meer om terug te
+ * sturen, en de melding luidde "dossier niet gevonden".
+ *
+ * Daarom gaat de verbinding hier weer aan en laten we alleen het versturen
+ * weigeren. Twintig rondes is ruim over de oude grens van acht.
+ */
+setOnline(true)
+setForcedOffline(false)
+const pushVoorProef = api.push
+api.push = async () => { throw new Error('proef: de server weigert dit') }
+
+for (let i = 0; i < 20; i++) await sync()
+
+api.push = pushVoorProef
+
+const naVeelPogingen = await db.outbox.count()
+check('een geweigerde wijziging wordt niet meer weggegooid', naVeelPogingen === 4,
+  `kreeg ${naVeelPogingen} van de 4 — er is werk verdwenen`)
+
+const pogingen = (await db.outbox.toArray()).map((r) => r.tries)
+check('de pogingen worden geteld, zodat je ziet dat het vastloopt',
+  pogingen.every((n) => n > 8), `pogingen: ${pogingen.join(', ')}`)
+
+check('en bij elke regel staat waarom het niet lukt',
+  (await db.outbox.toArray()).every((r) => !!r.lastError))
+
+setOnline(false)
+setForcedOffline(true)
+
 /* ==================================================================== */
 
 console.log('\n4. Terug online: de wachtrij wordt verstuurd')

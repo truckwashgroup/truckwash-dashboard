@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://truckwash1group.nl/sitemap.xml

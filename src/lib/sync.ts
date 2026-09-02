@@ -407,17 +407,40 @@ async function pushPerStuk(batch: OutboxRecord[]): Promise<Error | null> {
         continue
       }
 
+      /*
+       * En al het overige: blijft óók staan.
+       *
+       * Hier werd een wijziging na acht pogingen weggegooid, met een regel in
+       * het logboek en verder niets. De bedoeling was goed -- een record dat
+       * de server nooit zal accepteren mag de wachtrij niet eeuwig vullen --
+       * maar de prijs bleek te hoog.
+       *
+       * Wat er gebeurde: een nieuwe medewerker werd aangemaakt, ging de
+       * wachtrij in, werd acht keer geweigerd en verdween. In het scherm stond
+       * "staat erin", in de lijst stond hij, en op de server stond niets. Bij
+       * het versturen van de uitnodiging zei de server terecht "dossier niet
+       * gevonden" -- en er was niets meer om terug te sturen. De enige die het
+       * merkte was degene die er weken later achter kwam.
+       *
+       * De reden om wél weg te gooien is intussen vervallen. Een vastgelopen
+       * regel blokkeert de andere niet (we duwen ze stuk voor stuk) en sinds
+       * 1.26.2 blokkeert hij het ophalen ook niet meer. Wat overblijft is een
+       * wachtrij die zichtbaar volloopt, en dat is precies het soort probleem
+       * dat je wél op tijd ziet.
+       *
+       * Weggooien kan nog steeds, maar dan met de hand: de wachtrij staat in
+       * Ontwikkeling > Meekijken, met de reden erbij.
+       */
       const tries = r.tries + 1
-      if (tries >= MAX_TRIES) {
-        await db.outbox.delete(r.id!)
-        // Zichtbaar maken dat er iets is weggegooid; anders verdwijnt een
-        // wijziging zonder dat iemand het merkt.
+      await db.outbox.update(r.id!, { tries, lastError: msg })
+
+      if (tries === MAX_TRIES) {
+        // Eén keer melden op het moment dat het vastlopen duidelijk wordt.
+        // Elke ronde opnieuw schreeuwen helpt niemand.
         console.warn(
-          `[sync] ${r.entity}/${r.recordId} is na ${MAX_TRIES} pogingen ` +
-          `opgegeven en weggegooid. Laatste fout: ${msg}`)
-        logLive('netwerk', `Opgegeven: ${r.entity}/${r.recordId}`, { detail: msg })
-      } else {
-        await db.outbox.update(r.id!, { tries, lastError: msg })
+          `[sync] ${r.entity}/${r.recordId} lukt na ${MAX_TRIES} pogingen nog ` +
+          `steeds niet en blijft in de wachtrij staan. Laatste fout: ${msg}`)
+        logLive('netwerk', `Blijft hangen: ${r.entity}/${r.recordId}`, { detail: msg })
       }
     }
   }

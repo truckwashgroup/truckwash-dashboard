@@ -1,4 +1,6 @@
 import { db, alleMensen } from './db'
+import { users } from './repo'
+import { useSync } from './sync'
 import { supabase, supabaseConfigured } from './api/supabaseApi'
 import type { User } from './types'
 
@@ -88,9 +90,71 @@ async function alleenHierWeg(userId: string) {
   if (wachtend.length) await db.outbox.bulkDelete(wachtend)
 }
 
+/**
+ * Zorgt dat de server dit dossier kent voordat we er iets mee vragen.
+ *
+ * Aanleiding: iemand maakte een medewerker aan, kreeg "staat erin", drukte op
+ * uitnodigen en las "dossier niet gevonden". De mail ging nooit uit. Het
+ * dossier stond wél in de lijst op dat apparaat, maar niet op de server -- de
+ * wijziging was op weg daarheen blijven steken en toen weggegooid.
+ *
+ * De uitnodiging gaat via de server, dus zonder dossier daar valt er niets uit
+ * te nodigen. Dat is terecht. Maar doodlopen is het niet: het dossier staat
+ * hier, dus we kunnen hem alsnog aanbieden en het opnieuw proberen.
+ *
+ * Geeft terug of de server hem nu kent.
+ */
+export async function zorgDatHijErStaat(userId: string): Promise<boolean> {
+  const persoon = await db.users.get(userId)
+  if (!persoon) return false
+  if (!supabaseConfigured) return false
+
+  // Opnieuw aanbieden. put() zet hem in de wachtrij; stond hij daar al, dan
+  // wordt die regel bijgewerkt in plaats van verdubbeld.
+  await users.update(userId, {})
+
+  try {
+    await useSync.getState().sync({ silent: true })
+  } catch {
+    // De ronde kan op iets anders stuklopen; dat zegt niets over dit dossier.
+  }
+
+  const { data, error } = await supabase()
+    .from('profiles')
+    .select('id')
+    .eq('id', userId)
+    .maybeSingle()
+
+  return !error && !!data
+}
+
 export const personeel = {
-  /** Account aanmaken en de inloggegevens mailen. */
-  uitnodigen: (userId: string) => roep({ actie: 'uitnodigen', userId }),
+  /**
+   * Account aanmaken en de inloggegevens mailen.
+   *
+   * Kent de server het dossier niet, dan bieden we het eerst alsnog aan en
+   * proberen we het daarna nog één keer. Twee keer dezelfde foutmelding
+   * teruggeven terwijl het probleem op te lossen is, is geen antwoord.
+   */
+  async uitnodigen(userId: string): Promise<Uitkomst> {
+    const uit = await roep({ actie: 'uitnodigen', userId })
+    if (uit.ok || uit.status !== 404) return uit
+
+    const staatEr = await zorgDatHijErStaat(userId)
+    if (!staatEr) {
+      const persoon = await db.users.get(userId)
+      return {
+        ok: false,
+        status: 404,
+        reden:
+          `${persoon?.name ?? 'Dit dossier'} staat alleen op dit apparaat; de ` +
+          'server kent hem niet. Het versturen is blijven steken. Kijk bij ' +
+          'Ontwikkeling > Meekijken wat de wachtrij zegt -- daar staat de reden.',
+      }
+    }
+
+    return roep({ actie: 'uitnodigen', userId })
+  },
 
   /**
    * Uitschrijven.

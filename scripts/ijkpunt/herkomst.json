@@ -1,0 +1,232 @@
+{
+ "gemaakt": "2026-09-02T13:15:23.601Z",
+ "waarvoor": "Bevroren kopie van de site zoals hij uit bouw/site.json komt. Dient als vergelijkingspunt voor de eerste bouw die zijn vestigingen uit de database haalt (website_vestigingen(), migratie 0033/0035).",
+ "bron": "C:\\Users\\Contr Truckwash\\Desktop\\projecten\\dashboard\\site",
+ "dashboard_commit": "a10bd7cd3f3d63aa060640fbc316fb50911edb6f",
+ "dashboard_versie": "1.27.0",
+ "site_json": {
+  "pad": "C:\\Users\\Contr Truckwash\\Desktop\\projecten\\truckwash-website\\bouw\\site.json",
+  "bytes": 81954,
+  "sha256": "a40e97a8ec9d0c363a6dd9220981fe623b9b0a7c1d949c75ccfbeefeeb91cb3c"
+ },
+ "aantal_bestanden": 49,
+ "aantal_paginas": 46,
+ "vestigingen": [
+  "aalsmeer",
+  "amsterdam",
+  "asten",
+  "bodegraven",
+  "doetinchem",
+  "ede",
+  "eindhoven",
+  "groenlo",
+  "hazeldonk",
+  "holten",
+  "maasvlakte",
+  "rilland",
+  "roosendaal",
+  "rotterdam",
+  "steenwijk",
+  "utrecht",
+  "venlo",
+  "wehl"
+ ],
+ "bestanden": {
+  "404.html": {
+   "bytes": 5121,
+   "sha256": "9bd3368e65898f63d53c11989c0826872a37eafb360e0f91b9efafac2a1a4457"
+  },
+  "assets/data.js": {
+   "bytes": 7456,
+   "sha256": "5180d4106d1e2a28cdce77e6b9e668a3ae2e725cf0588e4c17b8e72598b57224"
+  },
+  "contact/index.html": {
+   "bytes": 7320,
+   "sha256": "60d29f6cd111ef814b28f358fd659934e9e0f846dce85a25a7eb2914208823ed"
+  },
+  "diensten/alcoa-velgen-reinigen/index.html": {
+   "bytes": 6959,
+   "sha256": "99b460bd69821df86eafc69cf6caeeb65eb0e8325b6d6e75975d9d16d19c6b06"
+  },
+  "diensten/bus-wasstraat/index.html": {
+   "bytes": 6926,
+   "sha256": "2a01bb63741eebde1339620de971611fd0c5248dbeac0f6c12d422043e49b358"
+  },
+  "diensten/camper-wasstraat/index.html": {
+   "bytes": 6571,
+   "sha256": "a71410e209e1b09c1348ec053e4847e0f747e442c9a87086d804a30873018955"
+  },
+  "diensten/catering-op-locatie/index.html": {
+   "bytes": 7703,
+   "sha256": "85e3a5478c77b539b984ed81ae2d7c5972fb261b0a29bff38027222883fc36f5"
+  },
+  "diensten/haal-en-brengservice/index.html": {
+   "bytes": 6796,
+   "sha256": "b9851ee591ce7cb3dc1a4a2f298b2dd3751b62f5acf5a3f7ee9630e4ca7fc249"
+  },
+  "diensten/haccp-certificaat-en-behandeling/index.html": {
+   "bytes": 7322,
+   "sha256": "aac28e2a69872956ee335d8e7a4e086f673ab60bd0a0d1fe43da354dba0dbf31"
+  },
+  "diensten/index.html": {
+   "bytes": 12765,
+   "sha256": "f3d82d692c11e4e50a4d822c9c808f09ade5b292c4b8892874b4854a40f9fd77"
+  },
+  "diensten/interieur-reinigen/index.html": {
+   "bytes": 6948,
+   "sha256": "8bb49aef94fa4c2905a71834b5f9d20fe77b45f9c522eb96a4ea6069771d8304"
+  },
+  "diensten/nao-wasplaats/index.html": {
+   "bytes": 6494,
+   "sha256": "5de8257e6ba998e28ffdd91a12516ea715195c998fe1de3688125ac7295d0b6d"
+  },
+  "diensten/truck-shop/index.html": {
+   "bytes": 6955,
+   "sha256": "bf813fad21aba60f3c3598fee284c5f2280eaf65c8a2c98d3854b3f59296dbd9"
+  },
+  "diensten/truckparking/index.html": {
+   "bytes": 7011,
+   "sha256": "66ece381304a05bce8a751be6a4690f6ca7a96558b10d74df67f3c84b172dcb7"
+  },
+  "diensten/vogelgriep/index.html": {
+   "bytes": 7091,
+   "sha256": "4713c40a6de1d0484c33f933c4d87c1ac809884c28bc5088ac3be6f2103ccb6b"
+  },
+  "diensten/vrachtwagen-polijsten/index.html": {
+   "bytes": 7169,
+   "sha256": "8d7f1b2e580246db335b8ebe8bd1d45a72d17d566c1c0a28f828972640aa554c"
+  },
+  "diensten/wasboxen/index.html": {
+   "bytes": 7280,
+   "sha256": "138a4521f852fac66c060ba5bb9b90db4d3bc0c8b8d4dc2a9b722044e7721a96"
+  },
+  "diensten/wegrestaurant-a2/index.html": {
+   "bytes": 6617,
+   "sha256": "221d1527fc3718b8edf3f78f757bc42086f550705dec3fd0f7458fcf348ffebe"
+  },
+  "index.html": {
+   "bytes": 19219,
+   "sha256": "b4a9c5cbe61d44640f092d8262a6272ed1ececcc38fc3e8f8bd1ed08289a232a"
+  },
+  "locaties/aalsmeer/index.html": {
+   "bytes": 9343,
+   "sha256": "68b183ee120fe50d449350ab6a86f8aed6a674da540eb83b6d45767cd294afec"
+  },
+  "locaties/amsterdam/index.html": {
+   "bytes": 9625,
+   "sha256": "ba76b4edf835c2ce1b7e19ea30d403f24dd6cf2a1dbe553d383166854f26ad7a"
+  },
+  "locaties/asten/index.html": {
+   "bytes": 9166,
+   "sha256": "b8438543c6bee7f5a457daa49c5ca7b32a09917ba4ca3adb42ca75dc47af907e"
+  },
+  "locaties/bodegraven/index.html": {
+   "bytes": 9648,
+   "sha256": "d2f7579ef038dd9edb210196bb9be80ab789132470f6bd94f153e57c670e8934"
+  },
+  "locaties/doetinchem/index.html": {
+   "bytes": 9409,
+   "sha256": "50abf9a5fdccb81ab930583c800a173b730761dd17f64a4438fdf185e1b5b69a"
+  },
+  "locaties/ede/index.html": {
+   "bytes": 9422,
+   "sha256": "3147d4c10819eb108f30de232642f89e3c571bc578e36f7299f8e35f7c7d0447"
+  },
+  "locaties/eindhoven/index.html": {
+   "bytes": 10552,
+   "sha256": "f023210b7717bdc9dae7add5ac124f32356f31b7fc5721c615f09cfd15f40a78"
+  },
+  "locaties/groenlo/index.html": {
+   "bytes": 9254,
+   "sha256": "c9b1f0e836b39a5082e83cdc9393b673143f767bfe812657910413e123e2c48c"
+  },
+  "locaties/hazeldonk/index.html": {
+   "bytes": 9392,
+   "sha256": "6b19a8621e9cb4cda575fb699795391679e656e17789a82b5ea19a2525d3cba3"
+  },
+  "locaties/holten/index.html": {
+   "bytes": 9612,
+   "sha256": "33ac5579d7afdb3769a4dc39d23a2c6f5d43415a4ea73025361e0635f0507a83"
+  },
+  "locaties/index.html": {
+   "bytes": 10141,
+   "sha256": "c161b771622ca2d44d012095ce479fb663590e72771c3835644f7dd61f3c10b9"
+  },
+  "locaties/maasvlakte/index.html": {
+   "bytes": 9512,
+   "sha256": "df687af22ac5c760cc9710ed3f9275b06ec7c2bd7f4e37d91e79e4c77c3e8d10"
+  },
+  "locaties/rilland/index.html": {
+   "bytes": 9272,
+   "sha256": "28747f74089bac6dea28bb76b277358801b24e2e4fbc880672b1e057224905d5"
+  },
+  "locaties/roosendaal/index.html": {
+   "bytes": 9471,
+   "sha256": "009093e27420d556bdbbf739dee7fa5aa925ac7c4e10a1de32315d067a19f301"
+  },
+  "locaties/rotterdam/index.html": {
+   "bytes": 9885,
+   "sha256": "42d064b2994bb0bdecad177c64768e7c5f40e6e9be4db53cfef1beff483506da"
+  },
+  "locaties/steenwijk/index.html": {
+   "bytes": 9476,
+   "sha256": "dce87f9b6903c64acf0a44d4924cb1ab3822bf6e0a62cdeffba8f8b27b112ebe"
+  },
+  "locaties/utrecht/index.html": {
+   "bytes": 9491,
+   "sha256": "fbba6b784f882fc48f7337f1191bd1ca828c801bf146c43469afa28dc8e179e0"
+  },
+  "locaties/venlo/index.html": {
+   "bytes": 9612,
+   "sha256": "3c41ff2c253d42308f575811d13aaa851e28d5bfeb340c149203e4fb98f30f02"
+  },
+  "locaties/wehl/index.html": {
+   "bytes": 9317,
+   "sha256": "015e567111ca0f77395af650d870bdf213b26e3a729f5b15a7e714d228a81580"
+  },
+  "medewerkers/index.html": {
+   "bytes": 24717,
+   "sha256": "e48f14c787e0efc1018158dee13143236a0bed924b25317c8d59b5a86e07263a"
+  },
+  "over-ons/index.html": {
+   "bytes": 11042,
+   "sha256": "4c54e573337cc98adf3158f60124488a1472d93a8663f44b879d3e56d6272b3f"
+  },
+  "prijzen/index.html": {
+   "bytes": 14624,
+   "sha256": "ca57deb30475b95891af17e4f171e5536e9eee41fe5ce0e76abaa90536d23555"
+  },
+  "robots.txt": {
+   "bytes": 72,
+   "sha256": "61fee9d0a395b4002b877fa21f581afba1089621a8d8e617365b4bfb29b27332"
+  },
+  "sitemap.xml": {
+   "bytes": 5611,
+   "sha256": "a3e321d4da06393ddbd7c9ac41181c24af7ded470417f97bd84d66214732cd4f"
+  },
+  "veelgestelde-vragen/index.html": {
+   "bytes": 8706,
+   "sha256": "6d6f93f4f9f50ecdc0d789824a3f91d3cb7add0ed456d5fc86ced732e9953c5d"
+  },
+  "werken-bij/horeca-medewerker-bediening/index.html": {
+   "bytes": 10270,
+   "sha256": "cfe04821319c802323f4f69f50a9746d0027023f2112617e03f53c8353daa21b"
+  },
+  "werken-bij/index.html": {
+   "bytes": 8108,
+   "sha256": "5c525ffa9f926418257464254a2192d11aef7629b0e77b544d05459f2c7ebb22"
+  },
+  "werken-bij/open-sollicitatie/index.html": {
+   "bytes": 7640,
+   "sha256": "0bc23555ef07f628b19f3ccd3c76f0eb614ce4dd3b61be390072d6026bd5e0e0"
+  },
+  "werken-bij/pendelchauffeur/index.html": {
+   "bytes": 9974,
+   "sha256": "a8ebbae82aa08d82e5388eaa7ce7effcf453b3e6e88bda2c19b3d46d31b54039"
+  },
+  "werken-bij/washeld-worden/index.html": {
+   "bytes": 7801,
+   "sha256": "60de9f9be5fac439f2592607546eb9287621802ec01f6897f28b476cf57afc51"
+  }
+ }
+}

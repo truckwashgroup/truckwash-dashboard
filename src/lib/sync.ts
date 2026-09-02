@@ -76,19 +76,57 @@ export const useSync = create<SyncStore>((set, get) => ({
       if (!reachable) throw new Error('Geen verbinding')
       set({ online: true })
 
-      const geduwd = await pushOutbox()
+      /*
+       * Eerst duwen, dan ophalen -- maar het ophalen gaat door als het duwen
+       * mislukt.
+       *
+       * Hier stond "await pushOutbox()" zonder vangnet, en dat had een gevolg
+       * dat niemand bedoeld had. Sinds een weigering wegens rechten niet meer
+       * na acht pogingen wordt weggegooid, blijft zo'n regel staan -- voor
+       * altijd, en met opzet, want werk weggooien om een reden die er los van
+       * staat is erger. Maar pushOutbox() gooit die fout wel door, en dan werd
+       * pullChanges() nooit meer bereikt.
+       *
+       * Eén regel die de server structureel weigert legde daarmee de hele app
+       * stil: niets ging er meer uit en niets kwam er meer binnen. Geen nieuwe
+       * roosters, geen nieuwe berichten, geen wijzigingen van collega's. En het
+       * enige dat je zag was een zin over die ene regel.
+       *
+       * Ophalen is bovendien lezen, en dat heeft niets te maken met het recht
+       * om iets te schrijven. De fout wordt onthouden en aan het eind alsnog
+       * gemeld, zodat hij niet stilletjes verdwijnt.
+       */
+      let duwFout: unknown = null
+      let geduwd = 0
+      try {
+        geduwd = await pushOutbox()
+      } catch (e) {
+        duwFout = e
+      }
+
       // De server bepaalt de nieuwe cursor, niet de klok van dit apparaat.
       // Een telefoon met een verkeerd ingestelde tijd zou anders wijzigingen
       // overslaan of eindeloos opnieuw ophalen.
       const { serverTime, opgehaald } = await pullChanges()
 
+      /*
+       * De cursor eerst opslaan, ook als het duwen mislukte.
+       *
+       * Het ophalen is wél gelukt, dus dit venster is binnen. Zou de cursor
+       * blijven staan omdat er verderop nog een fout wordt gemeld, dan haalt
+       * elke volgende ronde precies hetzelfde opnieuw op -- steeds duurder, en
+       * nooit klaar.
+       */
       await setMeta(LAST_SYNC, serverTime)
       set({
         lastSyncAt: serverTime,
-        lastError: null,
         schemaAchter: [...ontbrekendeTabellen],
         sessieWeg: false,
+        // Alleen schoonvegen als er werkelijk niets meer openstaat.
+        ...(duwFout ? {} : { lastError: null }),
       })
+
+      if (duwFout) throw duwFout
 
       /*
        * En de post die op verbinding stond te wachten. Een roosterwijziging

@@ -538,9 +538,36 @@ async function haalVerwijderingen(since: number): Promise<number> {
        * laten we het met rust. Dat is een botsing tussen "iemand heeft dit
        * gewist" en "ik heb dit net aangepast", en die hoort niet stilzwijgend
        * door het wissen te worden gewonnen.
+       *
+       * Met één uitzondering, en die is duur betaald. Een wijziging die de
+       * server al eens heeft geweigerd op een rij die daar niet meer bestaat,
+       * kan nooit meer aankomen: hij wordt bij elke ronde opnieuw geprobeerd
+       * en opnieuw geweigerd. Dat is geen botsing meer maar een spook.
+       *
+       * Zo stonden er twee meldingen 111 pogingen lang vast. Ze waren door
+       * kassa-koppelen gemaakt en weer weggehaald, dit apparaat had ze nog, en
+       * het aanvinken als gelezen probeerde ze terug te schrijven -- met een
+       * afzender die deze gebruiker niet is. Terecht geweigerd, en daarmee
+       * onwegneembaar.
+       *
+       * De voorwaarde is streng met opzet. Een wijziging die nog nooit heeft
+       * gefaald blijft beschermd: dat is een echte botsing, en daar hoort het
+       * wissen niet vanzelf te winnen. Alleen wat aantoonbaar is geweigerd
+       * gaat mee.
        */
-      const eigen = await db.outbox.where('recordId').equals(id).count()
-      if (eigen > 0) continue
+      const eigen = await db.outbox.where('recordId').equals(id).toArray()
+      const kansloos = eigen.length > 0
+        && eigen.every((r) => r.tries > 0 && !!r.lastError)
+
+      if (eigen.length > 0 && !kansloos) continue
+
+      if (kansloos) {
+        await db.outbox.bulkDelete(eigen.map((r) => r.id!).filter((n) => n != null))
+        logLive('sync',
+          `Spook opgeruimd: ${entity}/${id} bestond niet meer op de server en ` +
+          `werd al ${eigen[0].tries} keer geweigerd`,
+          { detail: eigen[0].lastError })
+      }
 
       await TABLE_OF[entity]().delete(id)
       weg++

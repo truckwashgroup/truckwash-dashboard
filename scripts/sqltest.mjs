@@ -166,7 +166,9 @@ await run(db, '0032_wat_weg_is_moet_ook_weg_blijven.sql draait', sqlFile('supaba
 await run(db, '0033_de_vestiging_vult_de_website.sql draait', sqlFile('supabase/migrations/0033_de_vestiging_vult_de_website.sql'))
 await run(db, '0034_anon_hoort_hier_niet_bij_te_kunnen.sql draait', sqlFile('supabase/migrations/0034_anon_hoort_hier_niet_bij_te_kunnen.sql'))
 await run(db, '0035_de_achttien_vestigingen_komen_naar_binnen.sql draait', sqlFile('supabase/migrations/0035_de_achttien_vestigingen_komen_naar_binnen.sql'))
+await run(db, '0036_utrecht_bleef_op_kasweg_2112_staan.sql draait', sqlFile('supabase/migrations/0036_utrecht_bleef_op_kasweg_2112_staan.sql'))
 await run(db, '0037_een_kassa_mag_klokken.sql draait', sqlFile('supabase/migrations/0037_een_kassa_mag_klokken.sql'))
+await run(db, '0038_een_verwijdering_moet_zichzelf_melden.sql draait', sqlFile('supabase/migrations/0038_een_verwijdering_moet_zichzelf_melden.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -206,6 +208,7 @@ await run(db, '0025 nogmaals', sqlFile('supabase/migrations/0025_de_kluis_en_het
 await run(db, '0027 nogmaals', sqlFile('supabase/migrations/0027_een_foto_bij_het_artikel.sql'))
 await run(db, '0028 nogmaals', sqlFile('supabase/migrations/0028_een_kassa_is_geen_aanmelding.sql'))
 await run(db, '0037 nogmaals', sqlFile('supabase/migrations/0037_een_kassa_mag_klokken.sql'))
+await run(db, '0038 nogmaals', sqlFile('supabase/migrations/0038_een_verwijdering_moet_zichzelf_melden.sql'))
 await run(db, '0029 nogmaals', sqlFile('supabase/migrations/0029_de_administratie.sql'))
 await run(db, '0030 nogmaals', sqlFile('supabase/migrations/0030_gewone_facturen_waren_verdacht.sql'))
 await run(db, '0031 nogmaals', sqlFile('supabase/migrations/0031_bijwerken_is_nog_steeds_geen_aanmaken.sql'))
@@ -2786,7 +2789,7 @@ await db.exec(`
 check('een verwijdering is op te vragen vanaf een tijdstip',
   (await db.query(`
      select count(*)::int as n from public.deletion_log
-      where at > 1000 and record_id is not null`)).rows[0].n === 1)
+      where at > 1000 and record_id is not null and tabel = 'users'`)).rows[0].n === 1)
 
 check('met de tabel en de rij erbij',
   (await db.query(`
@@ -2819,7 +2822,7 @@ await db.exec(`
 check('een oude regel zonder rij-id valt buiten de selectie',
   (await db.query(`
      select count(*)::int as n from public.deletion_log
-      where at > 1000 and record_id is not null`)).rows[0].n === 1)
+      where at > 1000 and record_id is not null and tabel = 'users'`)).rows[0].n === 1)
 
 check('terwijl hij er voor de geschiedenis wel gewoon staat',
   (await db.query(
@@ -3055,6 +3058,67 @@ const { rows: [venlo] } = await db.query(
 check('een eigen tekst overleeft een tweede import',
   venlo.intro === 'Met de hand aangepast na de import.')
 check('en een gewijzigd aantal wasstraten ook', venlo.bays === 7)
+
+/* ===========================================================================
+ *  Een verwijdering meldt zichzelf (0038)
+ *
+ *  Aanleiding: twee meldingen stonden op een werkplek 111 pogingen lang in de
+ *  wachtrij. Ze waren door kassa-koppelen gemaakt en door diezelfde functie
+ *  weer weggehaald zodra de kassa gekoppeld was. Op de server klopte dat, maar
+ *  het ophalen vraagt om wat er is veranderd -- en een rij die er niet meer is
+ *  verandert nooit meer. Het apparaat hield ze dus, en probeerde ze bij het
+ *  aanvinken als gelezen terug te schrijven. Terecht geweigerd, en daarmee een
+ *  regel die nooit meer wegging.
+ * ======================================================================== */
+
+await asServer(db)
+
+await db.exec(`
+  insert into public.notifications (id, to_role, kind, title, body, created_at)
+  values ('nt_weg_test', 'management', 'taak', 'Gaat zo weg', 'proef', 9000)
+  on conflict (id) do nothing;`)
+
+const voorWeg = (await db.query(
+  `select count(*)::int as n from public.deletion_log
+    where tabel = 'notifications' and record_id = 'nt_weg_test'`)).rows[0].n
+check('er staat nog niets in de verwijderlijst', voorWeg === 0)
+
+await db.exec(`delete from public.notifications where id = 'nt_weg_test';`)
+
+check('een verwijderde melding komt in de verwijderlijst',
+  (await db.query(
+    `select count(*)::int as n from public.deletion_log
+      where tabel = 'notifications' and record_id = 'nt_weg_test'`)).rows[0].n === 1)
+
+check('met de titel erbij, zodat een mens de lijst kan lezen',
+  (await db.query(
+    `select naam from public.deletion_log
+      where tabel = 'notifications' and record_id = 'nt_weg_test'`))
+    .rows[0].naam === 'Gaat zo weg')
+
+/*
+ * Een aanmelding gaat langs dezelfde weg -- kassa-koppelen raakt beide
+ * tabellen aan.
+ */
+await db.exec(`
+  insert into public.signups (id, name, email, status, created_at)
+  values ('sg_weg_test', 'Proefaanmelding', 'p@t.nl', 'nieuw', 9000)
+  on conflict (id) do nothing;
+  delete from public.signups where id = 'sg_weg_test';`)
+
+check('en een verwijderde aanmelding ook',
+  (await db.query(
+    `select count(*)::int as n from public.deletion_log
+      where tabel = 'signups' and record_id = 'sg_weg_test'`)).rows[0].n === 1)
+
+/*
+ * De trigger mag de verwijdering nooit tegenhouden. Een rij die niet in het
+ * logboek komt is vervelend; een rij die niet weg kan is erger.
+ */
+check('de melding is werkelijk weg',
+  (await db.query(
+    `select count(*)::int as n from public.notifications where id = 'nt_weg_test'`))
+    .rows[0].n === 0)
 
 /* De telling is een getal en geen namenlijst. */
 const { rows: [telling] } =

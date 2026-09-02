@@ -21,6 +21,11 @@
   --breed:1180px;
 }
 *{box-sizing:border-box}
+/* De browser zet zelf [hidden]{display:none}, maar dat is een UA-regel en die
+   verliest van elke eigen display-regel hier: .knop staat op inline-flex en
+   zou met hidden erop gewoon zichtbaar blijven. #relmelding op /medewerkers/
+   leunt op hidden, dus die uitkomst moet betrouwbaar zijn. */
+[hidden]{display:none!important}
 html{scroll-behavior:smooth}
 body{
   margin:0;background:var(--papier);color:var(--inkt);
@@ -55,10 +60,32 @@ a{color:var(--navy-600)}
 .menu a[aria-current="page"]{color:var(--navy-900);background:var(--geel);font-weight:600}
 .menu a.webshop{color:var(--geel)}
 .menu a.webshop:hover{color:var(--navy-900);background:var(--geel)}
+/* De interne knop naar de werkplek: wit contour in plaats van geel. De
+   webshopknop ernaast is geel, .beltel erachter is geel en het menu-item van de
+   pagina waar je op staat wordt ook geel -- drie gele dingen in een balk van
+   70px is geen navigatie meer. Wit is de enige neutrale staat die overblijft en
+   spiegelt .knop-rand op menuformaat.
+   Bewust een inset box-shadow en GEEN border: .menu zet geen align-items, dus
+   de items rekken tot gelijke hoogte (stretch), en een border van 1px zou alle
+   andere links 2px hoger maken. */
+.menu a.werkplek{color:#fff;font-weight:600;box-shadow:inset 0 0 0 1px rgba(255,255,255,.38)}
+.menu a.werkplek:hover{color:var(--navy-900);background:#fff;box-shadow:inset 0 0 0 1px #fff}
+/* Deze derde regel is niet netjes maar noodzakelijk: .menu a[aria-current="page"]
+   hierboven is geel en heeft DEZELFDE specificiteit (0,2,1) als .menu a.werkplek.
+   Zonder deze regel wint de bronvolgorde alleen voor de kleur en blijft de gele
+   achtergrond staan -- wit op geel, precies op /medewerkers/ zelf. Niet weghalen. */
+.menu a.werkplek[aria-current="page"]{color:var(--navy-900);background:#fff;box-shadow:inset 0 0 0 1px #fff}
 .beltel{background:var(--geel);color:var(--navy-900);font-weight:700;font-size:15px;padding:10px 16px;border-radius:3px;text-decoration:none;white-space:nowrap;font-family:Archivo,sans-serif}
 .beltel:hover{background:var(--geel-licht)}
 .hamburger{display:none;margin-left:auto;background:none;border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:3px;padding:8px 12px;font-size:15px;cursor:pointer;font-family:Archivo,sans-serif;font-weight:600}
-@media(max-width:1020px){
+/* Nagemeten met de echte lettertypen (Barlow 500 @15.5px, Archivo 800 @23px):
+   merk 194px + menu 640px + beltel 138px + 2x24px tussenruimte = 1020px, en de
+   werkplekknop maakt daar 1106px van. .shell laat binnenin viewport-48px over,
+   dus dat past pas vanaf 1154px. Het oude breekpunt van 1020px liet het menu
+   daardoor al overlopen tussen 1021 en 1067px -- met de achtste knop zou die
+   band tot 1154px doorlopen. Vanaf 1181px is .shell afgetopt en is de ruimte
+   een vast gegeven: 1132px, met 26px over. Daarom staat het breekpunt daar. */
+@media(max-width:1180px){
   .menu{display:none;position:absolute;top:70px;left:0;right:0;background:var(--navy-900);flex-direction:column;padding:var(--s2);border-bottom:3px solid var(--geel);gap:2px}
   .menu.open{display:flex}
   .menu a{padding:12px 14px;font-size:17px}
@@ -431,7 +458,7 @@ tr.verborgen{display:none}
   transition: transform .25s ease;
 }
 .menu a:hover::after { transform: scaleX(1); }
-.menu a[aria-current="page"]::after, .menu a.webshop::after { display: none; }
+.menu a[aria-current="page"]::after, .menu a.webshop::after, .menu a.werkplek::after { display: none; }
 
 .knop { position: relative; overflow: hidden; }
 .knop::after {
@@ -459,6 +486,19 @@ tr.verborgen{display:none}
 #app{animation:opkomst .3s ease}
 @keyframes opkomst{from{transform:translateY(7px)}to{transform:none}}
 .strook{height:4px;background:linear-gradient(90deg,var(--geel) 0%,var(--geel) 33%,var(--navy-600) 33%,var(--navy-600) 66%,var(--geel) 66%)}
+
+/* ---------- releases op /medewerkers/ ---------- */
+.rellijst{display:flex;flex-direction:column;gap:10px}
+.relrij{display:flex;align-items:baseline;gap:var(--s3);padding:14px var(--s3);background:var(--wit);border:1px solid var(--lijn);border-radius:4px;flex-wrap:wrap}
+.relrij .vi{flex:1 1 320px}
+.relrij h3{font-size:17px;margin:0 0 2px;letter-spacing:0}
+.relrij p{margin:0;color:var(--inkt-2);font-size:15.5px;line-height:1.45}
+.relrij .reldl{display:flex;gap:16px;flex-wrap:wrap;font-size:14.5px;font-weight:600}
+.reldatum{color:var(--inkt-3);font-weight:400;font-size:14.5px;margin-left:8px}
+.relnu{background:var(--geel);color:var(--navy-900);border-radius:3px;padding:1px 7px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-family:Archivo,sans-serif;margin-left:8px}
+.relnoot{color:var(--inkt-3);font-size:15px;margin:0 0 var(--s3)}
+.relmelding{color:var(--inkt-2);font-size:15.5px;margin:0 0 var(--s3);padding:12px 16px;background:var(--mist);border-left:3px solid var(--geel);border-radius:0 3px 3px 0}
+.dlgrootte{color:var(--inkt-3);font-size:14.5px;display:block;margin-top:6px}
 
 /* ---------- toevoegingen voor de statische site ---------- */
 .overslaan{position:absolute;left:-9999px;top:0;z-index:100;background:var(--geel);color:var(--navy-900);padding:12px 20px;font-family:Archivo,sans-serif;font-weight:700;text-decoration:none;border-radius:0 0 3px 0}

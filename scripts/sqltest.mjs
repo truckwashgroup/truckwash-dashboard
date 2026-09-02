@@ -169,6 +169,7 @@ await run(db, '0035_de_achttien_vestigingen_komen_naar_binnen.sql draait', sqlFi
 await run(db, '0036_utrecht_bleef_op_kasweg_2112_staan.sql draait', sqlFile('supabase/migrations/0036_utrecht_bleef_op_kasweg_2112_staan.sql'))
 await run(db, '0037_een_kassa_mag_klokken.sql draait', sqlFile('supabase/migrations/0037_een_kassa_mag_klokken.sql'))
 await run(db, '0038_een_verwijdering_moet_zichzelf_melden.sql draait', sqlFile('supabase/migrations/0038_een_verwijdering_moet_zichzelf_melden.sql'))
+await run(db, '0039_verdwaalde_regeleindes_in_de_vestigingsteksten.sql draait', sqlFile('supabase/migrations/0039_verdwaalde_regeleindes_in_de_vestigingsteksten.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -209,6 +210,7 @@ await run(db, '0027 nogmaals', sqlFile('supabase/migrations/0027_een_foto_bij_he
 await run(db, '0028 nogmaals', sqlFile('supabase/migrations/0028_een_kassa_is_geen_aanmelding.sql'))
 await run(db, '0037 nogmaals', sqlFile('supabase/migrations/0037_een_kassa_mag_klokken.sql'))
 await run(db, '0038 nogmaals', sqlFile('supabase/migrations/0038_een_verwijdering_moet_zichzelf_melden.sql'))
+await run(db, '0039 nogmaals', sqlFile('supabase/migrations/0039_verdwaalde_regeleindes_in_de_vestigingsteksten.sql'))
 await run(db, '0029 nogmaals', sqlFile('supabase/migrations/0029_de_administratie.sql'))
 await run(db, '0030 nogmaals', sqlFile('supabase/migrations/0030_gewone_facturen_waren_verdacht.sql'))
 await run(db, '0031 nogmaals', sqlFile('supabase/migrations/0031_bijwerken_is_nog_steeds_geen_aanmaken.sql'))

@@ -170,6 +170,7 @@ await run(db, '0036_utrecht_bleef_op_kasweg_2112_staan.sql draait', sqlFile('sup
 await run(db, '0037_een_kassa_mag_klokken.sql draait', sqlFile('supabase/migrations/0037_een_kassa_mag_klokken.sql'))
 await run(db, '0038_een_verwijdering_moet_zichzelf_melden.sql draait', sqlFile('supabase/migrations/0038_een_verwijdering_moet_zichzelf_melden.sql'))
 await run(db, '0039_verdwaalde_regeleindes_in_de_vestigingsteksten.sql draait', sqlFile('supabase/migrations/0039_verdwaalde_regeleindes_in_de_vestigingsteksten.sql'))
+await run(db, '0040_bijwerken_is_geen_aanmaken_op_alle_tabellen.sql draait', sqlFile('supabase/migrations/0040_bijwerken_is_geen_aanmaken_op_alle_tabellen.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -211,6 +212,7 @@ await run(db, '0028 nogmaals', sqlFile('supabase/migrations/0028_een_kassa_is_ge
 await run(db, '0037 nogmaals', sqlFile('supabase/migrations/0037_een_kassa_mag_klokken.sql'))
 await run(db, '0038 nogmaals', sqlFile('supabase/migrations/0038_een_verwijdering_moet_zichzelf_melden.sql'))
 await run(db, '0039 nogmaals', sqlFile('supabase/migrations/0039_verdwaalde_regeleindes_in_de_vestigingsteksten.sql'))
+await run(db, '0040 nogmaals', sqlFile('supabase/migrations/0040_bijwerken_is_geen_aanmaken_op_alle_tabellen.sql'))
 await run(db, '0029 nogmaals', sqlFile('supabase/migrations/0029_de_administratie.sql'))
 await run(db, '0030 nogmaals', sqlFile('supabase/migrations/0030_gewone_facturen_waren_verdacht.sql'))
 await run(db, '0031 nogmaals', sqlFile('supabase/migrations/0031_bijwerken_is_nog_steeds_geen_aanmaken.sql'))
@@ -3060,6 +3062,78 @@ const { rows: [venlo] } = await db.query(
 check('een eigen tekst overleeft een tweede import',
   venlo.intro === 'Met de hand aangepast na de import.')
 check('en een gewijzigd aantal wasstraten ook', venlo.bays === 7)
+
+/* ===========================================================================
+ *  Bijwerken is geen aanmaken -- op ELKE tabel (0040)
+ *
+ *  "new row violates row-level security policy" is vijf keer gemeld, elke keer
+ *  op een andere tabel: log_events, tickets, notifications, channels. Steeds
+ *  dezelfde oorzaak, steeds één tabel tegelijk gerepareerd.
+ *
+ *  De app stuurt wijzigingen als een upsert, en PostgREST beoordeelt zo'n
+ *  verzoek altijd óók tegen de insert-regel -- ook als het een bijwerking is.
+ *  Mag je wijzigen maar niet aanmaken, dan wordt je wijziging geweigerd met een
+ *  melding over een nieuwe rij die er niet is.
+ *
+ *  rij_bestaat() haalt die verkeerde vraag weg. Deze controle zorgt dat het
+ *  niet weer bij één tabel blijft: komt er een tabel bij zonder de uitweg, dan
+ *  valt de bouw hier om.
+ * ======================================================================== */
+
+await asServer(db)
+
+/*
+ * Tabellen die de uitweg NIET nodig hebben, met reden. Alles wat hier niet
+ * staat moet hem hebben.
+ */
+const GEEN_UITWEG_NODIG = new Map([
+  ['log_events', 'laat invoegen onvoorwaardelijk toe; er valt niets te omzeilen'],
+  ['deletion_log', 'wordt alleen door de server geschreven'],
+])
+
+const { rows: zonderUitweg } = await db.query(`
+  select tablename, policyname
+    from pg_policies
+   where schemaname = 'public'
+     and cmd = 'INSERT'
+     and with_check is not null
+     and with_check not like '%bestaat%'
+     and with_check <> 'true'
+   order by tablename`)
+
+const ontbreekt = zonderUitweg.filter((r) => !GEEN_UITWEG_NODIG.has(r.tablename))
+
+check(
+  'elke insert-regel laat een bestaande rij door (de upsert-val)',
+  ontbreekt.length === 0,
+  ontbreekt.length
+    ? `mist rij_bestaat(): ${ontbreekt.map((r) => r.tablename).join(', ')}`
+      + ' -- zonder die uitweg wordt een gewone wijziging geweigerd met'
+      + ' "new row violates row-level security policy"'
+    : undefined)
+
+/*
+ * En de uitweg moet naar de eigen tabel wijzen. Een kopieerfout waarbij er
+ * 'tickets' blijft staan op de tabel channels geeft geen foutmelding: hij
+ * kijkt dan gewoon in de verkeerde tabel en weigert wat hij hoort toe te
+ * laten.
+ */
+const { rows: metUitweg } = await db.query(`
+  select tablename, with_check
+    from pg_policies
+   where schemaname = 'public' and cmd = 'INSERT'
+     and with_check like '%rij_bestaat%'`)
+
+const verkeerdeTabel = metUitweg.filter((r) => {
+  const m = String(r.with_check).match(/rij_bestaat\('(?:public\.)?([a-z_]+)'/)
+  return m && m[1] !== r.tablename
+})
+
+check('en die uitweg wijst naar de eigen tabel',
+  verkeerdeTabel.length === 0,
+  verkeerdeTabel.length
+    ? verkeerdeTabel.map((r) => r.tablename).join(', ')
+    : undefined)
 
 /* ===========================================================================
  *  Een verwijdering meldt zichzelf (0038)

@@ -1,6 +1,7 @@
 import { db, alleMensen } from './db'
 import { users } from './repo'
 import { useSync } from './sync'
+import { logLive } from './trail'
 import { supabase, supabaseConfigured } from './api/supabaseApi'
 import type { User } from './types'
 
@@ -105,25 +106,65 @@ async function alleenHierWeg(userId: string) {
  * Geeft terug of de server hem nu kent.
  */
 export async function zorgDatHijErStaat(userId: string): Promise<boolean> {
+  /*
+   * Elke stap wordt opgeschreven, en dat is niet overdreven.
+   *
+   * Dit liep drie keer achter elkaar stuk zonder één spoor: de wachtrij was
+   * leeg, het logboek schoon, en op de server stond niets. Vijf oorzaken zijn
+   * daarop uitgesloten -- de rechtenregel, twee triggers, een botsend
+   * personeelsnummer en Resend -- zonder de echte te vinden. Zoeken zonder
+   * meting is gokken.
+   *
+   * Dus meldt elke stap zichzelf. Faalt het opnieuw, dan staat er in
+   * Ontwikkeling > Meekijken precies wáár het misgaat in plaats van alleen dat
+   * het misging.
+   */
   const persoon = await db.users.get(userId)
-  if (!persoon) return false
-  if (!supabaseConfigured) return false
+  if (!persoon) {
+    logLive('netwerk', `Uitnodigen: ${userId} staat niet eens in de lokale lijst`)
+    return false
+  }
+  if (!supabaseConfigured) {
+    logLive('netwerk', 'Uitnodigen: er is geen database ingesteld')
+    return false
+  }
+
+  const voor = await db.outbox.where('recordId').equals(userId).count()
 
   // Opnieuw aanbieden. put() zet hem in de wachtrij; stond hij daar al, dan
   // wordt die regel bijgewerkt in plaats van verdubbeld.
   await users.update(userId, {})
 
+  const na = await db.outbox.where('recordId').equals(userId).count()
+  logLive('netwerk',
+    `Uitnodigen: ${persoon.name} opnieuw aangeboden`,
+    { detail: `wachtrij voor ${voor}, na ${na}` })
+  if (na === 0) {
+    logLive('netwerk', 'Uitnodigen: hij komt niet in de wachtrij terecht')
+    return false
+  }
+
   try {
     await useSync.getState().sync({ silent: true })
-  } catch {
-    // De ronde kan op iets anders stuklopen; dat zegt niets over dit dossier.
+  } catch (e) {
+    logLive('netwerk', 'Uitnodigen: de ronde liep stuk',
+      { detail: e instanceof Error ? e.message : String(e) })
   }
+
+  const rest = await db.outbox.where('recordId').equals(userId).toArray()
+  logLive('netwerk',
+    `Uitnodigen: na de ronde staan er nog ${rest.length} wijziging(en)`,
+    { detail: rest.map((r) => `${r.entity} ${r.tries}x ${r.lastError ?? '—'}`).join(' | ') })
 
   const { data, error } = await supabase()
     .from('profiles')
     .select('id')
     .eq('id', userId)
     .maybeSingle()
+
+  logLive('netwerk',
+    `Uitnodigen: de server ${data ? 'kent hem nu' : 'kent hem niet'}`,
+    { detail: error ? `${error.code ?? ''} ${error.message}`.trim() : 'geen fout' })
 
   return !error && !!data
 }

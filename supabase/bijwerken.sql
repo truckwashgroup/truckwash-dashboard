@@ -1,5 +1,5 @@
 -- ===========================================================================
---  Bijwerken: migratie 0017 tot en met 0033
+--  Bijwerken: migratie 0017 tot en met 0034
 --
 --  Plak dit in de SQL-editor van Supabase en druk op Run. Opnieuw draaien mag.
 --
@@ -24,6 +24,7 @@
 --    0031  0031_bijwerken_is_nog_steeds_geen_aanmaken.sql
 --    0032  0032_wat_weg_is_moet_ook_weg_blijven.sql
 --    0033  de vestiging vult de website
+--    0034  anon hoort hier niet bij te kunnen (beveiliging -- draai deze)
 -- ===========================================================================
 
 -- ===========================================================================
@@ -2936,21 +2937,113 @@ $$;
  * Eerst intrekken, dan uitdelen -- en die volgorde is het hele punt.
  *
  * Postgres geeft het uitvoerrecht op een nieuwe functie uit zichzelf aan
- * PUBLIC, en daar vallen anon en authenticated onder. Alleen "grant to
- * service_role" laat die standaard dus gewoon staan: iedereen met de publieke
- * sleutel kan de functie aanroepen. En omdat het security definer-functies
- * zijn, stapt zo'n aanroep dwars door de beveiligingsregels op locations en
- * profiles heen. Dat is precies het omgekeerde van wat hierboven staat.
+ * PUBLIC. Alleen "grant to service_role" laat die standaard gewoon staan:
+ * iedereen kan de functie dan aanroepen. En omdat het security definer-
+ * functies zijn, stapt zo'n aanroep dwars door de beveiligingsregels op
+ * locations en profiles heen. Dat is het omgekeerde van wat hierboven staat.
  *
- * Zonder de revoke faalt dat stil: er komt geen foutmelding, er komt een lijst.
- * Twee controles in scripts/sqltest.mjs houden dit vast.
+ * Waarom anon en authenticated er apart bij staan
+ * -----------------------------------------------
+ *
+ * Omdat "revoke from public" ze op Supabase NIET raakt. Supabase zet in elk
+ * project een standaardregel klaar:
+ *
+ *   alter default privileges in schema public
+ *     grant execute on functions to anon, authenticated, service_role;
+ *
+ * Daardoor krijgt elke nieuwe functie een EIGEN recht voor anon en
+ * authenticated, en niet een recht via PUBLIC. Intrekken bij PUBLIC haalt die
+ * eigen rechten er niet af. Gemeten op de echte database:
+ *
+ *   anon=X/postgres | authenticated=X/postgres | service_role=X/postgres
+ *
+ * De eerste versie van deze migratie trok alleen bij PUBLIC in en leek te
+ * werken, want in de test (PGlite) bestaat die standaardregel niet en erft
+ * anon wél via PUBLIC. De test stond groen en het gat stond open. De stub in
+ * scripts/sqltest.mjs bootst die regel nu na, zodat dit verschil niet meer
+ * tussen wal en schip valt.
  *
  * De website haalt dit op via een serverfunctie met de servicesleutel. Anon
  * uitvoerrecht geven kan later alsnog, maar dan als besluit en niet als
  * bijvangst van een standaardinstelling.
  */
-revoke execute on function public.website_vestigingen() from public;
-revoke execute on function public.website_aantal_medewerkers() from public;
+revoke execute on function public.website_vestigingen()        from public, anon, authenticated;
+revoke execute on function public.website_aantal_medewerkers() from public, anon, authenticated;
 
 grant execute on function public.website_vestigingen() to service_role;
 grant execute on function public.website_aantal_medewerkers() to service_role;
+
+-- ===========================================================================
+--  Anon hoort hier niet bij te kunnen
+--
+--  Aanleiding: bij het nameten van 0033 bleek dat een bezoeker zonder inlog,
+--  met alleen de publieke sleutel, twee functies kon aanroepen die daar niet
+--  voor bedoeld zijn. Gemeten via de REST-laag, zonder enige sessie:
+--
+--    POST /rest/v1/rpc/pos_kluis_saldo  {"kluis":"..."}   -> 200, een bedrag
+--    POST /rest/v1/rpc/vestiging_bezet  {"loc":"..."}     -> 200, een lijst
+--
+--  Dat is geen bewuste keuze geweest. In 0025 en 0026 staat letterlijk:
+--
+--    grant execute on function public.pos_kluis_saldo(text)  to authenticated;
+--    grant execute on function public.vestiging_bezet(text)  to authenticated;
+--
+--  "to authenticated" betekent: ingelogd, en verder niemand. Maar Supabase
+--  zet in elk project deze standaardregel klaar:
+--
+--    alter default privileges in schema public
+--      grant execute on functions to anon, authenticated, service_role;
+--
+--  Daardoor krijgt elke nieuwe functie er anon gratis bij. De grant erna
+--  bevestigt alleen wat er al stond; hij neemt niets weg. Deze migratie laat
+--  de code dus doen wat er al stond -- ze verandert geen bedoeling.
+--
+--  Waarom dit veilig is
+--  --------------------
+--
+--  Beide functies zijn security definer: ze draaien met de rechten van de
+--  eigenaar en stappen dwars door de regels op de onderliggende tabellen
+--  heen. Precies daarom moet de deur ervoor kloppen.
+--
+--  Nagekeken voordat dit werd ingetrokken:
+--
+--    - Geen van beide komt voor in een beveiligingsregel (using / with check).
+--      Zat er wel een in, dan zou intrekken bij anon elke anonieme aanvraag op
+--      die tabel een foutmelding geven in plaats van een lege lijst.
+--    - Geen van beide apps roept ze aan. De enige rpc-aanroep in het dashboard
+--      en de kassa samen is server_time_ms.
+--    - vestiging_bezet wordt wel gebruikt binnen een trigger (0026, regel
+--      196). Een trigger draait onder de eigenaar en heeft dit recht niet
+--      nodig.
+--
+--  authenticated houdt zijn recht. Alleen anon gaat eraf.
+--
+--  LET OP: pos_kluis_saldo hoort bij de kassa (0025). Dit raakt geen enkele
+--  regel van die functie zelf -- alleen wie hem mag aanroepen, en dat wordt
+--  wat er in 0025 al als bedoeling staat.
+-- ===========================================================================
+
+-- Waarom PUBLIC er ook bij staat, en niet alleen anon
+-- --------------------------------------------------
+--
+-- Er zitten twee rechten op deze functies, en je moet ze allebei weghalen:
+--
+--   =X/postgres        het recht van PUBLIC -- van Postgres zelf
+--   anon=X/postgres    het eigen recht van anon -- van Supabase' standaardregel
+--
+-- anon is lid van PUBLIC. Trek je alleen het eigen recht in, dan kan anon het
+-- nog steeds via PUBLIC. Trek je alleen bij PUBLIC in, dan kan anon het nog
+-- steeds via zijn eigen recht. Precies die eerste helft ging in de eerste
+-- versie van 0033 mis, en de tweede helft in de eerste versie van dit
+-- bestand. Allebei betrapt door de controle in scripts/sqltest.mjs.
+--
+-- authenticated raakt zijn recht via PUBLIC hier ook kwijt, en krijgt het
+-- daarom hieronder expliciet terug. Dat is meteen netter: dan staat er in de
+-- rechten wie het mag in plaats van "iedereen behalve".
+
+revoke execute on function public.pos_kluis_saldo(text) from public, anon;
+revoke execute on function public.vestiging_bezet(text) from public, anon;
+
+-- En teruggeven wat de bedoeling was, zodat opnieuw draaien altijd mag.
+grant execute on function public.pos_kluis_saldo(text) to authenticated;
+grant execute on function public.vestiging_bezet(text) to authenticated;

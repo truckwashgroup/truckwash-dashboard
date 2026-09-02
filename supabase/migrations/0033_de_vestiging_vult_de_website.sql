@@ -157,21 +157,38 @@ $$;
  * Eerst intrekken, dan uitdelen -- en die volgorde is het hele punt.
  *
  * Postgres geeft het uitvoerrecht op een nieuwe functie uit zichzelf aan
- * PUBLIC, en daar vallen anon en authenticated onder. Alleen "grant to
- * service_role" laat die standaard dus gewoon staan: iedereen met de publieke
- * sleutel kan de functie aanroepen. En omdat het security definer-functies
- * zijn, stapt zo'n aanroep dwars door de beveiligingsregels op locations en
- * profiles heen. Dat is precies het omgekeerde van wat hierboven staat.
+ * PUBLIC. Alleen "grant to service_role" laat die standaard gewoon staan:
+ * iedereen kan de functie dan aanroepen. En omdat het security definer-
+ * functies zijn, stapt zo'n aanroep dwars door de beveiligingsregels op
+ * locations en profiles heen. Dat is het omgekeerde van wat hierboven staat.
  *
- * Zonder de revoke faalt dat stil: er komt geen foutmelding, er komt een lijst.
- * Twee controles in scripts/sqltest.mjs houden dit vast.
+ * Waarom anon en authenticated er apart bij staan
+ * -----------------------------------------------
+ *
+ * Omdat "revoke from public" ze op Supabase NIET raakt. Supabase zet in elk
+ * project een standaardregel klaar:
+ *
+ *   alter default privileges in schema public
+ *     grant execute on functions to anon, authenticated, service_role;
+ *
+ * Daardoor krijgt elke nieuwe functie een EIGEN recht voor anon en
+ * authenticated, en niet een recht via PUBLIC. Intrekken bij PUBLIC haalt die
+ * eigen rechten er niet af. Gemeten op de echte database:
+ *
+ *   anon=X/postgres | authenticated=X/postgres | service_role=X/postgres
+ *
+ * De eerste versie van deze migratie trok alleen bij PUBLIC in en leek te
+ * werken, want in de test (PGlite) bestaat die standaardregel niet en erft
+ * anon wél via PUBLIC. De test stond groen en het gat stond open. De stub in
+ * scripts/sqltest.mjs bootst die regel nu na, zodat dit verschil niet meer
+ * tussen wal en schip valt.
  *
  * De website haalt dit op via een serverfunctie met de servicesleutel. Anon
  * uitvoerrecht geven kan later alsnog, maar dan als besluit en niet als
  * bijvangst van een standaardinstelling.
  */
-revoke execute on function public.website_vestigingen() from public;
-revoke execute on function public.website_aantal_medewerkers() from public;
+revoke execute on function public.website_vestigingen()        from public, anon, authenticated;
+revoke execute on function public.website_aantal_medewerkers() from public, anon, authenticated;
 
 grant execute on function public.website_vestigingen() to service_role;
 grant execute on function public.website_aantal_medewerkers() to service_role;

@@ -62,6 +62,19 @@ $fn$;
 
 grant usage on schema public to anon, authenticated, service_role;
 
+/*
+ * Supabase zet in elk project deze standaardregel klaar. Zonder deze regel
+ * hier klopt de test niet met de werkelijkheid, en dat is een keer flink
+ * misgegaan: 0033 trok het uitvoerrecht alleen bij PUBLIC in. In PGlite erfde
+ * anon via PUBLIC, dus de test stond groen; op de echte database had anon een
+ * EIGEN recht uit deze regel en bleef het gat gewoon open staan.
+ *
+ * Een test die soepeler is dan de werkelijkheid is erger dan geen test: die
+ * geeft je vertrouwen dat nergens op slaat.
+ */
+alter default privileges in schema public
+  grant execute on functions to anon, authenticated, service_role;
+
 -- Supabase levert ook een storage-schema met buckets en objecten. De
 -- beveiligingsregels op de dossiermap hangen daaraan, dus die bootsen we
 -- na -- anders test je de helft van het slot niet.
@@ -151,6 +164,7 @@ await run(db, '0030_gewone_facturen_waren_verdacht.sql draait', sqlFile('supabas
 await run(db, '0031_bijwerken_is_nog_steeds_geen_aanmaken.sql draait', sqlFile('supabase/migrations/0031_bijwerken_is_nog_steeds_geen_aanmaken.sql'))
 await run(db, '0032_wat_weg_is_moet_ook_weg_blijven.sql draait', sqlFile('supabase/migrations/0032_wat_weg_is_moet_ook_weg_blijven.sql'))
 await run(db, '0033_de_vestiging_vult_de_website.sql draait', sqlFile('supabase/migrations/0033_de_vestiging_vult_de_website.sql'))
+await run(db, '0034_anon_hoort_hier_niet_bij_te_kunnen.sql draait', sqlFile('supabase/migrations/0034_anon_hoort_hier_niet_bij_te_kunnen.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -194,6 +208,7 @@ await run(db, '0030 nogmaals', sqlFile('supabase/migrations/0030_gewone_facturen
 await run(db, '0031 nogmaals', sqlFile('supabase/migrations/0031_bijwerken_is_nog_steeds_geen_aanmaken.sql'))
 await run(db, '0032 nogmaals', sqlFile('supabase/migrations/0032_wat_weg_is_moet_ook_weg_blijven.sql'))
 await run(db, '0033 nogmaals', sqlFile('supabase/migrations/0033_de_vestiging_vult_de_website.sql'))
+await run(db, '0034 nogmaals', sqlFile('supabase/migrations/0034_anon_hoort_hier_niet_bij_te_kunnen.sql'))
 await run(db, '0026 nogmaals', sqlFile('supabase/migrations/0026_de_vestigingen_beheren.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
@@ -2888,6 +2903,92 @@ const { rows: [telling] } =
   await db.query('select public.website_aantal_medewerkers() as n')
 check('de personeelstelling geeft een getal terug', Number.isInteger(telling.n))
 check('en dat getal is niet negatief', telling.n >= 0)
+
+/* ===========================================================================
+ *  Wie mag er zonder inlog een functie aanroepen
+ *
+ *  Dit is geen controle op een enkel geval maar op de hele klasse, en hij
+ *  bestaat omdat het een keer echt is misgegaan.
+ *
+ *  Supabase zet in elk project deze regel klaar:
+ *
+ *    alter default privileges in schema public
+ *      grant execute on functions to anon, authenticated, service_role;
+ *
+ *  Elke nieuwe functie krijgt anon er dus gratis bij, ook als je daarna
+ *  netjes "grant execute to authenticated" schrijft -- die grant bevestigt
+ *  alleen, hij neemt niets weg. Bij security definer-functies is dat
+ *  vervelend: die draaien onder de eigenaar en stappen dwars door de regels
+ *  op de tabellen heen. Een vergeten revoke is dan geen klein lek maar een
+ *  open deur, en er komt geen enkele waarschuwing.
+ *
+ *  Vandaar: anon mag NIETS, tenzij het hieronder staat mét reden.
+ * ======================================================================== */
+
+/*
+ * Functies die anon wél moet kunnen uitvoeren.
+ *
+ * Bijna allemaal om dezelfde reden: ze worden aangeroepen bínnen een
+ * beveiligingsregel. Zo'n regel wordt beoordeeld met de rechten van degene
+ * die de vraag stelt. Komt er een aanvraag binnen zonder inlog, dan
+ * beoordeelt Postgres die regel als anon -- en zonder uitvoerrecht krijgt de
+ * bezoeker dan een foutmelding in plaats van een lege lijst. Dat is geen
+ * beveiligingswinst, alleen een lelijker antwoord.
+ *
+ * Ze geven bovendien allemaal iets over de aanroeper terug, en voor anon is
+ * dat null of false.
+ */
+const ANON_MAG = new Map([
+  ['my_id',              'staat in vrijwel elke beveiligingsregel'],
+  ['my_roles',           'idem'],
+  ['my_email',           'idem'],
+  ['my_company',         'idem'],
+  ['my_locations',       'idem'],
+  ['mijn_werkgevers',    'idem'],
+  ['sees_all_locations', 'idem'],
+  ['heeft_recht',        'idem'],
+  ['can_see_channel',    'regel op de overlegkanalen'],
+  ['mag_bericht_sturen', 'regel op de berichten'],
+  ['is_apparaataccount', 'regel op de kassa-accounts'],
+  ['is_uitgeschreven',   'regel op de profielen'],
+  ['bericht_bestaat',    'vangt de upsert-val af, staat in een with check'],
+  ['rij_bestaat',        'idem, op zes tabellen'],
+  ['server_time_ms',     'de enige rpc-aanroep die de apps werkelijk doen'],
+])
+
+await asServer(db)
+const { rows: openFuncties } = await db.query(`
+  select p.proname, pg_get_function_arguments(p.oid) as args
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.prosecdef
+     and pg_get_function_result(p.oid) <> 'trigger'
+     and has_function_privilege('anon', p.oid, 'execute')
+   order by p.proname`)
+
+const onverwacht = openFuncties.filter((r) => !ANON_MAG.has(r.proname))
+
+check(
+  'geen enkele security definer-functie staat per ongeluk open voor anon',
+  onverwacht.length === 0,
+  onverwacht.length
+    ? `open voor anon zonder reden: ${onverwacht.map((r) => `${r.proname}(${r.args})`).join(', ')}`
+      + ' -- zet er "revoke execute ... from anon" bij, of voeg hem met reden toe aan ANON_MAG'
+    : undefined)
+
+/*
+ * En andersom: staat er iets in de lijst dat niet meer bestaat, dan is de
+ * lijst aan het verouderen. Dat is het begin van een lijst die niemand meer
+ * gelooft.
+ */
+const bestaandeNamen = new Set(
+  (await db.query(`
+     select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'`)).rows.map((r) => r.proname))
+const spoken = [...ANON_MAG.keys()].filter((n) => !bestaandeNamen.has(n))
+check('en de uitzonderingenlijst bevat geen functies die niet bestaan',
+  spoken.length === 0, spoken.length ? `onbekend: ${spoken.join(', ')}` : undefined)
 
 await db.close()
 

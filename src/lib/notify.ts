@@ -89,8 +89,12 @@ export async function showDeviceNotification(title: string, body: string) {
 
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       // eslint-disable-next-line no-new
-      // './' en niet '/': de app staat op /app/, dus een absoluut pad wijst
-      // naar de wortel van de merksite, waar geen icons/-map staat.
+      // './' en niet '/', want dit bestand draait in twee apps op drie
+      // manieren en een absoluut pad klopt in geen van drieën. Het dashboard
+      // staat op /app/, dus '/icons/' wijst daar naar de wortel van de
+      // merksite. In Electron wordt de pagina via file:// geladen, en dan
+      // wijst '/icons/' naar de wortel van de schijf. Relatief lost het
+      // overal op naast het document waar het icoon ook werkelijk staat.
       new Notification(title, { body, icon: './icons/icon-192.webp', tag: 'truckwash' })
     }
   } catch {

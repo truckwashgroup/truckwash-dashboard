@@ -2976,6 +2976,62 @@ check('Utrecht staat er maar een keer',
     `select count(*)::int as n from public.locations where website_slug = 'utrecht'`))
     .rows[0].n === 1)
 
+/* ---------------------------------------------------------------------------
+ *  De botsing die 0035 niet aankon (0036)
+ *
+ *  Op de echte database bestond de code TW-UTR al: een proefinvoer met het
+ *  adres "kasweg 2112". 0035 voegt in met "on conflict (code) do nothing", dus
+ *  de echte Utrecht werd overgeslagen -- en de reparatie eronder had juist die
+ *  overgeslagen rij als bron nodig. Zeventien van de achttien kwamen binnen,
+ *  en niets meldde een fout.
+ *
+ *  Deze controle bestond eerst niet, en dat was geen toeval: een fixture
+ *  gebruikte diezelfde code TW-UTR, 0035 liep daarop stuk, en de fixture is
+ *  toen hernoemd. Daarmee verdween de botsing uit de test en dus ook het enige
+ *  geval waarvoor de reparatie geschreven was. Hier wordt hij daarom expliciet
+ *  nagebouwd zoals hij op de echte database stond.
+ * ------------------------------------------------------------------------ */
+
+await db.exec(`
+  delete from public.locations where website_slug = 'utrecht';
+  insert into public.locations (id, code, name, kind, address, postcode, city, bays)
+  values ('loc_oude_proef', 'TW-UTR', 'Truckwash Utrecht', 'vestiging',
+          'kasweg 2112', '3500 ZZ', 'Utrecht', 3);`)
+
+check('de situatie is nagebouwd: TW-UTR bezet, geen Utrecht op de site',
+  (await db.query(
+    `select count(*)::int as n from public.locations where website_slug = 'utrecht'`))
+    .rows[0].n === 0)
+
+await run(db, '0036_utrecht_bleef_op_kasweg_2112_staan.sql draait',
+  sqlFile('supabase/migrations/0036_utrecht_bleef_op_kasweg_2112_staan.sql'))
+
+const { rows: [utr] } = await db.query(`
+  select id, address, website_slug, bays, op_website,
+         array_length(punten, 1) as punten
+    from public.locations where code = 'TW-UTR'`)
+
+check('Utrecht staat nu op het echte adres', utr.address === 'Reactorweg 27')
+check('met het adres op de site erbij', utr.website_slug === 'utrecht')
+check('en met de punten van zijn pagina', utr.punten === 8)
+check('hij staat op de website', utr.op_website === true)
+check('het id is niet veranderd -- er kunnen uren aan hangen',
+  utr.id === 'loc_oude_proef')
+check('en het aantal wasstraten dat iemand zelf invulde blijft staan',
+  utr.bays === 3)
+
+check('Utrecht staat er nog steeds maar een keer',
+  (await db.query(
+    `select count(*)::int as n from public.locations where website_slug = 'utrecht'`))
+    .rows[0].n === 1)
+
+await run(db, '0036 nogmaals',
+  sqlFile('supabase/migrations/0036_utrecht_bleef_op_kasweg_2112_staan.sql'))
+check('en na een tweede keer draaien nog steeds een keer',
+  (await db.query(
+    `select count(*)::int as n from public.locations where website_slug = 'utrecht'`))
+    .rows[0].n === 1)
+
 /*
  * Opnieuw draaien mag niets omgooien.
  *

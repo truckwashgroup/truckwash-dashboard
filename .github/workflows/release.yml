@@ -31,8 +31,16 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
+      notes: ${{ steps.notes.outputs.notes }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          # De release-tekst komt uit de COMMIT waar de tag op wijst. Bij een
+          # handmatige start staat deze checkout op de branch en is die tag hier
+          # helemaal niet opgehaald; met de standaard fetch-depth (1) zou de
+          # volgende stap dan afbreken. 0 haalt alles op -- deze repo is 3,7 MB
+          # en 72 commits, dus dat kost niets.
+          fetch-depth: 0
 
       - id: v
         shell: bash
@@ -48,6 +56,77 @@ jobs:
             exit 1
           fi
           echo "version=$PKG" >> "$GITHUB_OUTPUT"
+
+      # ----------------------------------------------------------------
+      #  De release-tekst uit de commit halen
+      # ----------------------------------------------------------------
+      # De tags hier zijn annotated, maar hun bericht is EEN regel en zegt
+      # minder dan de commit. Bij v1.24.2 staat in de tag "geen Electron in de
+      # webbouw" en in de commit "de webbouw haalde honderd megabyte Electron
+      # op die hij nooit gebruikt", met 27 regels toelichting eronder. Daarom
+      # ^{commit} en niet de tag-annotatie.
+      #
+      # De commit-tekst wordt met git uitgelezen en NIET via ${{ }} in dit
+      # script geplakt. Dat is geen netheid: acht van de vijftig commit-teksten
+      # bevatten backticks, en die zouden bij inplakken als commando draaien.
+      - id: notes
+        shell: bash
+        env:
+          TAG: ${{ github.event.inputs.version || github.ref_name }}
+          VERSIE: ${{ steps.v.outputs.version }}
+        run: |
+          KOP=$(git log -1 --format='%s' "${TAG}^{commit}")
+          ROMP=$(git log -1 --format='%b' "${TAG}^{commit}")
+
+          # "Versie 1.24.2: " van de kop af -- dat nummer staat al in de titel
+          # en in de tag. Wat erachter staat blijft juist staan: dat is bij 48
+          # van de 50 releases de enige samenvatting die er is, dus de hele
+          # eerste regel weggooien zou de beste zin van de release weggooien.
+          KOP=$(printf '%s' "$KOP" | sed -E 's/^[Vv]ersie[[:space:]]+[0-9]+(\.[0-9]+)*[[:space:]]*:[[:space:]]*//')
+          # Stond er alleen "Versie 1.24.2" zonder tekst erachter, dan blijft er
+          # niets over en laten we de kop weg in plaats van een lege ## te zetten.
+          KOP=$(printf '%s' "$KOP" | sed -E 's/^[Vv]ersie[[:space:]]+[0-9]+(\.[0-9]+)*[[:space:]]*$//')
+
+          # Alles vanaf een regel die met [intern] begint valt af. Zo kun je in
+          # een commit iets kwijt dat wel in git hoort maar niet op een publieke
+          # release. Staat er geen [intern], dan verandert deze regel niets.
+          ROMP=$(printf '%s\n' "$ROMP" | sed -n '/^\[intern\]/q;p')
+
+          # Trailers eraf: 47 van de 50 commits eindigen op Co-Authored-By en
+          # dat is geen release-tekst.
+          ROMP=$(printf '%s\n' "$ROMP" | sed -E '/^(co-authored-by|co-committed-by|signed-off-by|reviewed-by|acked-by|tested-by):[[:space:]]/Id')
+
+          # Lege regels aan het eind weg.
+          ROMP=$(printf '%s\n' "$ROMP" | sed -E ':a;/^[[:space:]]*$/{$d;N;ba}')
+
+          # Willekeurig scheidingsteken: de tekst is vooraf onbekend, en een
+          # vast "EOF" kan er letterlijk in staan.
+          EIND="notes_$(openssl rand -hex 16)"
+          {
+            echo "notes<<${EIND}"
+            [ -n "$KOP" ] && printf '## %s\n\n' "$KOP"
+            [ -n "$(printf '%s' "$ROMP" | tr -d '[:space:]')" ] && printf '%s\n\n' "$ROMP"
+            echo "---"
+            echo
+            echo "### Downloaden"
+            echo
+            echo "**Windows** — pak \`Truckwash1-Dashboard-Setup-${VERSIE}.exe\`,"
+            echo "dubbelklik en volg de installatie. Updates komen daarna vanzelf binnen."
+            echo
+            echo "**Android** — pak het \`.apk\`-bestand, zet het op je toestel en tik erop."
+            echo "Sta eenmalig \"installeren uit onbekende bron\" toe."
+            echo
+            echo "**iOS** — nog niet beschikbaar; daarvoor is een Apple Developer-account nodig."
+            echo
+            echo "> Deze APK is ondertekend met de standaard ontwikkelsleutel. Prima om"
+            echo "> te installeren en te gebruiken; voor de Play Store is een eigen"
+            echo "> keystore nodig."
+            echo "${EIND}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Release-tekst voor ${TAG}:"
+          echo "  kop:  ${KOP:-(geen -- alleen de downloadinstructies)}"
+          echo "  romp: $(printf '%s' "$ROMP" | grep -c '' || true) regels"
 
   # ------------------------------------------------------------------
   #  Windows-installer
@@ -148,6 +227,9 @@ jobs:
           cp android/app/build/outputs/apk/debug/app-debug.apk \
              "out/Truckwash1-Dashboard-${{ needs.check.outputs.version }}.apk"
 
+      # De tekst komt uit de check-job. Hier mag ${{ }} wel: een `with:`-waarde
+      # wordt als invoer doorgegeven en niet in een shell-script geplakt, dus
+      # backticks in een commit-tekst kunnen hier niets uitrichten.
       - name: Aan de release hangen
         uses: softprops/action-gh-release@v2
         with:
@@ -155,17 +237,4 @@ jobs:
           name: Truckwash1 Dashboard ${{ needs.check.outputs.version }}
           draft: false
           files: out/*.apk
-          body: |
-            ## Downloaden
-
-            **Windows** — pak `Truckwash1-Dashboard-Setup-${{ needs.check.outputs.version }}.exe`,
-            dubbelklik en volg de installatie. Updates komen daarna vanzelf binnen.
-
-            **Android** — pak het `.apk`-bestand, zet het op je toestel en tik erop.
-            Sta eenmalig "installeren uit onbekende bron" toe.
-
-            **iOS** — nog niet beschikbaar; daarvoor is een Apple Developer-account nodig.
-
-            > Deze APK is ondertekend met de standaard ontwikkelsleutel. Prima om
-            > te installeren en te gebruiken; voor de Play Store is een eigen
-            > keystore nodig.
+          body: ${{ needs.check.outputs.notes }}

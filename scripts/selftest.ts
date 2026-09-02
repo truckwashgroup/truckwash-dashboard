@@ -4097,5 +4097,46 @@ console.log('\n— wat zit er werkelijk in dat bestand —')
 
 /* ==================================================================== */
 
+console.log('\nX. De spookopruimer eet geen verse dossiers')
+
+/*
+ * Dit kostte elk nieuw personeelsdossier, en het liet geen enkel spoor na.
+ *
+ * zonderSpoken() ruimt mensen op die hier staan en op de server niet. Dat is
+ * bedoeld voor een dossier dat de server nooit heeft gehaald. Maar een NET
+ * aangemaakte medewerker staat daar ook niet -- die wacht nog in de wachtrij.
+ * En omdat deze controle in het scherm "Medewerker toevoegen" bij elke
+ * toetsaanslag draait, werd hij binnen een seconde na het aanmaken gewist,
+ * inclusief zijn verzendopdracht.
+ *
+ * Wat je overhield: "staat erin" op het scherm, niets in de wachtrij, niets op
+ * de server, en een uitnodiging die zegt dat het dossier niet bestaat.
+ */
+{
+  const { welkeZijnSpoken } = await import('../src/lib/personeel')
+
+  const ids = ['u_vers', 'u_spook', 'u_bestaat']
+  const opServer = new Set(['u_bestaat'])
+  const onderweg = new Set(['u_vers'])
+
+  const spoken = welkeZijnSpoken(ids, opServer, onderweg)
+
+  check('wie nog in de wachtrij staat is geen spook',
+    !spoken.includes('u_vers'))
+  check('wie op de server staat ook niet',
+    !spoken.includes('u_bestaat'))
+  check('en wie nergens staat en niets meer klaar heeft staan wel',
+    spoken.includes('u_spook'))
+  check('precies die ene dus', spoken.length === 1)
+
+  /* De oude regel -- alleen "staat niet op de server" -- zou de net
+     aangemaakte medewerker hebben meegenomen. */
+  const oud = ids.filter((id) => !opServer.has(id))
+  check('de oude regel nam er twee mee, waaronder de verse',
+    oud.length === 2 && oud.includes('u_vers'))
+}
+
+/* ==================================================================== */
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

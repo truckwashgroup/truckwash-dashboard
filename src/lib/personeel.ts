@@ -365,6 +365,26 @@ export function mogelijkDubbel(
  * Zonder verbinding gebeurt er niets. Dan wéten we het niet, en dan is een
  * onterechte waarschuwing beter dan stilletjes een dossier weggooien.
  */
+/**
+ * Wie is werkelijk een spook, en wie is alleen nog onderweg.
+ *
+ * Apart en zonder database, want hier zat de fout en hier hoort dus een
+ * controle op te staan. Met een echte verbinding erin is dit niet te toetsen:
+ * zonder database stapt zonderSpoken() er meteen uit en bewijst een test
+ * niets.
+ *
+ * Een spook is iemand die hier staat, op de server niet staat, én waarvoor
+ * niets meer klaarstaat om dat te herstellen. Die laatste voorwaarde ontbrak,
+ * en dat kostte elk nieuw personeelsdossier.
+ */
+export function welkeZijnSpoken(
+  ids: string[],
+  bestaatOpServer: Set<string>,
+  nogTeVersturen: Set<string>,
+): string[] {
+  return ids.filter((id) => !bestaatOpServer.has(id) && !nogTeVersturen.has(id))
+}
+
 export async function zonderSpoken(verdacht: Verdenking[]): Promise<Verdenking[]> {
   if (!verdacht.length) return verdacht
   if (!supabaseConfigured) return verdacht
@@ -382,7 +402,35 @@ export async function zonderSpoken(verdacht: Verdenking[]): Promise<Verdenking[]
     if (error || !data) return verdacht
 
     const bestaat = new Set(data.map((r) => String(r.id)))
-    const spoken = ids.filter((id) => !bestaat.has(id))
+
+    /*
+     * Wie nog in de wachtrij staat is geen spook.
+     *
+     * Dit ontbrak, en het kostte elk nieuw personeelsdossier. De volgorde is
+     * namelijk: aanmaken zet de persoon lokaal neer en zijn verzendopdracht in
+     * de wachtrij, en pas de eerstvolgende ronde brengt hem naar de server.
+     * Tot dat moment is "hij staat daar niet" volkomen juist -- en betekent het
+     * precies het tegenovergestelde van wat deze functie eruit las.
+     *
+     * Deze controle draait in het scherm "Medewerker toevoegen" zelf, bij elke
+     * toetsaanslag. Dus: je maakt iemand aan, typt verder, de dubbelcheck vraagt
+     * het na, de server zegt nee, en de zojuist aangemaakte medewerker wordt
+     * gewist -- met zijn verzendopdracht erbij. Daarna is er niets meer: geen
+     * rij, geen wachtrij, geen fout. Alleen "staat erin" op het scherm en een
+     * uitnodiging die zegt dat het dossier niet bestaat.
+     *
+     * Een record met werk in de wachtrij is dus per definitie geen spook. Wat
+     * dan overblijft is wat deze functie hoorde te vinden: iemand die hier
+     * staat, daar niet, en waarvoor niets meer klaarstaat om dat te herstellen.
+     */
+    const nogTeVersturen = new Set<string>()
+    for (const id of ids) {
+      if (bestaat.has(id)) continue
+      const wacht = await db.outbox.where('recordId').equals(id).count()
+      if (wacht > 0) nogTeVersturen.add(id)
+    }
+
+    const spoken = welkeZijnSpoken(ids, bestaat, nogTeVersturen)
 
     for (const id of spoken) {
       await db.users.delete(id)
@@ -391,7 +439,14 @@ export async function zonderSpoken(verdacht: Verdenking[]): Promise<Verdenking[]
       if (wachtend.length) await db.outbox.bulkDelete(wachtend)
     }
 
-    return verdacht.filter((v) => bestaat.has(v.user.id))
+    /*
+     * Wie nog onderweg is blijft als verdenking staan. Hij bestaat immers
+     * gewoon -- alleen nog niet daar. Hem verzwijgen zou betekenen dat je
+     * hetzelfde dossier een tweede keer aanmaakt terwijl de eerste in de
+     * wachtrij staat.
+     */
+    return verdacht.filter(
+      (v) => bestaat.has(v.user.id) || nogTeVersturen.has(v.user.id))
   } catch {
     return verdacht
   }

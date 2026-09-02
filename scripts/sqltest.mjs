@@ -150,6 +150,7 @@ await run(db, '0029_de_administratie.sql draait', sqlFile('supabase/migrations/0
 await run(db, '0030_gewone_facturen_waren_verdacht.sql draait', sqlFile('supabase/migrations/0030_gewone_facturen_waren_verdacht.sql'))
 await run(db, '0031_bijwerken_is_nog_steeds_geen_aanmaken.sql draait', sqlFile('supabase/migrations/0031_bijwerken_is_nog_steeds_geen_aanmaken.sql'))
 await run(db, '0032_wat_weg_is_moet_ook_weg_blijven.sql draait', sqlFile('supabase/migrations/0032_wat_weg_is_moet_ook_weg_blijven.sql'))
+await run(db, '0033_de_vestiging_vult_de_website.sql draait', sqlFile('supabase/migrations/0033_de_vestiging_vult_de_website.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -192,6 +193,7 @@ await run(db, '0029 nogmaals', sqlFile('supabase/migrations/0029_de_administrati
 await run(db, '0030 nogmaals', sqlFile('supabase/migrations/0030_gewone_facturen_waren_verdacht.sql'))
 await run(db, '0031 nogmaals', sqlFile('supabase/migrations/0031_bijwerken_is_nog_steeds_geen_aanmaken.sql'))
 await run(db, '0032 nogmaals', sqlFile('supabase/migrations/0032_wat_weg_is_moet_ook_weg_blijven.sql'))
+await run(db, '0033 nogmaals', sqlFile('supabase/migrations/0033_de_vestiging_vult_de_website.sql'))
 await run(db, '0026 nogmaals', sqlFile('supabase/migrations/0026_de_vestigingen_beheren.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
@@ -2803,6 +2805,89 @@ check('een oude regel zonder rij-id valt buiten de selectie',
 check('terwijl hij er voor de geschiedenis wel gewoon staat',
   (await db.query(
     "select count(*)::int as n from public.deletion_log where id = 'dl_oud'")).rows[0].n === 1)
+
+/* ===========================================================================
+ *  Wat er van een vestiging naar buiten gaat (0033)
+ *
+ *  Dit is de enige functie in het hele schema die gegevens klaarzet voor
+ *  mensen zonder inlog. Twee dingen moeten daarom vastliggen: dat hij alleen
+ *  geeft wat is aangewezen, en dat een onbekende bezoeker hem niet zelf mag
+ *  aanroepen.
+ * ======================================================================== */
+
+await asServer(db)
+await db.exec(`
+  insert into public.locations (id, code, name, kind, address, postcode, city, bays, active)
+  values
+    ('loc_web_aan',  'TW-WA', 'Websitestad',  'vestiging', 'Weg 1', '1000 AA', 'Websitestad',  2, true),
+    ('loc_web_uit',  'TW-WU', 'Stilstad',     'vestiging', 'Weg 2', '2000 BB', 'Stilstad',     2, true),
+    ('loc_web_dicht','TW-WD', 'Geslotenstad', 'vestiging', 'Weg 3', '3000 CC', 'Geslotenstad', 2, false)
+  on conflict (id) do nothing;
+
+  update public.locations
+     set op_website = true, website_slug = 'websitestad',
+         intro = 'Aan de A1.', diensten = array['truckparking']
+   where id = 'loc_web_aan';
+
+  -- Aangewezen, maar uit gezet. Die hoort er niet op te staan.
+  update public.locations
+     set op_website = true, website_slug = 'geslotenstad'
+   where id = 'loc_web_dicht';
+`)
+
+const web = await db.query('select slug, naam from public.website_vestigingen()')
+
+check('een aangewezen vestiging komt op de website',
+  web.rows.some((r) => r.slug === 'websitestad'))
+check('een vestiging die niet is aangewezen niet',
+  !web.rows.some((r) => r.naam === 'Stilstad'))
+check('en een vestiging die uit staat ook niet -- ook al is hij aangewezen',
+  !web.rows.some((r) => r.slug === 'geslotenstad'))
+
+const buiten = await db.query('select * from public.website_vestigingen()')
+const velden = Object.keys(buiten.rows[0] ?? {}).map((k) => k.toLowerCase())
+check('er staat werkelijk een rij om te controleren', velden.length > 0)
+check('de interne notitie komt niet mee naar buiten', !velden.includes('notes'))
+check('de vestigingsmanager evenmin',
+  !velden.some((v) => v.startsWith('manager')))
+check('en of de vestiging aan staat gaat niemand van buiten iets aan',
+  !velden.includes('active') && !velden.includes('inactive_reason'))
+
+/*
+ * Twee vestigingen op dezelfde pagina kan niet. Het scherm houdt dat al
+ * tegen, maar een scherm is te omzeilen -- de index is het echte slot.
+ */
+let tweeKeer = true
+try {
+  await db.exec(
+    `update public.locations set website_slug = 'websitestad' where id = 'loc_web_uit';`)
+} catch { tweeKeer = false }
+check('twee vestigingen op hetzelfde webadres weigert de database', !tweeKeer)
+
+/* Meerdere vestigingen zonder adres mag wel -- de index slaat null over. */
+check('maar vestigingen zonder webadres mogen er met velen zijn',
+  (await db.query(
+    'select count(*)::int as n from public.locations where website_slug is null')).rows[0].n >= 2)
+
+async function anonMag(sql) {
+  await db.exec("select set_config('test.uid', '', true);")
+  await db.exec('set role anon;')
+  try { await db.exec(sql); return true } catch { return false }
+  finally { await db.exec('reset role;'); await asServer(db) }
+}
+
+check('een onbekende bezoeker mag de lijst niet zelf opvragen',
+  !(await anonMag('select * from public.website_vestigingen();')))
+check('en de personeelstelling ook niet',
+  !(await anonMag('select public.website_aantal_medewerkers();')))
+check('de vestigingentabel al helemaal niet',
+  !(await anonMag('select * from public.locations;')))
+
+/* De telling is een getal en geen namenlijst. */
+const { rows: [telling] } =
+  await db.query('select public.website_aantal_medewerkers() as n')
+check('de personeelstelling geeft een getal terug', Number.isInteger(telling.n))
+check('en dat getal is niet negatief', telling.n >= 0)
 
 await db.close()
 

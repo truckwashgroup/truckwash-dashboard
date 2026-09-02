@@ -2,14 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { AnimatePresence, Reorder, motion } from 'framer-motion'
 import {
-  Building2, Camera, Check, ChevronDown, ChevronRight, Clock, Compass, Image as ImageIcon,
-  Loader2, MapPin, Plus, Power, Search, Star, Trash2, Upload, X,
+  AlertTriangle, Building2, Camera, Check, ChevronDown, ChevronRight, Clock, Compass,
+  Globe, Image as ImageIcon, Link2, Loader2, MapPin, Plus, Power, Search, Star,
+  Trash2, Upload, X,
 } from 'lucide-react'
 import { alleMensen, db } from '../../lib/db'
 import {
   adresRegel, bezetting, codeProbleem, coverVan, fotoUrl,
-  fotos as fotoRepo, nuOpen, opVolgorde, standaardTijden, tijdenInHetKort,
-  tijdProbleem, vestigingen as repo, vrijeCode, voorstelCode, zoekAdres,
+  fotos as fotoRepo, nuOpen, opVolgorde, slugProbleem, standaardTijden, tijdenInHetKort,
+  tijdProbleem, vestigingen as repo, voorstelSlug, vrijeCode, voorstelCode,
+  websiteGaten, WEBSITE_DIENSTEN, zoekAdres,
   FotoProbleem, VestigingBezet,
   type Bezetting,
 } from '../../lib/vestigingen'
@@ -167,6 +169,16 @@ function VestigingTegel({
         </div>
         {fotos.length > 1 && (
           <span className="vest-fotoaantal"><ImageIcon size={11} /> {fotos.length}</span>
+        )}
+        {/*
+          * Op de tegel en niet alleen in het venster: de vraag "welke van de
+          * negentien staan er nu eigenlijk op de site" hoor je in één blik te
+          * kunnen beantwoorden, en niet door negentien keer iets te openen.
+          */}
+        {locatie.opWebsite && (
+          <span className="vest-online" title="Staat op de website">
+            <Globe size={11} /> Online
+          </span>
         )}
       </div>
 
@@ -359,6 +371,14 @@ function NieuweVestiging({
  *  Het detailscherm
  * ================================================================== */
 
+const TABBEN = [
+  { key: 'gegevens', naam: 'Gegevens', icoon: Building2 },
+  { key: 'website', naam: 'Website', icoon: Globe },
+  { key: 'fotos', naam: "Foto's", icoon: Camera },
+] as const
+
+type Tab = typeof TABBEN[number]['key']
+
 function VestigingDetail({
   locatie, bestaand, mag, onClose,
 }: {
@@ -367,88 +387,36 @@ function VestigingDetail({
   mag: boolean
   onClose: () => void
 }) {
-  const [tab, setTab] = useState<'gegevens' | 'fotos'>('gegevens')
+  const [tab, setTab] = useState<Tab>('gegevens')
 
   useEffect(() => { setTab('gegevens') }, [locatie?.id])
 
-  return (
-    <Modal
-      open={!!locatie}
-      title={locatie?.name ?? ''}
-      subtitle={locatie ? `${locatie.code} · ${adresRegel(locatie) || 'geen adres'}` : ''}
-      onClose={onClose}
-      width={780}
-    >
-      {locatie && (
-        <>
-          <div className="row" style={{ gap: 6, margin: '4px 0 16px' }}>
-            <button
-              className={`btn sm ${tab === 'gegevens' ? 'primary' : 'ghost'}`}
-              onClick={() => setTab('gegevens')}
-            >
-              <Building2 size={14} /> Gegevens
-            </button>
-            <button
-              className={`btn sm ${tab === 'fotos' ? 'primary' : 'ghost'}`}
-              onClick={() => setTab('fotos')}
-            >
-              <Camera size={14} /> Foto's
-            </button>
-          </div>
-
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={tab}
-              initial={{ opacity: 0, x: tab === 'gegevens' ? -12 : 12 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: tab === 'gegevens' ? 12 : -12 }}
-              transition={{ duration: .18, ease: [.22, .61, .36, 1] }}
-            >
-              {tab === 'gegevens'
-                ? <Gegevens
-                    locatie={locatie}
-                    bestaand={bestaand}
-                    mag={mag}
-                    onWeg={onClose}
-                  />
-                : <Fotos locatie={locatie} mag={mag} />}
-            </motion.div>
-          </AnimatePresence>
-        </>
-      )}
-    </Modal>
-  )
-}
-
-/* ------------------------------ Gegevens -------------------------- */
-
-function Gegevens({
-  locatie, bestaand, mag, onWeg,
-}: {
-  locatie: Location
-  bestaand: Location[]
-  mag: boolean
-  onWeg: () => void
-}) {
-  const [vorm, setVorm] = useState<Location>(locatie)
+  /*
+   * Het formulier staat hier en niet in het tabblad.
+   *
+   * Anders houdt elk tabblad zijn eigen kopie bij en is alles wat je op het
+   * ene hebt ingetikt weg zodra je op het andere klikt -- en dat merk je pas
+   * als je terugkomt. Nu is er een formulier, een opslaanknop, en die knop
+   * staat onderaan het venster in plaats van in een van de tabbladen.
+   */
+  const [vorm, setVorm] = useState<Location | null>(locatie)
   const [bezig, setBezig] = useState(false)
-  const [zoekt, setZoekt] = useState(false)
-  const [gevonden, setGevonden] = useState<string | null>(null)
   const [wegVraag, setWegVraag] = useState(false)
   const [uitVraag, setUitVraag] = useState(false)
 
-  const mensen = useLiveQuery(() => alleMensen(), [], [] as User[])
+  useEffect(() => { setVorm(locatie) }, [locatie?.id, locatie?.updatedAt])
 
-  useEffect(() => { setVorm(locatie); setGevonden(null) }, [locatie.id, locatie.updatedAt])
+  const zet = useCallback(<K extends keyof Location>(k: K, v: Location[K]) =>
+    setVorm((h) => (h ? { ...h, [k]: v } : h)), [])
 
-  const zet = <K extends keyof Location>(k: K, v: Location[K]) =>
-    setVorm((h) => ({ ...h, [k]: v }))
-
-  const probleem = codeProbleem(vorm.code, bestaand, vorm.id)
-  const veranderd = JSON.stringify(vorm) !== JSON.stringify(locatie)
+  const probleem = vorm
+    ? codeProbleem(vorm.code, bestaand, vorm.id)
+      ?? slugProbleem(vorm.websiteSlug ?? '', bestaand, vorm.id)
+    : null
+  const veranderd = !!vorm && !!locatie && JSON.stringify(vorm) !== JSON.stringify(locatie)
 
   async function opslaan() {
-    if (probleem || bezig) return
+    if (!locatie || !vorm || probleem || bezig) return
     setBezig(true)
     try {
       await repo.bijwerken(locatie.id, vorm)
@@ -460,15 +428,127 @@ function Gegevens({
     }
   }
 
+  return (
+    <Modal
+      open={!!locatie}
+      title={locatie?.name ?? ''}
+      subtitle={locatie ? `${locatie.code} · ${adresRegel(locatie) || 'geen adres'}` : ''}
+      onClose={onClose}
+      width={780}
+    >
+      {locatie && vorm && (
+        <>
+          <div className="row" style={{ gap: 6, margin: '4px 0 16px' }}>
+            {TABBEN.map(({ key, naam, icoon: Icoon }) => (
+              <button
+                key={key}
+                className={`btn sm ${tab === key ? 'primary' : 'ghost'}`}
+                onClick={() => setTab(key)}
+              >
+                <Icoon size={14} /> {naam}
+                {key === 'website' && vorm.opWebsite && (
+                  <span className="vest-stip" title="Staat op de website" />
+                )}
+              </button>
+            ))}
+          </div>
+
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={tab}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: .18, ease: [.22, .61, .36, 1] }}
+            >
+              {tab === 'gegevens' && (
+                <Gegevens vorm={vorm} setVorm={setVorm} zet={zet} mag={mag} probleem={probleem} />
+              )}
+              {tab === 'website' && (
+                <Website vorm={vorm} zet={zet} mag={mag} bestaand={bestaand} />
+              )}
+              {tab === 'fotos' && <Fotos locatie={locatie} mag={mag} />}
+            </motion.div>
+          </AnimatePresence>
+
+          {mag && tab !== 'fotos' && (
+            <div className="row" style={{ marginTop: 16, alignItems: 'center' }}>
+              <button
+                className={`btn sm ${locatie.active ? 'ghost' : 'ok'}`}
+                onClick={() => locatie.active
+                  ? setUitVraag(true)
+                  : void repo.aanUit(locatie.id, true)}
+              >
+                <Power size={14} /> {locatie.active ? 'Uitzetten' : 'Weer aanzetten'}
+              </button>
+              <button className="btn ghost sm danger" onClick={() => setWegVraag(true)}>
+                <Trash2 size={14} /> Verwijderen
+              </button>
+              <span className="spacer" />
+              <AnimatePresence>
+                {veranderd && (
+                  <motion.button
+                    className="btn primary"
+                    initial={{ opacity: 0, scale: .9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: .9 }}
+                    disabled={!!probleem || bezig}
+                    title={probleem ?? undefined}
+                    onClick={opslaan}
+                  >
+                    {bezig ? <Loader2 size={14} className="spin" /> : <Check size={14} />} Opslaan
+                  </motion.button>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+
+          {!locatie.active && locatie.inactiveReason && (
+            <p className="hint" style={{ marginTop: 10 }}>
+              Uit gezet: {locatie.inactiveReason}
+            </p>
+          )}
+
+          <Uitzetten open={uitVraag} locatie={locatie} onClose={() => setUitVraag(false)} />
+          <Verwijderen
+            open={wegVraag}
+            locatie={locatie}
+            onClose={() => setWegVraag(false)}
+            onWeg={() => { setWegVraag(false); onClose() }}
+          />
+        </>
+      )}
+    </Modal>
+  )
+}
+
+/* ------------------------------ Gegevens -------------------------- */
+
+function Gegevens({
+  vorm, setVorm, zet, mag, probleem,
+}: {
+  vorm: Location
+  setVorm: React.Dispatch<React.SetStateAction<Location | null>>
+  zet: <K extends keyof Location>(k: K, v: Location[K]) => void
+  mag: boolean
+  probleem: string | null
+}) {
+  const [zoekt, setZoekt] = useState(false)
+  const [gevonden, setGevonden] = useState<string | null>(null)
+
+  const mensen = useLiveQuery(() => alleMensen(), [], [] as User[])
+
+  useEffect(() => { setGevonden(null) }, [vorm.id])
+
   async function opzoeken() {
     setZoekt(true)
     setGevonden(null)
     const uit = await zoekAdres(adresRegel(vorm))
     setZoekt(false)
     if (!uit.ok) { toast.warn(uit.reden ?? 'Niet gevonden.'); return }
-    setVorm((h) => ({
+    setVorm((h) => (h ? {
       ...h, lat: uit.lat, lon: uit.lon, geoLabel: uit.label, geoAt: Date.now(),
-    }))
+    } : h))
     setGevonden(uit.label ?? null)
   }
 
@@ -550,7 +630,7 @@ function Gegevens({
           disabled={!mag}
           onChange={(e) => {
             const m = mensen.find((u) => u.id === e.target.value)
-            setVorm((h) => ({ ...h, managerId: m?.id, managerName: m?.name }))
+            setVorm((h) => (h ? { ...h, managerId: m?.id, managerName: m?.name } : h))
           }}
         >
           <option value="">Niemand aangewezen</option>
@@ -574,54 +654,179 @@ function Gegevens({
         />
       </Field>
 
-      {mag && (
-        <div className="row" style={{ marginTop: 16, alignItems: 'center' }}>
-          <button
-            className={`btn sm ${locatie.active ? 'ghost' : 'ok'}`}
-            onClick={() => locatie.active ? setUitVraag(true) : void repo.aanUit(locatie.id, true)}
-          >
-            <Power size={14} /> {locatie.active ? 'Uitzetten' : 'Weer aanzetten'}
-          </button>
-          <button className="btn ghost sm danger" onClick={() => setWegVraag(true)}>
-            <Trash2 size={14} /> Verwijderen
-          </button>
-          <span className="spacer" />
-          <AnimatePresence>
-            {veranderd && (
-              <motion.button
-                className="btn primary"
-                initial={{ opacity: 0, scale: .9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: .9 }}
-                disabled={!!probleem || bezig}
-                onClick={opslaan}
-              >
-                {bezig ? <Loader2 size={14} className="spin" /> : <Check size={14} />} Opslaan
-              </motion.button>
-            )}
-          </AnimatePresence>
-        </div>
-      )}
-
-      {!locatie.active && locatie.inactiveReason && (
-        <p className="hint" style={{ marginTop: 10 }}>
-          Uit gezet: {locatie.inactiveReason}
-        </p>
-      )}
-
-      <Uitzetten
-        open={uitVraag}
-        locatie={locatie}
-        onClose={() => setUitVraag(false)}
-      />
-      <Verwijderen
-        open={wegVraag}
-        locatie={locatie}
-        onClose={() => setWegVraag(false)}
-        onWeg={() => { setWegVraag(false); onWeg() }}
-      />
+      <p className="hint" style={{ marginTop: 10 }}>
+        Deze notitie blijft binnen. Wat er naar buiten gaat staat onder “Website”.
+      </p>
     </>
   )
+}
+
+/* ------------------------------- Website -------------------------- *
+ *
+ *  Alles wat een bezoeker van truckwash-workspace.com van deze vestiging te
+ *  zien krijgt. Bewust een eigen tabblad: dan is er geen twijfel over welk
+ *  vakje binnen blijft en welk vakje op straat komt te liggen.
+ * ------------------------------------------------------------------ */
+
+function Website({
+  vorm, zet, mag, bestaand,
+}: {
+  vorm: Location
+  zet: <K extends keyof Location>(k: K, v: Location[K]) => void
+  mag: boolean
+  bestaand: Location[]
+}) {
+  const slug = vorm.websiteSlug ?? ''
+  const slugFout = slugProbleem(slug, bestaand, vorm.id)
+  const gaten = websiteGaten(vorm)
+  const gekozen = new Set(vorm.diensten ?? [])
+
+  const wissel = (s: string) => {
+    const nieuw = new Set(gekozen)
+    if (nieuw.has(s)) nieuw.delete(s); else nieuw.add(s)
+    zet('diensten', WEBSITE_DIENSTEN.filter((d) => nieuw.has(d.slug)).map((d) => d.slug))
+  }
+
+  return (
+    <>
+      {/* De schakelaar staat bovenaan, want hij bepaalt of de rest ertoe doet. */}
+      <motion.button
+        layout
+        className={`vest-schakel ${vorm.opWebsite ? 'aan' : ''}`}
+        disabled={!mag}
+        onClick={() => zet('opWebsite', !vorm.opWebsite)}
+      >
+        <span className="vest-schakel-knop">
+          <motion.span layout transition={{ type: 'spring', stiffness: 500, damping: 34 }} />
+        </span>
+        <span>
+          <strong>{vorm.opWebsite ? 'Staat op de website' : 'Staat niet op de website'}</strong>
+          <small>
+            {vorm.opWebsite
+              ? 'Iedereen kan deze pagina zien.'
+              : 'Standaard uit. Per ongeluk iets publiceren is erger dan per ongeluk iets weglaten.'}
+          </small>
+        </span>
+      </motion.button>
+
+      <AnimatePresence>
+        {vorm.opWebsite && gaten.length > 0 && (
+          <motion.p
+            className="vest-gaten"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+          >
+            <AlertTriangle size={13} />
+            <span>Nog niet compleet — er ontbreekt {inHetNederlands(gaten)}.</span>
+          </motion.p>
+        )}
+      </AnimatePresence>
+
+      <Field
+        label="Adres op de site"
+        help={slugFout ?? (slug
+          ? `De pagina komt op truckwash-workspace.com/locaties/${slug}/`
+          : 'Zonder adres komt er geen pagina.')}
+      >
+        <div className="row" style={{ gap: 8 }}>
+          <span className="vest-pad">/locaties/</span>
+          <input
+            style={{ flex: 1 }}
+            value={slug} disabled={!mag} placeholder="utrecht"
+            onChange={(e) => zet('websiteSlug', e.target.value.toLowerCase().trim() || undefined)}
+          />
+          <button
+            className="btn ghost sm"
+            disabled={!mag || !vorm.city.trim()}
+            title="Voorstel uit de plaatsnaam"
+            onClick={() => zet('websiteSlug', voorstelSlug(vorm.city) || undefined)}
+          >
+            <Link2 size={14} />
+          </button>
+        </div>
+      </Field>
+
+      <Field
+        label="Introtekst"
+        help="De alinea bovenaan de pagina: waarom een chauffeur juist hier stopt."
+      >
+        <textarea
+          rows={4} value={vorm.intro ?? ''} disabled={!mag}
+          placeholder="Aan de A2 bij afrit 12, met vier wasstraten en een eigen wachtruimte…"
+          onChange={(e) => zet('intro', e.target.value || undefined)}
+        />
+      </Field>
+
+      <Field
+        label="Bereikbaarheid"
+        help="De afrit, de oprit, waar de ingang zit. Het stuk waar iemand die er nog nooit is geweest echt iets aan heeft."
+      >
+        <textarea
+          rows={3} value={vorm.bereikbaar ?? ''} disabled={!mag}
+          placeholder="Vanaf de A2 afrit 12, aan het eind van de rotonde rechts. De ingang zit achter het tankstation."
+          onChange={(e) => zet('bereikbaar', e.target.value || undefined)}
+        />
+      </Field>
+
+      <Field
+        label="Bijzonderheden"
+        help="Wat hier anders is dan elders. Mag leeg blijven."
+      >
+        <textarea
+          rows={3} value={vorm.bijzonder ?? ''} disabled={!mag}
+          placeholder="Enige vestiging met een NAO-wasplaats voor tankwagens."
+          onChange={(e) => zet('bijzonder', e.target.value || undefined)}
+        />
+      </Field>
+
+      <Field
+        label="Wat kan hier"
+        help="Aangevinkt betekent: deze vestiging komt op de pagina van die dienst te staan."
+      >
+        <div className="vest-diensten">
+          {WEBSITE_DIENSTEN.map((d) => {
+            const aan = gekozen.has(d.slug)
+            return (
+              <motion.button
+                key={d.slug}
+                type="button"
+                className={`vest-dienst ${aan ? 'aan' : ''}`}
+                disabled={!mag}
+                whileTap={mag ? { scale: .95 } : undefined}
+                onClick={() => wissel(d.slug)}
+              >
+                <span className="vest-vink">
+                  <AnimatePresence>
+                    {aan && (
+                      <motion.span
+                        initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
+                        transition={{ type: 'spring', stiffness: 600, damping: 28 }}
+                      >
+                        <Check size={11} />
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
+                </span>
+                {d.naam}
+              </motion.button>
+            )
+          })}
+        </div>
+      </Field>
+
+      <p className="hint" style={{ marginTop: 10 }}>
+        Adres, telefoon, openingstijden en de foto’s komen van de andere twee
+        tabbladen — die staan al goed en worden meegenomen.
+      </p>
+    </>
+  )
+}
+
+/** "een telefoonnummer en openingstijden" in plaats van een opsomming met komma's. */
+function inHetNederlands(delen: string[]): string {
+  if (delen.length === 1) return delen[0]
+  return `${delen.slice(0, -1).join(', ')} en ${delen[delen.length - 1]}`
 }
 
 /* --------------------------- Openingstijden ----------------------- */

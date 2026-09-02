@@ -94,6 +94,98 @@ export function codeProbleem(code: string, bestaand: Location[], eigenId?: strin
 }
 
 /* ================================================================== *
+ *  De website
+ *
+ *  Wat hier wordt ingevuld komt op truckwash-workspace.com te staan. Dat is
+ *  de reden dat dit blok wat strenger is dan de rest van het scherm: een
+ *  typefout in een interne notitie ziet niemand, een typefout in het adres
+ *  op de vestigingspagina stuurt een chauffeur de verkeerde afrit op.
+ * ================================================================== */
+
+/**
+ * De diensten zoals ze op de website heten.
+ *
+ * Dit is met opzet NIET dezelfde lijst als SERVICES in types.ts. Die vijf
+ * (buitenwas, cabine binnen, combi, tankreiniging, polijsten) zijn wat de
+ * wasstraat boekt en afrekent, en dat type gaat letterlijk mee naar de
+ * kassa-repo -- daar iets aan veranderen raakt negentien kassa's.
+ *
+ * Wat je verkoopt is een langere lijst, met truckparking, catering en de
+ * wasboxen erbij. De sleutels komen overeen met de mappen op de site, zodat
+ * de pagina rechtstreeks kan doorlinken naar de dienst.
+ */
+export const WEBSITE_DIENSTEN: { slug: string; naam: string }[] = [
+  { slug: 'alcoa-velgen-reinigen', naam: 'Alcoa velgen reinigen' },
+  { slug: 'bus-wasstraat', naam: 'Bus wasstraat' },
+  { slug: 'camper-wasstraat', naam: 'Camper wasstraat' },
+  { slug: 'catering-op-locatie', naam: 'Catering en vergaderen' },
+  { slug: 'haal-en-brengservice', naam: 'Haal- en brengservice' },
+  { slug: 'haccp-certificaat-en-behandeling', naam: 'HACCP-behandeling' },
+  { slug: 'interieur-reinigen', naam: 'Interieur reinigen' },
+  { slug: 'nao-wasplaats', naam: 'NAO-wasplaats' },
+  { slug: 'truck-shop', naam: 'Truckshop' },
+  { slug: 'truckparking', naam: 'Truckparking' },
+  { slug: 'vogelgriep', naam: 'Vogelgriep' },
+  { slug: 'vrachtwagen-polijsten', naam: 'Vrachtwagen polijsten' },
+  { slug: 'wasboxen', naam: 'Wasboxen' },
+  { slug: 'wegrestaurant-a2', naam: 'Wegrestaurant A2' },
+]
+
+/** Van "Nieuw-Vennep" naar "nieuw-vennep". Dat is wat er in het adres komt. */
+export function voorstelSlug(plaats: string): string {
+  return plaats
+    .trim().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')  // é wordt e
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+/**
+ * Deugt dit als adres op de website?
+ *
+ * De strengheid zit hem in het laatste stuk. Twee vestigingen op dezelfde
+ * pagina kan niet: dan is het maar net welke de lijst als eerste ziet, en dat
+ * verschilt per keer. De database weigert het ook -- daar staat een unieke
+ * index op -- maar die geeft je een foutmelding nadat je hebt opgeslagen, en
+ * dit geeft hem terwijl je typt.
+ */
+export function slugProbleem(
+  slug: string, bestaand: Location[], eigenId?: string,
+): string | null {
+  const schoon = slug.trim().toLowerCase()
+  if (!schoon) return null  // leeg mag: dan staat hij niet op de site
+  if (schoon.length < 2) return 'Te kort om een adres van te maken.'
+  if (!/^[a-z0-9-]+$/.test(schoon)) {
+    return 'Alleen kleine letters, cijfers en streepjes -- dit wordt een webadres.'
+  }
+  if (schoon.startsWith('-') || schoon.endsWith('-')) {
+    return 'Een streepje aan het begin of eind hoort er niet in.'
+  }
+  const botsing = bestaand.find(
+    (l) => l.id !== eigenId && (l.websiteSlug ?? '').trim().toLowerCase() === schoon)
+  if (botsing) return `${botsing.name} staat al op /locaties/${schoon}/.`
+  return null
+}
+
+/**
+ * Wat er nog ontbreekt voordat deze vestiging op de site kan.
+ *
+ * Geen foutmeldingen maar een boodschappenlijstje. Een halve pagina
+ * publiceren is erger dan hem nog even niet publiceren, en dit is de enige
+ * plek waar iemand dat kan zien voordat het live staat.
+ */
+export function websiteGaten(l: Location): string[] {
+  const gaten: string[] = []
+  if (!(l.websiteSlug ?? '').trim()) gaten.push('een adres op de site')
+  if (!l.address.trim() || !l.postcode.trim() || !l.city.trim()) gaten.push('een volledig adres')
+  if (!(l.phone ?? '').trim()) gaten.push('een telefoonnummer')
+  if (!Object.keys(l.openingHours ?? {}).length) gaten.push('openingstijden')
+  if (!(l.intro ?? '').trim()) gaten.push('een introtekst')
+  if (!(l.diensten ?? []).length) gaten.push('minstens een dienst')
+  return gaten
+}
+
+/* ================================================================== *
  *  Openingstijden
  * ================================================================== */
 

@@ -7,7 +7,23 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 
 export default defineConfig({
   plugins: [react()],
-  // relatief pad is verplicht: Electron laadt via file://
+
+  /*
+   * Relatief pad is verplicht: Electron laadt via file://.
+   *
+   * Dit blijft './' en mag NIET '/app/' worden, ook nu de app onder /app/
+   * komt te staan. Met een absolute base schrijft Vite src="/app/assets/..."
+   * in index.html, en onder file:// wordt dat file:///app/assets/... -- een
+   * pad op de C-schijf dat niet bestaat. Het venster komt op, blijft leeg en
+   * meldt niets. Op Android via Capacitor gaat het op dezelfde manier mis.
+   *
+   * './' werkt op alle drie de doelen tegelijk: op het web lost het op tegen
+   * /app/, in Electron tegen de map van index.html, en op een toestel tegen
+   * de wortel van het Capacitor-scheme. Eén bouw, drie doelen.
+   *
+   * De enige voorwaarde is de schuine streep aan het eind van het adres:
+   * daarom staat html_handling in wrangler.jsonc op force-trailing-slash.
+   */
   base: './',
 
   /*
@@ -45,7 +61,17 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: 'dist',
+    /*
+     * De app staat niet meer op de wortel maar in dist/app.
+     *
+     * dist/ is vanaf nu de uitrolmap met twee bewoners: de merksite op de
+     * wortel en de app in app/. Vite maakt alleen zijn eigen outDir leeg, dus
+     * dist/app -- de pagina's van de site blijven staan.
+     *
+     * Wie dit meeverhuist: electron/main.cjs (loadFile), electron-builder.yml
+     * (files) en capacitor.config.ts (webDir).
+     */
+    outDir: 'dist/app',
     sourcemap: false,
     chunkSizeWarningLimit: 1200,
   },

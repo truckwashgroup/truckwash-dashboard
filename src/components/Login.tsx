@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
-import { AlertCircle, Eye, EyeOff, Loader2, LogIn, UserPlus, WifiOff } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Eye, EyeOff, Loader2, LogIn, UserPlus, WifiOff } from 'lucide-react'
 import { useAuth } from '../store/useAuth'
 import { useSync } from '../lib/sync'
 import { useUpdates } from '../lib/updates'
@@ -8,7 +8,7 @@ import { backendError } from '../lib/api'
 import Logo from './Logo'
 import Aanmelden from './Aanmelden'
 
-export default function Login() {
+export default function Login({ terugNaarSite = false }: { terugNaarSite?: boolean }) {
   const { login, busy, error } = useAuth()
   const online = useSync((s) => s.online)
   const { version, channel } = useUpdates()
@@ -39,6 +39,21 @@ export default function Login() {
           <Logo width={190} />
           <div className="sub">Dashboard</div>
         </div>
+
+        {/*
+          * De weg terug naar de website.
+          *
+          * De app staat op /app/ en de site op de wortel van hetzelfde domein.
+          * Zonder deze link is de browserknop "terug" de enige uitweg, en die
+          * werkt niet voor wie het adres rechtstreeks heeft ingetikt of uit
+          * een bladwijzer komt. Een gewone link naar "/" en geen router: die
+          * is er niet, en dit is een sprong naar een andere site.
+          */}
+        {terugNaarSite && (
+          <a className="auth-terug" href="/">
+            <ArrowLeft size={13} /> Terug naar de website
+          </a>
+        )}
 
         {!online && (
           <div className="auth-error" style={{ background: 'rgba(245,181,68,.1)', borderColor: 'rgba(245,181,68,.32)', color: '#ffd894' }}>

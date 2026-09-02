@@ -12,6 +12,11 @@
  *   Path            /            <- de map waarin gebouwd wordt, niet de
  *                                   uitvoermap. Die staat hieronder.
  *
+ * De kopregels staan in uitrol/_headers en niet meer in public/. Cloudflare
+ * leest _headers alleen in de wortel van de uitrolmap, en alles uit public/
+ * komt sinds de verhuizing in dist/app/ terecht. scripts/uitrol-bestanden.cjs
+ * zet het bestand als laatste stap van "npm run build" op dist/_headers.
+ *
  * En drie bouwvariabelen, want Vite bakt ze tijdens het bouwen in de bundel:
  *
  *   VITE_SUPABASE_URL
@@ -58,16 +63,59 @@
   "workers_dev": true,
 
   "assets": {
+    /*
+     * Eén map, twee bewoners.
+     *
+     *   dist/           de merksite -- index.html en de 44 pagina's
+     *   dist/app/       deze app
+     *
+     * De map blijft ./dist, alleen de app is een laag dieper gaan staan.
+     * Vite maakt bij het bouwen alleen dist/app leeg, dus de pagina's van de
+     * site blijven bij een app-bouw staan.
+     */
     "directory": "./dist",
 
     /*
-     * Alles wat geen bestand is, krijgt index.html terug met een gewone 200.
+     * Een adres dat niet bestaat is een fout, en geen reden om de app te
+     * tonen.
      *
-     * De app heeft geen adressen -- er is één pagina en de navigatie gebeurt
-     * in het scherm zelf. Dit is er dus voor het geval iemand een adres
-     * intikt of een oude link opent: dan komt hij in de app terecht in
-     * plaats van op een foutmelding van Cloudflare.
+     * Dit stond op "single-page-application": alles wat geen bestand is kreeg
+     * index.html terug met status 200. Dat was juist zolang de app de hele
+     * site wás. Nu staat de merksite op de wortel, en dan doet die instelling
+     * drie dingen die je geen van alle wilt:
+     *
+     *   - /diensten/tikfout geeft de homepage met een 200. Voor een
+     *     zoekmachine is dat geen fout maar een pagina, en zo maak je
+     *     onbeperkt kopieën van je eigen voorpagina.
+     *   - /app/oud/pad geeft de voorpagina van de site in plaats van de app.
+     *   - En het ergste: een app-document dat op een dieper pad wordt
+     *     uitgeserveerd vraagt zijn bundel op vanaf dat diepere pad. Die
+     *     aanvraag is ook "geen bestand", dus krijgt hij HTML terug op een
+     *     aanvraag voor een .js-module. De browser weigert die vanwege het
+     *     MIME-type en toont een wit scherm.
+     *
+     * De app heeft geen terugval nodig: er is geen router en er is één
+     * document op /app/index.html.
+     *
+     * "404-page" laat Cloudflare vanaf het aangevraagde pad omhoog lopen tot
+     * hij een 404.html vindt. Eén in de wortel van de site dekt alles,
+     * inclusief /app/watdanook. Die 404.html komt van de merksite.
      */
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "404-page",
+
+    /*
+     * De schuine streep aan het eind is hier geen smaak maar voorwaarde.
+     *
+     * De app wordt gebouwd met base './' (verplicht voor Electron en
+     * Capacitor). Op https://.../app/ lost './assets/index-xxx.js' netjes op
+     * naar /app/assets/index-xxx.js. Krijgt iemand het document op /app te
+     * zien -- zonder streep -- dan lost datzelfde pad op naar /assets/..., de
+     * map van de merksite, en krijg je een wit scherm.
+     *
+     * Met deze instelling stuurt Cloudflare /app door naar /app/ voordat het
+     * document geladen wordt. Bestanden met een extensie (/robots.txt,
+     * /sitemap.xml) worden hier niet door geraakt.
+     */
+    "html_handling": "force-trailing-slash"
   }
 }

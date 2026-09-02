@@ -19,7 +19,6 @@ import Toasts from './components/Toasts'
 import Titelbalk from './components/Titelbalk'
 import AdministratieDashboard from './dashboards/administratie/AdministratieDashboard'
 import Welkomst from './components/Welkomst'
-import Voorpagina from './components/Voorpagina'
 import { welkomAfstrepen, welkomTeGaan } from './lib/welkom'
 import UpdateBanner from './components/UpdateBanner'
 import { useDeviceNotifications } from './components/NotificationCenter'
@@ -42,15 +41,21 @@ export default function App() {
   const [welkom, setWelkom] = useState(false)
 
   /*
-   * Alleen in een browser krijgt een bezoeker die niet is ingelogd eerst de
-   * voorpagina. In de Windows-app en op de tablet is dat onzin: daar heb je
-   * de app al, en wil je gewoon inloggen.
+   * In een browser hoort er een weg terug naar de website te zijn.
+   *
+   * Hier stond eerst een eigen voorpagina van de app, die je eerst kreeg en
+   * waar je op "inloggen" moest klikken. Die is overbodig geworden: de
+   * merksite staat nu op de wortel van het domein en de app op /app/, dus wie
+   * hier komt heeft die voorpagina al gezien en heeft er zelf op geklikt. Nog
+   * een tussenscherm is dan een extra klik en verder niets.
+   *
+   * In de Windows-app en op de tablet is er geen website om naar terug te
+   * gaan, dus daar staat de link ook niet.
    */
   const inBrowser =
     typeof window !== 'undefined' &&
     !window.desktop?.isElectron &&
     !Capacitor.isNativePlatform()
-  const [wilInloggen, setWilInloggen] = useState(false)
 
   // Nieuwe berichten ook buiten de app laten zien
   useDeviceNotifications()
@@ -184,9 +189,7 @@ export default function App() {
     <MotionConfig reducedMotion={rustig ? 'always' : 'never'}>
       <Titelbalk />
       {!user ? (
-        inBrowser && !wilInloggen
-          ? <Voorpagina onInloggen={() => setWilInloggen(true)} />
-          : <Login />
+        <Login terugNaarSite={inBrowser} />
       ) : user.mustChangePassword ? (
         /*
          * Uitgenodigd met een tijdelijk wachtwoord uit een mail. Verder komt

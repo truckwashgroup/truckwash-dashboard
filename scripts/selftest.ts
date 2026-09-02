@@ -3349,7 +3349,7 @@ console.log('\n— vestigingen —')
   const {
     voorstelCode, vrijeCode, codeProbleem, tijdProbleem, standaardTijden,
     tijdenInHetKort, nuOpen, adresRegel, bezettingInWoorden, opVolgorde,
-    coverVan,
+    coverVan, voorstelSlug, slugProbleem, websiteGaten, WEBSITE_DIENSTEN,
   } = await import('../src/lib/vestigingen')
 
   /* --- de code --- */
@@ -3386,6 +3386,75 @@ console.log('\n— vestigingen —')
   check('je eigen code botst niet met jezelf',
     codeProbleem('TW-UTR', bestaand, 'l1') === null)
   check('een vrije code mag', codeProbleem('TW-EIN', bestaand) === null)
+
+  /* --- het adres op de website ---
+   *
+   * Dit is de enige plek in de app waar een tikfout op straat komt te liggen,
+   * dus wordt hij hier strenger nagerekend dan de rest.
+   */
+
+  check('een plaats wordt een webadres', voorstelSlug('Utrecht') === 'utrecht')
+  check('spaties worden streepjes', voorstelSlug('Den Bosch') === 'den-bosch')
+  check('accenten gaan eruit', voorstelSlug('Sint-Oedenrode') === 'sint-oedenrode')
+  check('een apostrof ook', voorstelSlug("'s-Hertogenbosch") === 's-hertogenbosch')
+  check('en er blijft geen streepje aan de rand hangen',
+    voorstelSlug('  Ede!  ') === 'ede')
+
+  const opSite = [
+    { id: 'l1', name: 'Utrecht', websiteSlug: 'utrecht' },
+    { id: 'l2', name: 'Amsterdam', websiteSlug: undefined },
+  ] as never[]
+
+  check('geen adres is geen fout -- dan staat hij niet op de site',
+    slugProbleem('', opSite) === null)
+  // Hoofdletters worden gladgestreken en niet geweigerd -- net als bij de code,
+  // en het invoerveld doet hetzelfde. Wat er niet in past wordt wel geweigerd.
+  check('hoofdletters worden gewoon kleine letters',
+    slugProbleem('Eindhoven', opSite) === null)
+  check('spaties kunnen niet', slugProbleem('den bosch', opSite) !== null)
+  check('een schuine streep al helemaal niet',
+    slugProbleem('locaties/utrecht', opSite) !== null)
+  check('en accenten ook niet', slugProbleem('sint-oedenród', opSite) !== null)
+  check('een streepje aan het eind is geen adres',
+    slugProbleem('ede-', opSite) !== null)
+  check('twee vestigingen op dezelfde pagina kan niet',
+    slugProbleem('utrecht', opSite) !== null)
+  check('en er staat bij wie hem al heeft',
+    (slugProbleem('utrecht', opSite) ?? '').includes('Utrecht'))
+  check('hoofdletters botsen net zo goed',
+    slugProbleem('UTRECHT', opSite) !== null)
+  check('je eigen adres botst niet met jezelf',
+    slugProbleem('utrecht', opSite, 'l1') === null)
+  check('een vrij adres mag', slugProbleem('eindhoven', opSite) === null)
+
+  /* --- wat er nog ontbreekt voor de website --- */
+
+  const kaal = {
+    id: 'l9', name: 'Nieuw', address: '', postcode: '', city: '',
+  } as never as Parameters<typeof websiteGaten>[0]
+  check('een kale vestiging mist van alles', websiteGaten(kaal).length === 6)
+
+  const compleet = {
+    id: 'l9', name: 'Nieuw',
+    address: 'Rijksweg 1', postcode: '3542 AB', city: 'Utrecht',
+    phone: '030 123 45 67', websiteSlug: 'utrecht',
+    openingHours: standaardTijden(), intro: 'Aan de A2.',
+    diensten: ['truckparking'],
+  } as never as Parameters<typeof websiteGaten>[0]
+  check('een ingevulde vestiging mist niets', websiteGaten(compleet).length === 0)
+
+  check('en zonder telefoonnummer mist hij precies dat ene',
+    JSON.stringify(websiteGaten({ ...compleet, phone: undefined }))
+      === JSON.stringify(['een telefoonnummer']))
+
+  /* --- de dienstenlijst --- */
+
+  check('de diensten van de website hebben unieke sleutels',
+    new Set(WEBSITE_DIENSTEN.map((d) => d.slug)).size === WEBSITE_DIENSTEN.length)
+  check('en die sleutels zijn zelf geldige webadressen',
+    WEBSITE_DIENSTEN.every((d) => /^[a-z0-9-]+$/.test(d.slug)))
+  check('elke dienst heeft een naam om te tonen',
+    WEBSITE_DIENSTEN.every((d) => d.naam.trim().length > 2))
 
   /* --- openingstijden --- */
 

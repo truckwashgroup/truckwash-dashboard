@@ -7,7 +7,11 @@ directories:
   buildResources: build
 
 files:
-  - dist/**/*
+  # Alleen dist/app, niet heel dist/. Op de wortel van dist/ staat sinds de
+  # verhuizing de merksite; die hoort niet in de Windows-installer. Met deze
+  # smalle regel kan dat ook niet meer per ongeluk gebeuren, ongeacht wat er
+  # verder in dist/ ligt.
+  - dist/app/**/*
   - electron/**/*
   - package.json
 

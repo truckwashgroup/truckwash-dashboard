@@ -164,6 +164,32 @@ export interface Location {
   geoAt?: number
   /** Per dag een venster, of null voor dicht. */
   openingHours?: Openingstijden
+
+  /* --- wat hiervan op de website komt --------------------------------- *
+   *
+   * De vestigingen staan twee keer: hier, en op truckwash1group.nl in met de
+   * hand geschreven pagina's. Dat is een keer bijhouden te veel -- verhuist
+   * een vestiging, dan klopt de ene plek en de andere niet, en de plek die
+   * niet klopt is precies de plek waar de chauffeur kijkt.
+   *
+   * Deze velden zijn wat een openbare pagina nodig heeft en wat er intern
+   * niet al stond. Adres, telefoon en openingstijden staan hierboven en
+   * worden gewoon meegenomen.
+   */
+
+  /** Hoort deze vestiging op de website. Standaard nee. */
+  opWebsite?: boolean
+  /** Het pad op de site: "utrecht" wordt /locaties/utrecht/. */
+  websiteSlug?: string
+  /** De alinea bovenaan de pagina: waarom je hier komt. */
+  intro?: string
+  /** Hoe je er komt -- de afrit, de oprit, waar de ingang zit. */
+  bereikbaar?: string
+  /** Wat hier anders is dan elders. Mag leeg blijven. */
+  bijzonder?: string
+  /** Sleutels uit WEBSITE_DIENSTEN. Los van SERVICES: dat is wat de kassa boekt. */
+  diensten?: string[]
+
   updatedAt: number
 }
 

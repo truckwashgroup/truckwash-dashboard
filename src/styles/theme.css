@@ -1513,7 +1513,7 @@ table.data.matrix th { vertical-align: bottom; }
 .msg.internal {
   background: var(--tint-warn-weak);
   border-color: rgba(245,181,68,.28);
-  border-left-color: var(--warn);
+  border-left-color: var(--text-warn);
 }
 .msg-head {
   display: flex; align-items: center; gap: 7px;
@@ -3960,6 +3960,17 @@ table.data.matrix th { vertical-align: bottom; }
   font-size: .68rem;
 }
 
+/* Links onderin, tegenover het fotoaantal -- die twee botsen dus nooit. */
+.vest-online {
+  position: absolute; left: 9px; bottom: 9px;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--ok);
+  color: #04240f;
+  font-size: .68rem; font-weight: 600;
+}
+
 .vest-body { display: grid; gap: 5px; padding: 11px 13px 13px; }
 .vest-naam { font-size: .95rem; font-weight: 650; letter-spacing: -.01em; }
 .vest-regel {
@@ -4035,6 +4046,109 @@ table.data.matrix th { vertical-align: bottom; }
 
 .vest-bezet { margin: 8px 0 12px; padding-left: 18px; font-size: .84rem; }
 .vest-bezet li { margin: 3px 0; color: var(--text-2); }
+
+/* ------------------------------- Website -------------------------- *
+ *
+ *  Alles wat een bezoeker te zien krijgt. De opmaak is met opzet net wat
+ *  luider dan de rest van het venster: hier gaat iets naar buiten, en dat
+ *  hoort te voelen als een andere handeling dan een notitie bijwerken.
+ * ------------------------------------------------------------------ */
+
+/* Het stipje op het tabblad: staat deze vestiging online. */
+.vest-stip {
+  width: 6px; height: 6px;
+  margin-left: 2px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+
+.vest-schakel {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease;
+}
+.vest-schakel:disabled { cursor: default; opacity: .7; }
+.vest-schakel.aan { border-color: var(--ok); background: var(--tint-ok); }
+.vest-schakel strong { display: block; font-size: .87rem; }
+.vest-schakel small { display: block; margin-top: 2px; color: var(--text-3); font-size: .74rem; }
+
+.vest-schakel-knop {
+  flex: none;
+  display: flex; align-items: center;
+  width: 40px; height: 23px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--line);
+  transition: background .18s ease;
+}
+.vest-schakel.aan .vest-schakel-knop { background: var(--ok); justify-content: flex-end; }
+.vest-schakel-knop > span {
+  width: 17px; height: 17px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .28);
+}
+
+.vest-gaten {
+  display: flex; align-items: flex-start; gap: 7px;
+  margin: -6px 0 12px;
+  font-size: .78rem; color: var(--text-warn);
+}
+.vest-gaten svg { flex: none; margin-top: 2px; }
+
+/* Het vaste stuk van het webadres. Niet te typen, dus ook niet als invoerveld. */
+.vest-pad {
+  padding: 0 2px;
+  color: var(--text-3);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: .8rem;
+  white-space: nowrap;
+}
+
+.vest-diensten {
+  display: grid; gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+}
+
+.vest-dienst {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: .8rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, color .16s ease;
+}
+.vest-dienst:hover:not(:disabled) { border-color: var(--brand); }
+.vest-dienst:disabled { cursor: default; opacity: .65; }
+.vest-dienst.aan {
+  border-color: var(--brand);
+  background: var(--tint-brand-weak);
+  color: var(--text);
+}
+
+.vest-vink {
+  flex: none;
+  display: grid; place-items: center;
+  width: 16px; height: 16px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: #fff;
+  transition: background .16s ease, border-color .16s ease;
+}
+.vest-dienst.aan .vest-vink { border-color: var(--brand); background: var(--brand); }
+.vest-vink > span { display: grid; place-items: center; }
 
 /* -------------------------------- Foto's -------------------------- */
 
@@ -4231,7 +4345,7 @@ table.data.matrix th { vertical-align: bottom; }
 .lezing-twijfel .kop {
   display: flex; align-items: center; gap: 6px;
   margin-bottom: 6px;
-  font-size: .8rem; font-weight: 650; color: var(--warn);
+  font-size: .8rem; font-weight: 650; color: var(--text-warn);
 }
 .lezing-twijfel ul { margin: 0; padding-left: 18px; }
 .lezing-twijfel li { font-size: .8rem; color: var(--text-2); margin: 3px 0; }

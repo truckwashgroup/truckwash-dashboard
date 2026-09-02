@@ -89,7 +89,9 @@ export async function showDeviceNotification(title: string, body: string) {
 
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       // eslint-disable-next-line no-new
-      new Notification(title, { body, icon: '/icons/icon-192.webp', tag: 'truckwash' })
+      // './' en niet '/': de app staat op /app/, dus een absoluut pad wijst
+      // naar de wortel van de merksite, waar geen icons/-map staat.
+      new Notification(title, { body, icon: './icons/icon-192.webp', tag: 'truckwash' })
     }
   } catch {
     /* een melding die niet lukt mag nooit de app raken */

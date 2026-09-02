@@ -1,0 +1,82 @@
+# Kopregels voor de uitrol op Cloudflare.
+#
+# Dit bestand stond in public/ toen de app nog de hele site was. Daar mag het
+# niet meer staan: alles uit public/ komt sinds de verhuizing in dist/app/
+# terecht, en Cloudflare leest _headers ALLEEN in de wortel van de uitrolmap.
+# Vanuit dist/app/ zou het twee dingen doen die je allebei niet wilt -- de
+# kopregels verdwijnen zonder melding, en het bestand wordt zelf gewoon
+# uitgeserveerd op /app/_headers, commentaar en al.
+#
+# Daarom staat het hier, en zet scripts/uitrol-bestanden.cjs het na elke bouw
+# op dist/_headers. De merksite die op de wortel van dist/ wordt gezet, brengt
+# geen eigen _headers mee; dit bestand is dus de enige bron.
+#
+# De indeling van de uitrol:
+#
+#   /            de merksite -- 44 pagina's, eigen robots.txt en 404.html
+#   /app/        deze app
+#
+# Wat hier NIET staat is een Content-Security-Policy. Die zou het meeste
+# opleveren, maar deze app haalt onderdelen van buiten binnen -- de
+# tekstherkenning met bestanden van een CDN, Supabase voor gegevens en opslag,
+# GitHub voor updates. Een te strenge regel breekt daar iets van, en dat merk
+# je niet bij het uitrollen maar pas als iemand een factuur probeert te openen.
+# Die hoort erbij, maar pas nadat hij een keer als Report-Only in een echte
+# browser is nagelopen.
+#
+# Over Cache-Control staat bewust NIETS op /*. Of Cloudflare bij twee
+# passende blokken de waarden samenvoegt of de laatste laat winnen, is niet
+# nagemeten. Bij samenvoegen zou "no-cache" uit een algemeen blok de
+# immutable-regel hieronder onbruikbaar maken, en dat merk je alleen doordat
+# de app op elke tablet traag start. De regels hieronder overlappen elkaar
+# daarom niet.
+
+/*
+  # Een bestand is wat de server zegt dat het is, en niet wat de browser ervan
+  # denkt te herkennen.
+  X-Content-Type-Options: nosniff
+
+  # Bij het wegklikken naar buiten gaat alleen het adres mee, niet de pagina
+  # waar iemand vandaan kwam.
+  Referrer-Policy: strict-origin-when-cross-origin
+
+# Vanaf hier alleen de app. X-Frame-Options en noindex stonden eerst op /* --
+# dat was juist toen de app de hele uitrol was. Nu is /* de merksite, en die
+# hoort wél gevonden te worden en mag door een partner ingesloten worden.
+# Zet deze regels dus niet terug op /*: een noindex-kopregel wint van elke
+# canonical en van robots.txt, en haalt dan de complete site uit Google.
+/app/*
+  # De app hoort nooit in een frame van iemand anders te staan. Zonder deze
+  # regel kan een andere site het inlogscherm onzichtbaar over zijn eigen
+  # knoppen leggen en jouw klikken opvangen.
+  X-Frame-Options: DENY
+
+  # Niets hier heeft de camera nodig behalve het scannen van een QR-code, en
+  # dat vraagt de browser zelf. De rest staat uit.
+  Permissions-Policy: geolocation=(), microphone=(), payment=(), usb=()
+
+  # Zoekmachines houden we bij de app weg via de kopregel, niet via
+  # robots.txt. Dat is een bewuste keuze: wat niet gekropen mag worden, wordt
+  # ook niet gelezen, en dan kan het adres alsnog kaal in de resultaten
+  # verschijnen. De robots.txt op de wortel is van de merksite en laat /app/
+  # dus gewoon toe; deze regel doet het werk.
+  X-Robots-Tag: noindex, nofollow
+
+# De bundel krijgt bij elke bouw een naam met de inhoud erin verwerkt, dus die
+# mag eeuwig blijven staan. Let op het /app/-voorvoegsel: dit stond eerst op
+# /assets/*, en dat is sinds de verhuizing de map van de merksite -- met
+# handgeschreven bestanden zonder hash in de naam. Een jaar immutable
+# daaroverheen betekent dat een wijziging in de stylesheet van de site niemand
+# meer bereikt die de site ooit bezocht heeft, zonder dat er iets fout meldt.
+/app/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Het document dat naar de bundel wijst. Een oude versie hiervan betekent een
+# app die niet bijwerkt.
+#
+# Twee regels, want een browser vraagt /app/ op en niet /app/index.html.
+/app/
+  Cache-Control: no-cache
+
+/app/index.html
+  Cache-Control: no-cache

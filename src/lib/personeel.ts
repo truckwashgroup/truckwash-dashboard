@@ -129,7 +129,24 @@ export const personeel = {
    */
   async wissen(userId: string, reden: string): Promise<Uitkomst> {
     const uit = await roep({ actie: 'wissen', userId, reden })
-    if (uit.ok || uit.status !== 404) return uit
+
+    /*
+     * Gelukt: dan ook meteen hier weg.
+     *
+     * Wachten op de volgende ronde kan niet. Het ophalen vraagt om alles wat
+     * is veranderd, en een rij die er niet meer is verandert nooit meer -- die
+     * komt dus nooit mee. Zonder deze regel bleef de gewiste persoon in de
+     * lijst staan en kon je hem niet opnieuw aanmaken, want de dubbelcontrole
+     * zag hem daar nog.
+     *
+     * De andere apparaten horen het via de verwijderlijst bij het ophalen.
+     */
+    if (uit.ok) {
+      await alleenHierWeg(userId)
+      return uit
+    }
+
+    if (uit.status !== 404) return uit
 
     /*
      * De server kent dit dossier niet. Dat is geen fout maar een antwoord:

@@ -349,3 +349,186 @@
   .welkom-stap { min-height: 210px; }
   .welkom-stap h2 { font-size: 1.24rem; }
 }
+
+/* ================================================================== *
+ *  De voorpagina
+ *
+ *  Alleen in een browser, en alleen voor wie niet is ingelogd. Zelfde
+ *  kleuren als de app zelf -- iemand gaat van hier rechtstreeks naar
+ *  binnen, en het geel mag onderweg niet verspringen.
+ * ================================================================== */
+
+.voorpagina {
+  min-height: 100%;
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--text);
+  padding-top: var(--safe-top);
+}
+
+.vp-balk {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 26px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--glas);
+  backdrop-filter: blur(14px);
+}
+
+/* ------------------------------- hero ----------------------------- */
+
+.vp-hero {
+  padding: 76px 26px 60px;
+  text-align: center;
+  background:
+    radial-gradient(900px 520px at 50% -10%, rgba(248, 192, 16, .13), transparent 62%),
+    radial-gradient(700px 460px at 90% 20%, rgba(88, 182, 245, .07), transparent 60%);
+}
+
+.vp-eyebrow {
+  margin: 0 0 14px;
+  font-size: .74rem;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.vp-hero h1 {
+  margin: 0 0 18px;
+  font-size: clamp(2.1rem, 6vw, 3.6rem);
+  line-height: 1.05;
+  letter-spacing: -.03em;
+  text-wrap: balance;
+}
+.vp-geel { color: var(--brand); }
+
+.vp-lead {
+  max-width: 58ch;
+  margin: 0 auto 30px;
+  font-size: 1.06rem;
+  line-height: 1.6;
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+
+.vp-knoppen {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.btn.lg { padding: 12px 22px; font-size: .95rem; }
+
+.vp-klein {
+  font-size: .8rem;
+  color: var(--text-3);
+  margin: 0;
+  line-height: 1.55;
+}
+.vp-midden { text-align: center; margin-top: 22px; }
+
+/* ------------------------------- vakken --------------------------- */
+
+.vp-vak {
+  padding: 62px 26px;
+  max-width: 1120px;
+  margin: 0 auto;
+}
+.vp-grijs {
+  max-width: none;
+  background: var(--bg-2);
+  border-block: 1px solid var(--line-soft);
+}
+.vp-grijs > * { max-width: 1120px; margin-inline: auto; }
+
+.vp-vak h2 {
+  margin: 0 0 8px;
+  font-size: 1.55rem;
+  letter-spacing: -.02em;
+  text-wrap: balance;
+}
+.vp-onder {
+  max-width: 62ch;
+  margin: 0 0 26px;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+.vp-vak h2 + .vp-raster { margin-top: 26px; }
+
+.vp-raster {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(248px, 1fr));
+  gap: 16px;
+}
+.vp-raster.drie { grid-template-columns: repeat(auto-fit, minmax(272px, 1fr)); }
+.vp-raster.twee { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+
+.vp-kaart {
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.vp-kaart h3 {
+  margin: 14px 0 7px;
+  font-size: 1.02rem;
+  letter-spacing: -.01em;
+}
+.vp-kaart p {
+  margin: 0;
+  font-size: .89rem;
+  line-height: 1.62;
+  color: var(--text-2);
+}
+
+.vp-icoon {
+  display: grid;
+  place-items: center;
+  width: 42px; height: 42px;
+  border-radius: 12px;
+  background: var(--tint-brand-weak);
+  color: var(--brand);
+}
+
+/* ------------------------------ ophalen --------------------------- */
+
+.vp-haal { display: grid; gap: 12px; align-content: start; }
+.vp-haal .btn { justify-self: start; }
+
+/* Het toestel waar je nu op kijkt springt eruit, de rest blijft staan. */
+.vp-haal.nu {
+  border-color: var(--line-brand, var(--brand));
+  background: var(--tint-brand-weak);
+}
+
+/* -------------------------------- voet ---------------------------- */
+
+.vp-voet {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 34px 26px calc(44px + var(--safe-bottom));
+  border-top: 1px solid var(--line-soft);
+}
+.vp-voet p {
+  flex: 1;
+  min-width: 260px;
+  margin: 0;
+  font-size: .84rem;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+
+@media (max-width: 640px) {
+  .vp-hero { padding: 52px 20px 44px; }
+  .vp-vak { padding: 44px 20px; }
+  .vp-balk { padding: 12px 18px; }
+}

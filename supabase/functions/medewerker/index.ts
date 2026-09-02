@@ -339,6 +339,10 @@ Deno.serve(async (req) => {
       soort: 'medewerker',
       naam: String(dossier.name ?? ''),
       kenmerk: dossier.personnel_number ?? null,
+      // Zodat elk apparaat weet wat het lokaal moet weggooien. Zonder deze
+      // twee blijft de gewiste persoon overal in beeld staan.
+      tabel: 'users',
+      record_id: dossier.id,
       reden,
       door: beller.id,
       door_naam: beller.naam,

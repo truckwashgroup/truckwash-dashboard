@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core'
 import { useEffect, useState } from 'react'
 import { AnimatePresence, MotionConfig } from 'framer-motion'
 import { AlertTriangle, Loader2, RefreshCw, Trash2, Truck } from 'lucide-react'
@@ -18,6 +19,7 @@ import Toasts from './components/Toasts'
 import Titelbalk from './components/Titelbalk'
 import AdministratieDashboard from './dashboards/administratie/AdministratieDashboard'
 import Welkomst from './components/Welkomst'
+import Voorpagina from './components/Voorpagina'
 import { welkomAfstrepen, welkomTeGaan } from './lib/welkom'
 import UpdateBanner from './components/UpdateBanner'
 import { useDeviceNotifications } from './components/NotificationCenter'
@@ -38,6 +40,17 @@ export default function App() {
   /** De wasstraat-animatie draait één keer per inlog. */
   const [washed, setWashed] = useState(false)
   const [welkom, setWelkom] = useState(false)
+
+  /*
+   * Alleen in een browser krijgt een bezoeker die niet is ingelogd eerst de
+   * voorpagina. In de Windows-app en op de tablet is dat onzin: daar heb je
+   * de app al, en wil je gewoon inloggen.
+   */
+  const inBrowser =
+    typeof window !== 'undefined' &&
+    !window.desktop?.isElectron &&
+    !Capacitor.isNativePlatform()
+  const [wilInloggen, setWilInloggen] = useState(false)
 
   // Nieuwe berichten ook buiten de app laten zien
   useDeviceNotifications()
@@ -171,7 +184,9 @@ export default function App() {
     <MotionConfig reducedMotion={rustig ? 'always' : 'never'}>
       <Titelbalk />
       {!user ? (
-        <Login />
+        inBrowser && !wilInloggen
+          ? <Voorpagina onInloggen={() => setWilInloggen(true)} />
+          : <Login />
       ) : user.mustChangePassword ? (
         /*
          * Uitgenodigd met een tijdelijk wachtwoord uit een mail. Verder komt

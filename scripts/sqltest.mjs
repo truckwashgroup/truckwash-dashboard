@@ -149,6 +149,7 @@ await run(db, '0028_een_kassa_is_geen_aanmelding.sql draait', sqlFile('supabase/
 await run(db, '0029_de_administratie.sql draait', sqlFile('supabase/migrations/0029_de_administratie.sql'))
 await run(db, '0030_gewone_facturen_waren_verdacht.sql draait', sqlFile('supabase/migrations/0030_gewone_facturen_waren_verdacht.sql'))
 await run(db, '0031_bijwerken_is_nog_steeds_geen_aanmaken.sql draait', sqlFile('supabase/migrations/0031_bijwerken_is_nog_steeds_geen_aanmaken.sql'))
+await run(db, '0032_wat_weg_is_moet_ook_weg_blijven.sql draait', sqlFile('supabase/migrations/0032_wat_weg_is_moet_ook_weg_blijven.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -190,6 +191,7 @@ await run(db, '0028 nogmaals', sqlFile('supabase/migrations/0028_een_kassa_is_ge
 await run(db, '0029 nogmaals', sqlFile('supabase/migrations/0029_de_administratie.sql'))
 await run(db, '0030 nogmaals', sqlFile('supabase/migrations/0030_gewone_facturen_waren_verdacht.sql'))
 await run(db, '0031 nogmaals', sqlFile('supabase/migrations/0031_bijwerken_is_nog_steeds_geen_aanmaken.sql'))
+await run(db, '0032 nogmaals', sqlFile('supabase/migrations/0032_wat_weg_is_moet_ook_weg_blijven.sql'))
 await run(db, '0026 nogmaals', sqlFile('supabase/migrations/0026_de_vestigingen_beheren.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
@@ -2729,6 +2731,78 @@ await magSchrijven(dev, `
 check('maar een nieuwe melding namens iemand anders nog steeds niet',
   (await db.query(
     "select count(*)::int as n from public.tickets where id = 'tk_namens'")).rows[0].n === 0)
+
+console.log('\n30. Wat weg is, blijft weg')
+
+/*
+ * Een gewiste medewerker bleef op elk apparaat in de lijst staan. Niet in de
+ * database -- daar was hij echt weg -- maar in de lokale kopie. Het ophalen
+ * vraagt om alles wat is veranderd sinds een tijdstip, en een rij die er niet
+ * meer is verandert nooit meer. Er was dus geen enkele manier waarop een
+ * apparaat kon weten dat er iets was weggehaald.
+ *
+ * Gevolg: de gewiste persoon stond er nog, en je kon hem niet opnieuw
+ * aanmaken -- de dubbelcontrole zag hem daar staan.
+ */
+
+await asServer(db)
+
+check('de verwijderlijst weet nu welke rij het betrof',
+  (await db.query(`
+     select count(*)::int as n from information_schema.columns
+      where table_name = 'deletion_log' and column_name in ('tabel', 'record_id')`))
+    .rows[0].n === 2)
+
+await db.exec(`
+  alter table public.deletion_log force row level security;
+  grant select, insert, update, delete on all tables in schema public to authenticated;
+
+  insert into public.deletion_log (id, soort, naam, reden, tabel, record_id, at)
+  values ('dl_test', 'medewerker', 'Weggestuurd', 'proef', 'users', 'u_weg', 5000)
+  on conflict (id) do nothing;
+`)
+
+check('een verwijdering is op te vragen vanaf een tijdstip',
+  (await db.query(`
+     select count(*)::int as n from public.deletion_log
+      where at > 1000 and record_id is not null`)).rows[0].n === 1)
+
+check('met de tabel en de rij erbij',
+  (await db.query(`
+     select tabel, record_id from public.deletion_log where id = 'dl_test'`))
+    .rows[0].record_id === 'u_weg')
+
+/*
+ * Elk apparaat moet dit kunnen lezen, anders blijft het spook staan en lost
+ * de hele constructie niets op. Een wasser dus ook.
+ */
+check('een gewone medewerker mag de verwijderlijst lezen',
+  (await countAs(wasser, 'select count(*)::int as n from public.deletion_log')) >= 1)
+
+check('maar schrijven blijft bij het management',
+  !(await magSchrijven(wasser, `
+     insert into public.deletion_log (id, soort, naam, reden, at)
+     values ('dl_stiekem', 'medewerker', 'Van mij', 'zomaar', 1);`)))
+
+/*
+ * De regels van vóór deze migratie hebben geen rij-id. Die moeten worden
+ * overgeslagen; ze mogen niet als "verwijder maar wat" worden gelezen.
+ */
+await asServer(db)
+await db.exec(`
+  insert into public.deletion_log (id, soort, naam, reden, at)
+  values ('dl_oud', 'medewerker', 'Van vroeger', 'oud', 6000)
+  on conflict (id) do nothing;
+`)
+
+check('een oude regel zonder rij-id valt buiten de selectie',
+  (await db.query(`
+     select count(*)::int as n from public.deletion_log
+      where at > 1000 and record_id is not null`)).rows[0].n === 1)
+
+check('terwijl hij er voor de geschiedenis wel gewoon staat',
+  (await db.query(
+    "select count(*)::int as n from public.deletion_log where id = 'dl_oud'")).rows[0].n === 1)
 
 await db.close()
 

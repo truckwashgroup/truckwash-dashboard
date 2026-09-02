@@ -4,6 +4,7 @@ import {
   GeenRechten, GeenSessie, OntbrekendeKolom, OntbrekendeTabel,
   ontbrekendeTabellen,
 } from './api/supabaseApi'
+import { supabase, supabaseConfigured } from './api/supabaseApi'
 import { verstuurWachtendePost } from './mail'
 import { db, getMeta, setMeta } from './db'
 import { logLive } from './trail'
@@ -411,7 +412,71 @@ async function pullChanges(): Promise<{ serverTime: number; opgehaald: number }>
     }
   }
 
+  opgehaald += await haalVerwijderingen(since)
+
   return { serverTime: result.serverTime, opgehaald }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Wat er is weggehaald
+ *
+ *  Het ophalen hierboven vraagt "geef me alles wat is veranderd sinds
+ *  <tijdstip>". Dat werkt voor nieuwe en gewijzigde rijen, en het kan per
+ *  definitie niet werken voor verwijderde rijen: een rij die er niet meer is,
+ *  komt niet mee in een lijst van rijen die er wel zijn.
+ *
+ *  Gevolg, en dit is een tijd onopgemerkt gebleven: een gewiste medewerker
+ *  bleef op elk apparaat in de lijst staan. In de database was hij echt weg,
+ *  maar de lokale kopie hoorde dat nooit. Je kon hem daardoor ook niet
+ *  opnieuw aanmaken -- de dubbelcontrole zag hem daar nog staan.
+ *
+ *  De server houdt bij wat er is weggehaald. Hier lezen we dat en gooien we
+ *  het lokaal weg.
+ * ------------------------------------------------------------------ */
+
+async function haalVerwijderingen(since: number): Promise<number> {
+  if (!supabaseConfigured) return 0
+
+  try {
+    const { data, error } = await supabase()
+      .from('deletion_log')
+      .select('tabel, record_id, at')
+      .gt('at', since)
+      .not('record_id', 'is', null)
+      .order('at', { ascending: true })
+      .limit(500)
+
+    if (error || !data?.length) return 0
+
+    let weg = 0
+    for (const rij of data) {
+      const entity = rij.tabel as EntityName
+      const id = String(rij.record_id ?? '')
+      if (!id || !TABLE_OF[entity]) continue
+
+      /*
+       * Staat er nog een eigen wijziging op dit record in de wachtrij, dan
+       * laten we het met rust. Dat is een botsing tussen "iemand heeft dit
+       * gewist" en "ik heb dit net aangepast", en die hoort niet stilzwijgend
+       * door het wissen te worden gewonnen.
+       */
+      const eigen = await db.outbox.where('recordId').equals(id).count()
+      if (eigen > 0) continue
+
+      await TABLE_OF[entity]().delete(id)
+      weg++
+    }
+
+    if (weg) logLive('sync', `${weg} verwijderd(e) record(s) lokaal opgeruimd`)
+    return weg
+  } catch {
+    /*
+     * Bestaat de kolom nog niet -- de migratie is niet gedraaid -- dan doen we
+     * niets. Dit is opruimen, geen kernfunctie; het mag het ophalen van
+     * gegevens nooit in de weg zitten.
+     */
+    return 0
+  }
 }
 
 /* ------------------------------------------------------------------ *

@@ -16,6 +16,28 @@ const path = require('node:path')
 const root = path.resolve(__dirname, '..')
 const electronDir = path.join(root, 'node_modules', 'electron')
 
+/*
+ * Alleen op Windows, want daar wordt de desktop-app gebouwd (electron-builder
+ * draait met --win en verder nergens).
+ *
+ * Dit is erbij gekomen nadat een bouw bij Cloudflare bleef hangen op precies
+ * deze stap. Dat is ook logisch: dit haalt ruim honderd megabyte binary op,
+ * op een machine die alleen een website bouwt en er nooit iets mee doet. Het
+ * script vangt fouten af, maar het vangt geen trage download af -- en dan
+ * staat er in het logboek alleen "postinstall" en verder niets.
+ *
+ * Moet het toch ergens anders: zet ELECTRON_OPHALEN=1.
+ */
+const wilElectron =
+  process.platform === 'win32' || process.env.ELECTRON_OPHALEN === '1'
+
+if (!wilElectron) {
+  console.log(
+    `Electron overgeslagen op ${process.platform} — die is alleen nodig voor ` +
+    'de Windows-app. Forceren kan met ELECTRON_OPHALEN=1.')
+  process.exit(0)
+}
+
 if (!fs.existsSync(electronDir)) {
   console.log('Electron staat niet in dit project, overgeslagen')
   process.exit(0)

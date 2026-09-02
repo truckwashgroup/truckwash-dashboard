@@ -75,3 +75,33 @@ if (problems.length) {
   console.error('  Supabase -> Project Settings -> API Keys -> "publishable" (of de oude "anon").\n')
   process.exit(1)
 }
+
+/* ------------------------------------------------------------------ *
+ *  En het omgekeerde: helemaal geen sleutel
+ *
+ *  Dit stopt de bouw niet -- een bouw voor de tests mag zonder. Maar een
+ *  uitrol zonder deze twee levert een app op die er goed uitziet en waar
+ *  niemand in kan, en dat merk je pas als de eerste persoon het probeert.
+ *  Bij een bouwstraat zoals Cloudflare Pages komen ze uit de omgeving en
+ *  niet uit een bestand, dus daar kijken we ook.
+ * ------------------------------------------------------------------ */
+
+const uitBestanden = new Set()
+for (const name of files) {
+  for (const { key, value } of parseEnv(path.join(root, name))) {
+    if (value) uitBestanden.add(key)
+  }
+}
+
+const NODIG = ['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY']
+const ontbreekt = NODIG.filter((k) => !process.env[k] && !uitBestanden.has(k))
+
+if (ontbreekt.length && process.env.VITE_USE_MOCK !== '1') {
+  console.warn('\n  LET OP — er wordt gebouwd zonder verbinding met de database\n')
+  for (const k of ontbreekt) console.warn(`  ${k} is nergens gezet`)
+  console.warn('\n  De app bouwt gewoon, maar er kan niemand inloggen: het inlogscherm')
+  console.warn('  meldt dat Supabase niet is ingesteld. Zet ze in .env voor lokaal werk,')
+  console.warn('  of als bouwvariabelen bij de plek waar je uitrolt.\n')
+  console.warn('  Gebruik de publieke sleutel ("publishable" of de oude "anon"),')
+  console.warn('  nooit de service-sleutel.\n')
+}

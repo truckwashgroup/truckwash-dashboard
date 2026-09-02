@@ -1,7 +1,7 @@
 {
   "name": "truckwash-dashboard",
   "productName": "Truckwash1 Dashboard",
-  "version": "1.23.0",
+  "version": "1.23.1",
   "description": "Truckwash1 Group - offline-first dashboard voor werknemers, klanten en management",
   "author": {
     "name": "Truckwash1 Group",
@@ -82,5 +82,8 @@
   "homepage": "https://github.com/truckwashgroup/truckwash-dashboard",
   "optionalDependencies": {
     "@img/sharp-win32-x64": "^0.35.4"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

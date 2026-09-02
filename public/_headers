@@ -1,0 +1,43 @@
+# Kopregels voor Cloudflare Pages.
+#
+# Wat hier staat is bewust bescheiden. Elke regel hieronder is er een waarvan
+# ik weet dat hij niets breekt.
+#
+# Wat er NIET staat is een Content-Security-Policy. Die zou hier het meeste
+# opleveren, maar deze app haalt onderdelen van buiten binnen -- pdf.js met een
+# eigen worker, de tekstherkenning met bestanden van een CDN, Supabase voor
+# gegevens en opslag. Een te strenge regel breekt daar iets van, en dat merk je
+# niet bij het uitrollen maar pas als iemand een factuur probeert te openen.
+# Die hoort erbij, maar pas nadat hij een keer in een echte browser is
+# nagelopen.
+
+/*
+  # Deze app hoort nooit in een frame van iemand anders te staan. Zonder deze
+  # regel kan een andere site het inlogscherm onzichtbaar over zijn eigen
+  # knoppen leggen en jouw klikken opvangen.
+  X-Frame-Options: DENY
+
+  # Een bestand is wat de server zegt dat het is, en niet wat de browser ervan
+  # denkt te herkennen.
+  X-Content-Type-Options: nosniff
+
+  # Bij het wegklikken naar buiten gaat alleen het adres mee, niet de pagina
+  # waar iemand vandaan kwam.
+  Referrer-Policy: strict-origin-when-cross-origin
+
+  # Niets hier heeft de camera nodig behalve het scannen van een QR-code, en
+  # dat vraagt de browser zelf. De rest staat uit.
+  Permissions-Policy: geolocation=(), microphone=(), payment=(), usb=()
+
+  # Zoekmachines houden we ook via de kopregel weg; robots.txt wordt niet door
+  # iedereen gelezen.
+  X-Robots-Tag: noindex, nofollow
+
+# De bundel krijgt bij elke bouw een nieuwe naam, dus die mag eeuwig blijven
+# staan. index.html juist niet -- dat is het bestand dat naar de nieuwe bundel
+# wijst, en een oude versie daarvan betekent een app die niet bijwerkt.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/index.html
+  Cache-Control: no-cache

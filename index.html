@@ -4,6 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#0b1220" />
+
+    <!--
+      Het manifest en de iconen stonden er wel maar werden nergens genoemd, en
+      de iconen lagen buiten public/ zodat ze niet eens werden meegeleverd. In
+      de Windows-app en op Android valt dat niet op -- die hebben hun eigen
+      iconen -- maar in een browser is het het verschil tussen een tabblad met
+      het logo en een tabblad met een leeg vel.
+    -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" type="image/webp" sizes="192x192" href="icons/icon-192.webp" />
+    <link rel="apple-touch-icon" href="icons/icon-192.webp" />
+
+    <!-- Intern gereedschap; niet in de zoekresultaten. -->
+    <meta name="robots" content="noindex, nofollow" />
+
     <title>Truckwash1 Dashboard</title>
   </head>
   <body>

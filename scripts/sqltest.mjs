@@ -165,6 +165,7 @@ await run(db, '0031_bijwerken_is_nog_steeds_geen_aanmaken.sql draait', sqlFile('
 await run(db, '0032_wat_weg_is_moet_ook_weg_blijven.sql draait', sqlFile('supabase/migrations/0032_wat_weg_is_moet_ook_weg_blijven.sql'))
 await run(db, '0033_de_vestiging_vult_de_website.sql draait', sqlFile('supabase/migrations/0033_de_vestiging_vult_de_website.sql'))
 await run(db, '0034_anon_hoort_hier_niet_bij_te_kunnen.sql draait', sqlFile('supabase/migrations/0034_anon_hoort_hier_niet_bij_te_kunnen.sql'))
+await run(db, '0035_de_achttien_vestigingen_komen_naar_binnen.sql draait', sqlFile('supabase/migrations/0035_de_achttien_vestigingen_komen_naar_binnen.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -209,6 +210,7 @@ await run(db, '0031 nogmaals', sqlFile('supabase/migrations/0031_bijwerken_is_no
 await run(db, '0032 nogmaals', sqlFile('supabase/migrations/0032_wat_weg_is_moet_ook_weg_blijven.sql'))
 await run(db, '0033 nogmaals', sqlFile('supabase/migrations/0033_de_vestiging_vult_de_website.sql'))
 await run(db, '0034 nogmaals', sqlFile('supabase/migrations/0034_anon_hoort_hier_niet_bij_te_kunnen.sql'))
+await run(db, '0035 nogmaals', sqlFile('supabase/migrations/0035_de_achttien_vestigingen_komen_naar_binnen.sql'))
 await run(db, '0026 nogmaals', sqlFile('supabase/migrations/0026_de_vestigingen_beheren.sql'))
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
@@ -554,7 +556,7 @@ console.log('\n10. Overleg: kanalen, vestigingen en beslotenheid')
 
 await db.exec(`
   insert into public.locations (id, code, name, kind, city) values
-    ('loc_utr', 'TW-UTR', 'Utrecht', 'vestiging', 'Utrecht'),
+    ('loc_utr', 'TST-UTR', 'Utrecht', 'vestiging', 'Utrecht'),
     ('loc_rtd', 'TW-RTD', 'Rotterdam', 'vestiging', 'Rotterdam')
   on conflict (id) do nothing;
 
@@ -921,7 +923,7 @@ console.log('\n18. Kassa: bonnen, codes en kaarten')
  */
 await db.exec(`
   insert into public.locations (id, code, name, kind, address, postcode, city, bays)
-  values ('loc_utr', 'TW-UTR', 'Utrecht', 'vestiging', 'Wasstraat 1', '3500 AA', 'Utrecht', 2),
+  values ('loc_utr', 'TST-UTR', 'Utrecht', 'vestiging', 'Wasstraat 1', '3500 AA', 'Utrecht', 2),
          ('loc_rtm', 'TW-RTM', 'Rotterdam', 'vestiging', 'Havenweg 9', '3000 BB', 'Rotterdam', 1)
   on conflict (id) do nothing;
 
@@ -2898,11 +2900,134 @@ check('en de personeelstelling ook niet',
 check('de vestigingentabel al helemaal niet',
   !(await anonMag('select * from public.locations;')))
 
+/* ===========================================================================
+ *  De achttien vestigingen uit 0035
+ * ======================================================================== */
+
+await asServer(db)
+
+/*
+ * Herkenbaar aan de punten. De testvestigingen hierboven hebben die niet, en
+ * alleen de import zet ze -- dus dit telt precies wat 0035 heeft ingevoerd en
+ * niets anders.
+ */
+const { rows: [ingevoerd] } = await db.query(`
+  select count(*)::int as n,
+         count(*) filter (where op_website)::int as op_website,
+         count(*) filter (where website_slug is not null)::int as met_slug,
+         count(*) filter (where coalesce(phone, '') <> '')::int as met_telefoon,
+         count(*) filter (where lat is not null and lon is not null)::int as met_plek
+    from public.locations
+   where array_length(punten, 1) > 0`)
+
+check('de achttien vestigingen staan erin', ingevoerd.n === 18)
+check('en ze staan alle achttien op de website', ingevoerd.op_website === 18)
+check('elk met een eigen adres op de site', ingevoerd.met_slug === 18)
+check('elk met een telefoonnummer', ingevoerd.met_telefoon === 18)
+check('en met coordinaten voor de kaart', ingevoerd.met_plek === 18)
+
+check('de openingstijden zijn omgezet naar dagen',
+  (await db.query(`
+     select opening_hours from public.locations where website_slug = 'aalsmeer'`))
+    .rows[0].opening_hours.za.tot === '15:00')
+
+check('zondag dicht is null en niet een leeg venster',
+  (await db.query(`
+     select opening_hours from public.locations where website_slug = 'aalsmeer'`))
+    .rows[0].opening_hours.zo === null)
+
+check('een dag die de site niet invult ontbreekt gewoon',
+  !('zo' in (await db.query(`
+     select opening_hours from public.locations where website_slug = 'utrecht'`))
+    .rows[0].opening_hours))
+
+check('waar de site "op afspraak" zei staat dat erbij',
+  ((await db.query(
+    `select bijzonder from public.locations where website_slug = 'maasvlakte'`))
+    .rows[0].bijzonder ?? '').toLowerCase().includes('afspraak'))
+
+check('Aalsmeer krijgt geen haal-en-brengservice die er niet is',
+  !(await db.query(
+    `select diensten from public.locations where website_slug = 'aalsmeer'`))
+    .rows[0].diensten.includes('haal-en-brengservice'))
+
+check('en Venlo wel, want daar staat het er',
+  (await db.query(
+    `select diensten from public.locations where website_slug = 'venlo'`))
+    .rows[0].diensten.includes('haal-en-brengservice'))
+
+/*
+ * De proefinvoer.
+ *
+ * Voor de migratie stond er een "Truckwash Utrecht" met het adres
+ * "kasweg 2112" en de code TW-UTR. Die moet zijn bijgewerkt naar het echte
+ * adres, met behoud van zijn id -- er kunnen uren en wasbeurten aan hangen.
+ */
+await db.exec(`
+  insert into public.locations (id, code, name, kind, address, postcode, city)
+  values ('loc_proefutr', 'TW-UTRX', 'Truckwash Utrecht', 'vestiging',
+          'kasweg 2112', '3500 ZZ', 'Utrecht')
+  on conflict (id) do nothing;`)
+
+check('Utrecht staat er maar een keer',
+  (await db.query(
+    `select count(*)::int as n from public.locations where website_slug = 'utrecht'`))
+    .rows[0].n === 1)
+
+/*
+ * Opnieuw draaien mag niets omgooien.
+ *
+ * supabase/bijwerken.sql belooft dat je hem altijd opnieuw mag draaien. Voor
+ * een migratie die gegevens INVOERT is dat een scherpere eis dan gewoonlijk:
+ * met "do update" zou een tweede keer draaien alles terugzetten naar wat de
+ * site ooit zei, en daarmee elke wijziging wissen die iemand daarna in de app
+ * heeft gemaakt. Deze controle houdt dat vast.
+ */
+await db.exec(`
+  update public.locations
+     set intro = 'Met de hand aangepast na de import.',
+         bays  = 7
+   where website_slug = 'venlo';`)
+
+await run(db, '0035 na een wijziging nogmaals',
+  sqlFile('supabase/migrations/0035_de_achttien_vestigingen_komen_naar_binnen.sql'))
+
+const { rows: [venlo] } = await db.query(
+  `select intro, bays from public.locations where website_slug = 'venlo'`)
+check('een eigen tekst overleeft een tweede import',
+  venlo.intro === 'Met de hand aangepast na de import.')
+check('en een gewijzigd aantal wasstraten ook', venlo.bays === 7)
+
 /* De telling is een getal en geen namenlijst. */
 const { rows: [telling] } =
   await db.query('select public.website_aantal_medewerkers() as n')
 check('de personeelstelling geeft een getal terug', Number.isInteger(telling.n))
 check('en dat getal is niet negatief', telling.n >= 0)
+
+/*
+ * Rollen stapelen in dit systeem, en de telling moet daar tegen kunnen.
+ *
+ * De eerste versie sloot iedereen uit met de rol klant of werkgever. Dat is
+ * te streng: wie werknemer is en daarnaast een klantaccount heeft, is nog
+ * steeds gewoon een collega. Op de echte database gaf dat 1 in plaats van 6,
+ * en dat getal zou op de vacaturepagina komen te staan.
+ */
+await db.exec(`
+  insert into public.profiles (id, name, email, roles, active)
+  values
+    ('p_tel_werk',  'Alleen werknemer', 'w@t.nl',  array['employee'],             true),
+    ('p_tel_dubbel','Werknemer en klant','wk@t.nl', array['employee','customer'],  true),
+    ('p_tel_klant', 'Alleen klant',     'k@t.nl',  array['customer'],             true),
+    ('p_tel_uit',   'Uitgeschreven',    'u@t.nl',  array['employee'],             false)
+  on conflict (id) do nothing;`)
+
+const naTelling = (await db.query('select public.website_aantal_medewerkers() as n')).rows[0].n
+check('een werknemer telt mee', naTelling >= telling.n + 2)
+check('wie ook klant is telt gewoon mee als collega', naTelling === telling.n + 2)
+
+await db.exec(`update public.profiles set archived_at = 1 where id = 'p_tel_werk';`)
+check('wie is uitgeschreven telt niet meer mee',
+  (await db.query('select public.website_aantal_medewerkers() as n')).rows[0].n === naTelling - 1)
 
 /* ===========================================================================
  *  Wie mag er zonder inlog een functie aanroepen

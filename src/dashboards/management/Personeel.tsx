@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   ArrowLeft, BadgeCheck, ClipboardCheck, FolderLock, KeyRound, Mail, MapPin,
@@ -28,11 +28,27 @@ import type { Location } from '../../lib/types'
 
 const ALL_ROLES: Role[] = ROLE_ORDER
 
-export default function Personeel({ days }: { days: number }) {
+export default function Personeel({ days, openId }: { days: number; openId?: string | null }) {
   const me = useAuth((s) => s.user)!
   const perms = usePerms()
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(openId ?? null)
   const [adding, setAdding] = useState(false)
+
+  /*
+   * Wie via de zoekbalk is aangeklikt, moet ook opengaan.
+   *
+   * De tabel hieronder toont alleen mensen met de rol "werknemer" -- dat is
+   * een prestatietabel, en een klant heeft daar niets te zoeken. Maar de
+   * zoekbalk doorzoekt iedereen, en het dossier is de enige plek waar je
+   * iemand kunt uitschrijven of wissen.
+   *
+   * Ontbrak deze regel, dan was iemand zonder de rol "werknemer" wel te
+   * vinden en niet te openen: je klikte hem aan, kwam op dit scherm, en hij
+   * stond niet in de lijst. Dus ook niet weg te krijgen, en zijn e-mailadres
+   * bleef voorgoed bezet -- je kon hem niet opnieuw aanmaken en niet
+   * verwijderen. Precies dat is een keer gebeurd.
+   */
+  useEffect(() => { if (openId) setSelectedId(openId) }, [openId])
 
   const users = useLiveQuery(() => alleMensen(), [], [] as User[])
   const jobs = useLiveQuery(() => db.washJobs.toArray(), [], [] as WashJob[])

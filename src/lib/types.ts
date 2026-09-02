@@ -189,6 +189,13 @@ export interface Location {
   bijzonder?: string
   /** Sleutels uit WEBSITE_DIENSTEN. Los van SERVICES: dat is wat de kassa boekt. */
   diensten?: string[]
+  /**
+   * De opsomming op de vestigingspagina: "500 meter vanaf Flora Holland",
+   * "Handwash met spons". Vrije tekst, een regel per punt, en het verschilt
+   * echt per vestiging. Los van diensten -- dat zijn sleutels naar een
+   * dienstpagina, dit staat alleen hier.
+   */
+  punten?: string[]
 
   updatedAt: number
 }

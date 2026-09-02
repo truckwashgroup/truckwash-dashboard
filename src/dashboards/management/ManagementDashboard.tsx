@@ -151,13 +151,30 @@ export default function ManagementDashboard() {
     { key: 'beheer', label: 'Beheer', icon: Settings },
   ]
 
+  /*
+   * Wie de zoekbalk aanwijst, moet ook opengaan.
+   *
+   * De zoekbalk geeft het id van de aangeklikte persoon netjes mee, maar dat
+   * werd hier weggegooid: er werd alleen een scherm gekozen. Voor iemand die
+   * in de personeelstabel staat viel dat niet op -- die zocht je daar gewoon
+   * op. Voor iemand die er NIET in staat wel: de tabel toont alleen de rol
+   * "werknemer", dus een klant of werkgever was wel te vinden en niet te
+   * openen. En het dossier is de enige plek waar je iemand kunt uitschrijven
+   * of wissen. Zo raakte een e-mailadres voorgoed bezet.
+   */
+  const [openPersoon, setOpenPersoon] = useState<string | null>(null)
+
   useNavTarget(
     [...items.map((i) => i.key),
      'klanten', 'materiaal', 'storingen', 'werkbonnen', 'installaties', 'onderhoud'],
-    (p) => setPage(
-      p === 'klanten' ? 'personeel' :
-      p === 'materiaal' ? 'voorraad' :
-      ['storingen', 'werkbonnen', 'installaties', 'onderhoud'].includes(p) ? 'techniek' : p),
+    (p, id) => {
+      const doel =
+        p === 'klanten' ? 'personeel' :
+        p === 'materiaal' ? 'voorraad' :
+        ['storingen', 'werkbonnen', 'installaties', 'onderhoud'].includes(p) ? 'techniek' : p
+      setPage(doel)
+      setOpenPersoon(doel === 'personeel' ? id ?? null : null)
+    },
   )
 
   const meta = TITLES[page] ?? TITLES.start
@@ -367,7 +384,7 @@ export default function ManagementDashboard() {
       )}
       {page === 'overzicht' && <Overzicht days={days} />}
       {page === 'financieel' && <Financieel days={days} />}
-      {page === 'personeel' && <Personeel days={days} />}
+      {page === 'personeel' && <Personeel days={days} openId={openPersoon} />}
       {page === 'aanmeldingen' && <Aanmeldingen />}
       {page === 'voorraad' && <Voorraad days={days} />}
       {page === 'planning' && <Planning />}

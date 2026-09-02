@@ -100,7 +100,19 @@ alter table public.locations add column if not exists op_website boolean not nul
 --  code die het opvraagt.
 -- ---------------------------------------------------------------------------
 
-create or replace function public.website_vestigingen()
+/*
+ * Eerst weg, dan opnieuw -- en niet "create or replace".
+ *
+ * Postgres weigert een vervanging zodra de teruggegeven kolommen veranderen:
+ * "cannot change return type of existing function". Dat is precies wat er
+ * gebeurde toen 0035 er een kolom bij zette. Bij de eerste keer draaien merk
+ * je dat niet; bij de TWEEDE keer wel, want dan komt dit bestand langs terwijl
+ * de functie al de nieuwe vorm heeft, en dan valt supabase/bijwerken.sql
+ * halverwege om. En dat bestand belooft juist dat opnieuw draaien altijd mag.
+ */
+drop function if exists public.website_vestigingen();
+
+create function public.website_vestigingen()
 returns table (
   slug        text,
   naam        text,

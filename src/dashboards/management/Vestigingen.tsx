@@ -681,6 +681,21 @@ function Website({
   const gaten = websiteGaten(vorm)
   const gekozen = new Set(vorm.diensten ?? [])
 
+  /*
+   * De punten worden als lijst bewaard en als tekst getoond, en die twee
+   * moeten los van elkaar kunnen staan terwijl je typt.
+   *
+   * Zou het tekstvak rechtstreeks uit de lijst lezen, dan verdwijnt een lege
+   * regel op het moment dat je hem maakt -- en dan kun je geen Enter drukken
+   * om aan een volgend punt te beginnen. Dus: ruwe tekst hier, opgeschoonde
+   * lijst naar het formulier.
+   */
+  const [ruwePunten, setRuwePunten] = useState((vorm.punten ?? []).join('\n'))
+  useEffect(
+    () => { setRuwePunten((vorm.punten ?? []).join('\n')) },
+    [vorm.id, vorm.updatedAt],
+  )
+
   const wissel = (s: string) => {
     const nieuw = new Set(gekozen)
     if (nieuw.has(s)) nieuw.delete(s); else nieuw.add(s)
@@ -777,6 +792,28 @@ function Website({
           rows={3} value={vorm.bijzonder ?? ''} disabled={!mag}
           placeholder="Enige vestiging met een NAO-wasplaats voor tankwagens."
           onChange={(e) => zet('bijzonder', e.target.value || undefined)}
+        />
+      </Field>
+
+      <Field
+        label="Punten op de pagina"
+        help={`Een per regel. Dit is het rijtje redenen om juist hier te stoppen${
+          (vorm.punten ?? []).length ? ` — nu ${vorm.punten!.length}` : ''}.`}
+      >
+        {/*
+          * Een tekstvak met regels, en geen rijtje losse invulvelden met een
+          * plusknop. Bij acht punten is dat laatste acht keer klikken om er
+          * een tussen te schuiven, en knippen en plakken uit een oude pagina
+          * kan dan niet meer. Lege regels vallen vanzelf weg.
+          */}
+        <textarea
+          rows={6} disabled={!mag}
+          value={ruwePunten}
+          placeholder={'500 meter vanaf de bloemenveiling\nHandwash met spons\nAlcoa / Dura Bright behandeling'}
+          onChange={(e) => {
+            setRuwePunten(e.target.value)
+            zet('punten', e.target.value.split('\n').map((r) => r.trim()).filter(Boolean))
+          }}
         />
       </Field>
 

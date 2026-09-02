@@ -1,0 +1,44 @@
+/**
+ * Cloudflare Workers -- de app als website
+ *
+ * Dit bestand bestaat om één reden: in de nieuwe Workers-stroom staat de
+ * uitvoermap niet in het scherm van Cloudflare maar hier. Zonder dit bestand
+ * bouwt hij netjes en weet hij daarna niet wat hij moet serveren.
+ *
+ * Wat je in het scherm invult:
+ *
+ *   Build command   npm run build
+ *   Deploy command  npx wrangler deploy
+ *   Path            /            <- de map waarin gebouwd wordt, niet de
+ *                                   uitvoermap. Die staat hieronder.
+ *
+ * En drie bouwvariabelen, want Vite bakt ze tijdens het bouwen in de bundel:
+ *
+ *   VITE_SUPABASE_URL
+ *   VITE_SUPABASE_ANON_KEY     de publieke sleutel, nooit de service-sleutel
+ *   NODE_VERSION = 22
+ *
+ * Er staat geen "main" in. Dat hoeft ook niet: dit is een verzameling
+ * bestanden en geen programma. Er draait dus niets van ons op Cloudflare --
+ * de app praat rechtstreeks met Supabase, net als de Windows-app en de
+ * tablets. Eén app, drie manieren om erbij te komen.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "truckwash-dashboard",
+  "compatibility_date": "2026-09-02",
+
+  "assets": {
+    "directory": "./dist",
+
+    /*
+     * Alles wat geen bestand is, krijgt index.html terug met een gewone 200.
+     *
+     * De app heeft geen adressen -- er is één pagina en de navigatie gebeurt
+     * in het scherm zelf. Dit is er dus voor het geval iemand een adres
+     * intikt of een oude link opent: dan komt hij in de app terecht in
+     * plaats van op een foutmelding van Cloudflare.
+     */
+    "not_found_handling": "single-page-application"
+  }
+}

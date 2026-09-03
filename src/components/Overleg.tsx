@@ -37,6 +37,13 @@ export default function Overleg() {
   const pending = useSync((s) => s.pending)
 
   const [openId, setOpenId] = useState<string | null>(null)
+  /*
+   * Op een telefoon staan lijst en gesprek niet naast elkaar maar wisselen ze
+   * elkaar af. 'actief' valt terug op het eerste kanaal zodra er niets gekozen
+   * is, dus "geen gesprek open" bestaat niet als toestand -- de terugpijl
+   * bracht je daardoor nergens. Dit is die toestand: de lijst staat voor.
+   */
+  const [lijst, setLijst] = useState(false)
   const [zoek, setZoek] = useState('')
   const [nieuwKanaal, setNieuwKanaal] = useState(false)
   const [nieuwGesprek, setNieuwGesprek] = useState(false)
@@ -99,7 +106,7 @@ export default function Overleg() {
   return (
     <div className="chat">
       {/* -------------------------- Kanalen -------------------------- */}
-      <aside className={`chat-list ${actief ? 'has-open' : ''}`}>
+      <aside className={`chat-list ${actief && !lijst ? 'has-open' : ''}`}>
         <div className="chat-search">
           <Search size={14} />
           <input
@@ -146,6 +153,7 @@ export default function Overleg() {
                   className={`chat-channel ${actief?.channel.id === s.channel.id ? 'active' : ''} ${s.ongelezen ? 'unread' : ''}`}
                   onClick={() => {
                     setOpenId(s.channel.id)
+                    setLijst(false)
                     trail.action(`Overleg geopend: ${s.channel.name}`)
                   }}
                 >
@@ -191,7 +199,7 @@ export default function Overleg() {
           iedereen={iedereen}
           berichten={berichten}
           onLeden={() => setLeden(actief.channel)}
-          onTerug={() => setOpenId(null)}
+          onTerug={() => setLijst(true)}
         />
       ) : (
         <div className="chat-thread">
@@ -202,7 +210,7 @@ export default function Overleg() {
       <NieuwKanaal
         open={nieuwKanaal}
         onClose={() => setNieuwKanaal(false)}
-        onCreated={setOpenId}
+        onCreated={(id) => { setOpenId(id); setLijst(false) }}
         me={me}
         iedereen={iedereen}
       />
@@ -210,7 +218,7 @@ export default function Overleg() {
       <NieuwGesprek
         open={nieuwGesprek}
         onClose={() => setNieuwGesprek(false)}
-        onCreated={setOpenId}
+        onCreated={(id) => { setOpenId(id); setLijst(false) }}
         me={me}
         iedereen={iedereen}
       />

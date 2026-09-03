@@ -19,6 +19,10 @@
   --rood:#b3261e;
   --s1:8px; --s2:16px; --s3:24px; --s4:40px; --s5:64px; --s6:96px;
   --breed:1180px;
+  /* Hoogte van de onderbalk op een telefoon. Op een groot scherm 0, zodat
+     body, het uitklapmenu en Trucky (in style.css) er gewoon op kunnen rekenen
+     zonder eigen breekpunt. Wordt gezet in het telefoonblok onderaan. */
+  --onderbalk:0px;
 }
 *{box-sizing:border-box}
 /* De browser zet zelf [hidden]{display:none}, maar dat is een UA-regel en die
@@ -32,6 +36,9 @@ body{
   font-family:Barlow,-apple-system,"Segoe UI",sans-serif;
   font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased;
   overflow-x:hidden;
+  /* Op een telefoon staat de onderbalk vast over de onderrand. Zonder deze
+     ruimte verdwijnt de laatste regel van de voettekst erachter. */
+  padding-bottom:var(--onderbalk);
 }
 h1,h2,h3,h4,.merk,.knop,.stat b{font-family:Archivo,"Arial Black",Arial,sans-serif}
 h1,h2,h3{text-wrap:balance;letter-spacing:-.022em;margin:0}
@@ -86,10 +93,19 @@ a{color:var(--navy-600)}
    band tot 1154px doorlopen. Vanaf 1181px is .shell afgetopt en is de ruimte
    een vast gegeven: 1132px, met 26px over. Daarom staat het breekpunt daar. */
 @media(max-width:1180px){
-  .menu{display:none;position:absolute;top:70px;left:0;right:0;background:var(--navy-900);flex-direction:column;padding:var(--s2);border-bottom:3px solid var(--geel);gap:2px}
+  .menu{display:none;position:absolute;top:70px;left:0;right:0;background:var(--navy-900);flex-direction:column;padding:var(--s2);border-bottom:3px solid var(--geel);gap:2px;
+    /* Acht regels van 45px plus de balk onderin passen op een liggende telefoon
+       niet onder de kop. Dan hoort het menu zelf te scrollen, niet af te
+       kappen -- anders is "Contact" onbereikbaar precies op het apparaat waar
+       je hem het hardst nodig hebt. */
+    max-height:calc(100vh - 70px - var(--onderbalk));
+    /* Op een telefoon is 100vh de hoogte mét ingeklapte browserbalken; zolang
+       die zichtbaar zijn verdween "Inloggen" alsnog achter de onderbalk. dvh
+       rekent met wat er werkelijk te zien is; wie het niet kent houdt vh. */
+    max-height:calc(100dvh - 70px - var(--onderbalk));overflow-y:auto;-webkit-overflow-scrolling:touch}
   .menu.open{display:flex}
   .menu a{padding:12px 14px;font-size:17px}
-  .hamburger{display:block}
+  .hamburger{display:block;min-height:44px}
   .beltel{display:none}
 }
 
@@ -135,6 +151,16 @@ h1 em{font-style:normal;color:var(--geel)}
   .hero::after{background:linear-gradient(180deg, rgba(7,19,46,.72) 0%, rgba(7,19,46,.93) 55%, var(--navy-900) 100%)}
   .hero .shell{padding-top:var(--s5);padding-bottom:var(--s5)}
   .drie-hint{display:none}
+}
+@media(max-width:600px){
+  /* 40px als ondergrens van de clamp was op 360px nog vier regels "PRIJS
+     VOORAF BEKEND" die de zoeker onder de vouw duwden. */
+  h1{font-size:clamp(32px,9.5vw,40px)}
+  .lead{font-size:18px}
+  /* Twee knoppen van 14px x 26px naast elkaar passen net niet op 360px en
+     vallen dan scheef onder elkaar. Dan liever allebei de volle breedte. */
+  .hero-knoppen .knop,.zoekrij .knop{flex:1 1 100%;justify-content:center}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3) var(--s2)}
 }
 
 /* ---------- zoeker ---------- */
@@ -207,6 +233,14 @@ tbody tr:last-child td{border-bottom:none}
 tbody tr:nth-child(even){background:#fafbfd}
 td.bedrag,th.bedrag{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
 tr.verborgen{display:none}
+@media(max-width:700px){
+  /* De tabel is breder dan het scherm en scrollt zijwaarts, maar niets laat
+     dat zien: de rechterkolom staat er gewoon afgesneden. Een regel erboven
+     die met sticky links blijft staan terwijl de tabel eronder schuift. */
+  .tblwrap{-webkit-overflow-scrolling:touch}
+  .tblwrap::before{content:"Veeg zijwaarts voor de hele tabel";display:block;position:sticky;left:0;font-size:12.5px;color:var(--inkt-3);padding:7px 14px;background:var(--mist);border-bottom:1px solid var(--lijn)}
+  th,td{padding:11px 14px}
+}
 
 /* ---------- prijszoeker ---------- */
 .prijsbalk{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:var(--s3);align-items:center}
@@ -266,6 +300,9 @@ tr.verborgen{display:none}
 
 /* ---------- locatiedetail ---------- */
 .detailkop{background:var(--navy-800);color:#fff;padding:var(--s5) 0 var(--s4)}
+/* De onderbalk springt naar #adres en /contact/#klant-worden; de kop is
+   sticky en zou zonder deze marge precies over het doel heen staan. */
+#adres,#klant-worden{scroll-margin-top:84px}
 .kruimel{font-size:14px;color:#93a6c9;margin-bottom:12px}
 .kruimel a{color:#93a6c9;text-decoration:none}
 .kruimel a:hover{color:var(--geel)}
@@ -274,6 +311,18 @@ tr.verborgen{display:none}
 .infokaart h4{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--inkt-3);margin:0 0 12px;font-weight:600}
 .infokaart p{margin:0 0 6px;font-size:16.5px}
 .infokaart a{font-weight:600}
+@media(max-width:700px){
+  /* auto-fit met 250px liet op 560px nog twee kolommen toe, met Openingstijden
+     erin als een tabel van 120px breed die de tijden afbrak. */
+  .infoblok{grid-template-columns:1fr}
+}
+/* Foto's van de vestiging uit de database (l.fotos): de eerste groot in
+   .band .foto, de rest als vierkante tegels. Geen width/height op de img, want
+   de afmetingen zijn bij de bouw onbekend; aspect-ratio houdt de plek vast. */
+.galerij{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:var(--s2)}
+.galerij a{display:block;aspect-ratio:1;overflow:hidden;border-radius:4px;background:var(--mist);border:1px solid var(--lijn)}
+.galerij img{width:100%;height:100%;object-fit:cover}
+@media(max-width:600px){.galerij{grid-template-columns:repeat(4,1fr);gap:8px}}
 .uren{width:100%;max-width:100%;min-width:0;font-size:16px;border-collapse:collapse;table-layout:fixed}
 .uren td:first-child{white-space:nowrap}
 .uren td:last-child{font-size:15px}
@@ -319,6 +368,16 @@ tr.verborgen{display:none}
 .veld textarea{min-height:130px;resize:vertical}
 .veld input:focus,.veld select:focus,.veld textarea:focus{outline:none;border-color:var(--navy-600)}
 @media(max-width:700px){.form{grid-template-columns:1fr}}
+/* De witte kaart om een formulier. Stond inline op padding:var(--s4), en 40px
+   aan weerszijden van 312px laat 232px over voor een invoerveld. */
+.formkaart{padding:var(--s4)}
+@media(max-width:600px){.formkaart{padding:var(--s3) 18px}}
+/* Klant worden op /contact/: uitleg links, formulier rechts. */
+.klantblok{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:var(--s4);align-items:start}
+@media(max-width:900px){.klantblok{grid-template-columns:1fr}}
+.klantmelding{margin:var(--s2) 0 0;font-size:16px;color:var(--inkt-2);min-height:1.6em}
+.klantmelding.gelukt{color:var(--groen);font-weight:600}
+.klantmelding.mislukt{color:var(--rood)}
 
 /* ---------- voet ---------- */
 .voet{background:var(--navy-900);color:#9fb0d0;padding:var(--s5) 0 var(--s3);font-size:15.5px}
@@ -500,6 +559,44 @@ tr.verborgen{display:none}
 .relmelding{color:var(--inkt-2);font-size:15.5px;margin:0 0 var(--s3);padding:12px 16px;background:var(--mist);border-left:3px solid var(--geel);border-radius:0 3px 3px 0}
 .dlgrootte{color:var(--inkt-3);font-size:14.5px;display:block;margin-top:6px}
 
+/* ---------- telefoon: maten en raakvlakken ---------- */
+@media(max-width:600px){
+  .shell{padding:0 18px}
+  section.blok{padding:var(--s5) 0}
+  .band .tekst{padding:var(--s4) 18px}
+  /* Alles wat je met een duim raakt minstens 44px hoog. De chips van de
+     prijslijst en de kleine knoppen zaten daar net onder; de voetlinks op
+     31px. */
+  .chip,.knop-klein{min-height:44px}
+  .voet a{padding:9px 0}
+  .voet-locaties a{display:inline-block;padding:8px 4px}
+  .kopregel>.knop{width:100%;justify-content:center}
+}
+
+/* ---------- onderbalk (alleen op telefoon) ----------
+   Locatie, Route, Bel ons, Klant worden: de vier dingen waarvoor een chauffeur
+   op zijn telefoon deze site opent. Vast onderin, zoals de app. Op een groot
+   scherm staat hetzelfde in de kop en de voet en is de balk weg. */
+.onderbalk{display:none}
+@media(max-width:900px){
+  :root{--onderbalk:calc(62px + env(safe-area-inset-bottom,0px))}
+  .onderbalk{
+    display:grid;grid-template-columns:repeat(4,1fr);
+    position:fixed;left:0;right:0;bottom:0;z-index:95;
+    height:var(--onderbalk);padding-bottom:env(safe-area-inset-bottom,0px);
+    background:var(--navy-900);border-top:3px solid var(--geel);
+    box-shadow:0 -8px 24px rgba(7,19,46,.22);
+  }
+  .onderbalk a{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+    min-height:44px;color:#fff;text-decoration:none;
+    font-family:Archivo,sans-serif;font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;line-height:1;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .onderbalk a:active{background:rgba(255,255,255,.08)}
+  .onderbalk svg{width:24px;height:24px;color:var(--geel);flex:none}
+}
+
 /* ---------- toevoegingen voor de statische site ---------- */
 .overslaan{position:absolute;left:-9999px;top:0;z-index:100;background:var(--geel);color:var(--navy-900);padding:12px 20px;font-family:Archivo,sans-serif;font-weight:700;text-decoration:none;border-radius:0 0 3px 0}
 .overslaan:focus{left:0}
@@ -519,6 +616,16 @@ main{display:block}
 .visueel-verborgen{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
 .trucky{position:fixed;right:20px;bottom:20px;z-index:90;font-family:Barlow,-apple-system,'Segoe UI',sans-serif}
+/* Op een telefoon staat de onderbalk over de onderrand (zie --onderbalk in het
+   gedeelde deel). Trucky gaat er 14px bovenop staan; op 20px bottom zat hij er
+   half achter. */
+@media (max-width:900px){
+  .trucky{bottom:calc(var(--onderbalk) + 14px)}
+  /* Het venster staat 78px boven de knop; die 62px extra moeten ook van de
+     hoogte af, anders steekt de kop met de sluitknop op een liggende telefoon
+     boven het scherm uit. */
+  .trucky-venster{height:min(520px,calc(100vh - 140px - var(--onderbalk)))}
+}
 
 /* --- de knop --- */
 .trucky-knop{width:64px;height:64px;border-radius:50%;border:0;cursor:pointer;background:var(--geel);box-shadow:0 6px 24px rgba(7,19,46,.28);display:grid;place-items:center;padding:0;transition:transform .18s ease,box-shadow .18s ease}
@@ -583,8 +690,8 @@ main{display:block}
 .trucky-nee{margin-top:8px;border:0;background:none;color:#7b8698;font-size:13px;text-decoration:underline;cursor:pointer;padding:0}
 
 @media (max-width:480px){
-  .trucky{right:14px;bottom:14px}
-  .trucky-venster{width:calc(100vw - 28px);height:min(70vh,520px)}
+  .trucky{right:14px}
+  .trucky-venster{width:calc(100vw - 28px);height:min(70vh,520px,calc(100vh - 140px - var(--onderbalk)))}
   .trucky-uitnodiging{width:calc(100vw - 28px);max-width:280px}
 }
 

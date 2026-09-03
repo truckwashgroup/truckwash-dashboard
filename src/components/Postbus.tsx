@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  AlertTriangle, ArrowLeft, CheckCircle2, Code2, Eye, EyeOff, Inbox,
+  AlertTriangle, ArrowLeft, CheckCircle2, Code2, Eye, EyeOff, FileOutput, Inbox,
   Link2, Loader2, Mail, MailOpen, Paperclip, Receipt, RefreshCw, Search, Send,
   Share2, ShieldCheck, ShieldX, Trash2,
 } from 'lucide-react'
 import { db } from '../lib/db'
 import {
-  bijbehorendeBon, controleLabel, DEEL_DUUR, filterPost, grootte, magOpenen,
-  onbekeken, postbus, type DeelDuur,
+  aantalVerkoopfacturen, bijbehorendeBon, controleLabel, DEEL_DUUR, filterPost,
+  grootte, isVerkoopfactuur, magOpenen, onbekeken, postbus, type DeelDuur,
 } from '../lib/postbus'
 import { MAIL_STATUS, type Expense, type MailBericht, type MailStatus } from '../lib/types'
 import { dateTime, money, relative } from '../lib/format'
@@ -29,14 +29,27 @@ import { toast } from '../store/useToasts'
  *  Eén ding met opzet: de tekst van een binnengekomen mail wordt nooit als
  *  HTML getoond. Post van buiten is per definitie niet te vertrouwen, en een
  *  mail die zichzelf mag opmaken kan meer dan opmaken.
+ *
+ *  En één ding dat erbij kwam: niet alles wat met een factuur binnenkomt is
+ *  een bon. Een klant die de factuur van Truckwash terugmailt, een collega
+ *  die er een doorstuurt -- die werden tot voor kort óók een kostenpost, en
+ *  niemand zag het. De post herkent ze nu en laat de kostenpost weg; hier
+ *  staan ze op een eigen tabblad, met een label erop.
  * ------------------------------------------------------------------ */
+
+/**
+ * De tabbladen. "verkoop" is geen richting maar een soort; toch staat hij
+ * tussen Ontvangen en Verstuurd, want daar zoekt iemand hem -- niet onder
+ * een statusknop.
+ */
+type Tab = 'in' | 'uit' | 'verkoop'
 
 export default function Postbus() {
   const me = useAuth((s) => s.user)!
   const perms = usePerms()
   const goto = useNav((s) => s.goto)
 
-  const [richting, setRichting] = useState<'in' | 'uit'>('in')
+  const [tab, setTab] = useState<Tab>('in')
   const [status, setStatus] = useState<MailStatus | 'alles'>('alles')
   const [zoek, setZoek] = useState('')
   const [open, setOpen] = useState<string | null>(null)
@@ -46,12 +59,18 @@ export default function Postbus() {
   const bonnen = useLiveQuery(() => db.expenses.toArray(), [], [] as Expense[])
 
   const lijst = useMemo(
-    () => filterPost(alle, { richting, status, zoek }),
-    [alle, richting, status, zoek],
+    () => filterPost(alle, {
+      richting: tab === 'uit' ? 'uit' : 'in',
+      soort: tab === 'verkoop' ? 'verkoop' : 'alles',
+      status,
+      zoek,
+    }),
+    [alle, tab, status, zoek],
   )
 
   const geopend = alle.find((m) => m.id === open) ?? null
   const nieuw = onbekeken(alle)
+  const verkoop = aantalVerkoopfacturen(alle)
 
   if (!perms.can('mail.read')) {
     return <Empty text="Je hebt geen toegang tot de postbus." icon={<Mail size={30} />} />
@@ -74,7 +93,7 @@ export default function Postbus() {
 
   return (
     <>
-      <div className="grid cols-3" style={{ marginBottom: 16 }}>
+      <div className="grid cols-4" style={{ marginBottom: 16 }}>
         <Stat
           label="Nieuw binnengekomen"
           value={nieuw}
@@ -87,6 +106,12 @@ export default function Postbus() {
           value={bonnenUitMail}
           icon={<Receipt size={17} />}
           tone={bonnenUitMail ? 'warn' : undefined}
+        />
+        <Stat
+          label="Verkoopfacturen"
+          value={verkoop}
+          icon={<FileOutput size={17} />}
+          tone={verkoop ? 'brand' : undefined}
         />
       </div>
 
@@ -115,14 +140,21 @@ export default function Postbus() {
       >
         <div className="live-filters">
           <button
-            className={`live-filter ${richting === 'in' ? '' : 'uit'}`}
-            onClick={() => setRichting('in')}
+            className={`live-filter ${tab === 'in' ? '' : 'uit'}`}
+            onClick={() => setTab('in')}
           >
             Ontvangen <span>{alle.filter((m) => m.richting === 'in').length}</span>
           </button>
           <button
-            className={`live-filter ${richting === 'uit' ? '' : 'uit'}`}
-            onClick={() => setRichting('uit')}
+            className={`live-filter ${tab === 'verkoop' ? 't-info' : 'uit'}`}
+            onClick={() => setTab('verkoop')}
+            title="Facturen van Truckwash zelf die iemand heeft doorgestuurd"
+          >
+            Verkoopfacturen <span>{verkoop}</span>
+          </button>
+          <button
+            className={`live-filter ${tab === 'uit' ? '' : 'uit'}`}
+            onClick={() => setTab('uit')}
           >
             Verstuurd <span>{alle.filter((m) => m.richting === 'uit').length}</span>
           </button>
@@ -144,7 +176,9 @@ export default function Postbus() {
           <Empty
             text={alle.length === 0
               ? 'Nog geen post. Zodra er iets binnenkomt op het adres van het dashboard staat het hier.'
-              : 'Geen berichten die hierop passen.'}
+              : tab === 'verkoop'
+                ? 'Geen verkoopfacturen. Stuurt een klant een factuur van Truckwash zelf door, dan komt hij hier te staan in plaats van bij de bonnen.'
+                : 'Geen berichten die hierop passen.'}
             icon={<Inbox size={30} />}
           />
         ) : (
@@ -165,6 +199,9 @@ export default function Postbus() {
                       <Badge><Paperclip size={11} /> {m.attachments.length}</Badge>
                     )}
                     {m.expenseId && <Badge tone="warn"><Receipt size={11} /> Bon</Badge>}
+                    {isVerkoopfactuur(m) && (
+                      <Badge tone="info"><FileOutput size={11} /> Verkoop</Badge>
+                    )}
                     <Badge tone={MAIL_STATUS[m.status].tone as never}>
                       {MAIL_STATUS[m.status].label}
                     </Badge>
@@ -209,6 +246,24 @@ function Bericht({
   const [deelDuur, setDeelDuur] = useState<DeelDuur>('24 hours')
   const [deelLink, setDeelLink] = useState<string | null>(null)
   const [deelBezig, setDeelBezig] = useState(false)
+  const [maaktBon, setMaaktBon] = useState(false)
+
+  /**
+   * De weg terug als de post een bon ten onrechte als verkoopfactuur wegzette.
+   * De bon verschijnt vanzelf hieronder zodra hij er is; de lijst kijkt live
+   * mee.
+   */
+  async function tochKostenpost() {
+    setMaaktBon(true)
+    try {
+      await postbus.tochKostenpost(bericht.id, door)
+      toast.ok('Er staat nu een kostenpost klaar bij Financieel — laat hem daar voorlezen')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Dat lukte niet')
+    } finally {
+      setMaaktBon(false)
+    }
+  }
 
   /** De bijlagen alsnog binnenhalen bij Resend. */
   async function bijlagenOpnieuw() {
@@ -267,10 +322,44 @@ function Bericht({
               {' · '}{dateTime(bericht.at)}
             </div>
           </div>
+          {isVerkoopfactuur(bericht) && (
+            <Badge tone="info"><FileOutput size={11} /> Verkoop</Badge>
+          )}
           <Badge tone={MAIL_STATUS[bericht.status].tone as never}>
             {MAIL_STATUS[bericht.status].label}
           </Badge>
         </div>
+
+        {isVerkoopfactuur(bericht) && (
+          <div className="signup-note" style={{ marginTop: 14 }}>
+            <FileOutput size={16} />
+            <span>
+              <strong>Dit is een verkoopfactuur.</strong> Op het stuk staat
+              Truckwash zelf als afzender, met een eigen KvK-, btw-nummer of
+              IBAN erop; iemand heeft hem doorgestuurd. Er is daarom géén
+              kostenpost van gemaakt — anders stond een eigen rekening aan de
+              kostenkant. Hoort hij bij de verkoopadministratie, dan is dit
+              het moment om hem daar neer te zetten.
+              {!bon && (perms.can('expenses.approve') || perms.can('expenses.submit')) && (
+                <>
+                  {' '}Zit het toch anders — is dit wél een rekening die
+                  Truckwash moet betalen — dan maak je er hier alsnog een
+                  kostenpost van, met de bijlage eraan.
+                  <span className="row" style={{ marginTop: 8 }}>
+                    <button
+                      className="btn sm"
+                      disabled={maaktBon}
+                      onClick={() => void tochKostenpost()}
+                    >
+                      {maaktBon ? <Loader2 size={14} className="spin" /> : <Receipt size={14} />}
+                      Toch een kostenpost
+                    </button>
+                  </span>
+                </>
+              )}
+            </span>
+          </div>
+        )}
 
         {bericht.hadHtml && (
           <div className="signup-note" style={{ marginTop: 14 }}>

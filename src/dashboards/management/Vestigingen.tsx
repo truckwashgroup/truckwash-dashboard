@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { AnimatePresence, Reorder, motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import {
   AlertTriangle, Building2, Camera, Check, ChevronDown, ChevronRight, Clock, Compass,
-  Globe, Image as ImageIcon, Link2, Loader2, MapPin, Plus, Power, Search, Star,
+  Globe, GripVertical, Image as ImageIcon, Link2, Loader2, MapPin, Plus, Power, Search, Star,
   Trash2, Upload, X,
 } from 'lucide-react'
 import { alleMensen, db } from '../../lib/db'
 import {
-  adresRegel, bezetting, codeProbleem, coverVan, fotoUrl,
+  adresRegel, bezetting, codeProbleem, fotoUrl, publiekeFotoUrl,
   fotos as fotoRepo, nuOpen, opVolgorde, slugProbleem, standaardTijden, tijdenInHetKort,
   tijdProbleem, vestigingen as repo, voorstelSlug, vrijeCode, voorstelCode,
   websiteGaten, WEBSITE_DIENSTEN, zoekAdres,
@@ -20,6 +20,9 @@ import { Badge, Card, Empty, Field, Modal, Stat } from '../../components/ui'
 import { useAuth } from '../../store/useAuth'
 import { usePerms } from '../../store/useNav'
 import { toast } from '../../store/useToasts'
+// De opmaak van alles wat met de foto's te maken heeft (.vf-). Los van
+// theme.css, zodat het scherm zelf en de foto's apart te lezen zijn.
+import '../../styles/vestigingen.css'
 
 /* ------------------------------------------------------------------ *
  *  Vestigingen
@@ -135,7 +138,9 @@ function VestigingTegel({
   index: number
   onOpen: () => void
 }) {
-  const cover = coverVan(fotos)
+  // Omslag vooraan, de rest in de volgorde van het scherm -- dezelfde volgorde
+  // als op de website, zodat de tegel laat zien wat een bezoeker straks ziet.
+  const [cover, ...rest] = opVolgorde(fotos)
   const open = nuOpen(locatie)
 
   return (
@@ -157,7 +162,7 @@ function VestigingTegel({
       whileHover={{ y: -4 }}
       whileTap={{ scale: .985 }}
     >
-      <div className="vest-foto">
+      <div className="vest-foto vf-groot">
         {cover
           ? <Foto foto={cover} />
           : <div className="vest-geenfoto"><Building2 size={26} /></div>}
@@ -182,6 +187,21 @@ function VestigingTegel({
         )}
       </div>
 
+      {/*
+        * De eerste drie na de omslag als mini's. Niet om ze te bekijken -- daar
+        * zijn ze te klein voor -- maar om aan de tegel te zien dat er meer is
+        * dan een plaatje, en welke. Bij meer dan drie staat er hoeveel er nog
+        * achter zitten.
+        */}
+      {rest.length > 0 && (
+        <div className="vf-ministrook">
+          {rest.slice(0, 3).map((f) => (
+            <span key={f.id} className="vf-mini"><Foto foto={f} /></span>
+          ))}
+          {rest.length > 3 && <span className="vf-mini vf-meer">+{rest.length - 3}</span>}
+        </div>
+      )}
+
       <div className="vest-body">
         <div className="vest-naam">{locatie.name}</div>
         <div className="vest-regel"><MapPin size={12} /> {adresRegel(locatie) || 'Geen adres'}</div>
@@ -201,30 +221,70 @@ function VestigingTegel({
 /* ================================================================== *
  *  Een foto tekenen
  *
- *  Het adres komt uit de lokale kopie als die er is, en anders van de
- *  server. Het object-adres wordt weer vrijgegeven zodra het plaatje uit
- *  beeld gaat -- laat je dat na, dan houdt de browser elke foto die je ooit
- *  hebt bekeken vast tot het tabblad dichtgaat.
+ *  Met verbinding is het adres gewoon het openbare adres in de emmer, en
+ *  doet de browser het bewaren zelf. Geen download door de app, geen kopie
+ *  in de lokale opslag, geen object-adres dat weer vrij moet -- voor
+ *  negentien tegels met een omslag en drie mini's was dat tachtig keer die
+ *  hele dans om te tonen wat een <img> uit zichzelf kan.
+ *
+ *  Laadt dat plaatje niet (geen bereik, of de database is nog niet
+ *  ingesteld), dan komt het uit de lokale kopie via fotoUrl(). Dat
+ *  object-adres wordt weer vrijgegeven zodra het plaatje uit beeld gaat --
+ *  laat je dat na, dan houdt de browser elke foto die je ooit hebt bekeken
+ *  vast tot het tabblad dichtgaat.
  * ================================================================== */
 
+function online(): boolean {
+  return typeof navigator === 'undefined' || navigator.onLine
+}
+
+interface FotoStaat {
+  url: string | null
+  /** Via de lokale kopie (of het downloaden ervan), niet via het openbare adres. */
+  lokaal: boolean
+  /** Is er een antwoord, ook als dat "geen plaatje" is. */
+  klaar: boolean
+}
+
+function beginStaat(foto: LocationPhoto): FotoStaat {
+  const publiek = online() ? publiekeFotoUrl(foto) : null
+  return { url: publiek, lokaal: !publiek, klaar: !!publiek }
+}
+
 function Foto({ foto, className = '' }: { foto: LocationPhoto; className?: string }) {
-  const [url, setUrl] = useState<string | null>(null)
+  const [staat, setStaat] = useState<FotoStaat>(() => beginStaat(foto))
+
+  useEffect(() => { setStaat(beginStaat(foto)) }, [foto.storagePath])
 
   useEffect(() => {
+    if (!staat.lokaal) return
     let levend = true
     let hier: string | null = null
 
     void fotoUrl(foto).then((u) => {
       if (!levend) { if (u) URL.revokeObjectURL(u); return }
       hier = u
-      setUrl(u)
+      setStaat({ url: u, lokaal: true, klaar: true })
     })
 
     return () => { levend = false; if (hier) URL.revokeObjectURL(hier) }
-  }, [foto.storagePath])
+  }, [staat.lokaal, foto.storagePath])
 
-  if (!url) return <div className="vest-laadt" />
-  return <img className={className} src={url} alt={foto.caption ?? ''} loading="lazy" />
+  if (!staat.klaar) return <div className="vest-laadt" />
+  if (!staat.url) return <div className="vf-kapot"><ImageIcon size={18} /></div>
+  return (
+    <img
+      className={className}
+      src={staat.url}
+      alt={foto.caption ?? ''}
+      loading="lazy"
+      // Het openbare adres laadt niet: dan is er geen verbinding, of het
+      // bestand is weg. De lokale kopie weet het misschien nog.
+      onError={() => {
+        if (!staat.lokaal) setStaat({ url: null, lokaal: true, klaar: false })
+      }}
+    />
+  )
 }
 
 /* ================================================================== *
@@ -438,6 +498,18 @@ function VestigingDetail({
     >
       {locatie && vorm && (
         <>
+          {/*
+            * De foto's staan bovenaan, voor de tabbladen. Wie het venster van
+            * Venlo opent ziet dan meteen wat er van Venlo op de website staat,
+            * en of er wel iets staat -- zonder eerst een tabblad te kiezen.
+            */}
+          <FotoStrook
+            locatie={locatie}
+            mag={mag}
+            verborgen={tab === 'fotos'}
+            naarFotos={() => setTab('fotos')}
+          />
+
           <div className="row" style={{ gap: 6, margin: '4px 0 16px' }}>
             {TABBEN.map(({ key, naam, icoon: Icoon }) => (
               <button
@@ -465,7 +537,10 @@ function VestigingDetail({
                 <Gegevens vorm={vorm} setVorm={setVorm} zet={zet} mag={mag} probleem={probleem} />
               )}
               {tab === 'website' && (
-                <Website vorm={vorm} zet={zet} mag={mag} bestaand={bestaand} />
+                <Website
+                  vorm={vorm} zet={zet} mag={mag} bestaand={bestaand}
+                  naarFotos={() => setTab('fotos')}
+                />
               )}
               {tab === 'fotos' && <Fotos locatie={locatie} mag={mag} />}
             </motion.div>
@@ -669,17 +744,25 @@ function Gegevens({
  * ------------------------------------------------------------------ */
 
 function Website({
-  vorm, zet, mag, bestaand,
+  vorm, zet, mag, bestaand, naarFotos,
 }: {
   vorm: Location
   zet: <K extends keyof Location>(k: K, v: Location[K]) => void
   mag: boolean
   bestaand: Location[]
+  naarFotos: () => void
 }) {
   const slug = vorm.websiteSlug ?? ''
   const slugFout = slugProbleem(slug, bestaand, vorm.id)
   const gaten = websiteGaten(vorm)
   const gekozen = new Set(vorm.diensten ?? [])
+
+  // De foto's gaan sinds 0046 mee naar de site. Dit tabblad is de plek waar
+  // iemand nakijkt wat er naar buiten gaat, dus hier hoort te staan hoeveel
+  // dat er zijn -- en vooral of het er nul zijn.
+  const aantalFotos = useLiveQuery(
+    () => db.locationPhotos.where('locationId').equals(vorm.id).count(),
+    [vorm.id], 0)
 
   /*
    * De punten worden als lijst bewaard en als tekst getoond, en die twee
@@ -737,6 +820,27 @@ function Website({
           </motion.p>
         )}
       </AnimatePresence>
+
+      <div className={`vf-siteregel ${aantalFotos ? '' : 'waarschuwt'}`}>
+        {aantalFotos ? (
+          <>
+            <ImageIcon size={13} />
+            <span>
+              {vorm.opWebsite
+                ? `${aantalFotos === 1 ? 'Eén foto gaat' : `${aantalFotos} foto's gaan`} mee naar de site; de eerste is de omslag.`
+                : `Zodra deze vestiging online staat ${aantalFotos === 1 ? 'gaat de foto' : `gaan de ${aantalFotos} foto's`} mee; de eerste is de omslag.`}
+            </span>
+          </>
+        ) : (
+          <>
+            <AlertTriangle size={13} />
+            <span>Er is nog geen foto. De site toont dan een standaardfoto.</span>
+          </>
+        )}
+        <button type="button" className="btn ghost sm" onClick={naarFotos}>
+          <Camera size={13} /> {aantalFotos || !mag ? "Foto's" : 'Foto toevoegen'}
+        </button>
+      </div>
 
       <Field
         label="Adres op de site"
@@ -853,8 +957,8 @@ function Website({
       </Field>
 
       <p className="hint" style={{ marginTop: 10 }}>
-        Adres, telefoon, openingstijden en de foto’s komen van de andere twee
-        tabbladen — die staan al goed en worden meegenomen.
+        Adres, telefoon en openingstijden komen van “Gegevens”, de foto’s van
+        “Foto’s” — in de volgorde die daar staat, met de omslag voorop.
       </p>
     </>
   )
@@ -1073,14 +1177,156 @@ function Verwijderen({
 }
 
 /* ================================================================== *
- *  Foto's
+ *  De lichtbak
+ *
+ *  Een foto groot, met het bijschrift eronder. Klikken naast de foto of op
+ *  het kruisje sluit hem. Wordt gebruikt vanuit de galerij bovenin en vanuit
+ *  het tabblad, dus hij staat een keer.
  * ================================================================== */
+
+function Lichtbak({ foto, onClose }: { foto: LocationPhoto | null; onClose: () => void }) {
+  return (
+    <AnimatePresence>
+      {foto && (
+        <motion.div
+          className="vest-lichtbak"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          onClick={onClose}
+        >
+          <motion.div
+            initial={{ scale: .94, y: 12 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: .96, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Foto foto={foto} />
+            {foto.caption && <p>{foto.caption}</p>}
+          </motion.div>
+          <button
+            className="btn ghost sm vest-dicht"
+            aria-label="Sluiten"
+            onClick={onClose}
+          >
+            <X size={16} />
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
+/* ================================================================== *
+ *  De galerij bovenin het detailscherm
+ *
+ *  De foto's zaten achter een tabblad. Dat is de goede plek om ze te
+ *  beheren, maar niet om ze te zien: wie het venster van Venlo opent hoort
+ *  meteen te zien wat er van Venlo op de website staat -- en of er wel iets
+ *  staat. Dit is dat uitzicht. Slepen, bijschriften en weghalen blijven in
+ *  het tabblad; de knop rechtsonder brengt je erheen.
+ * ================================================================== */
+
+/** Hoeveel kleine tegels er naast de omslag staan voordat het "+N" wordt. */
+const NAAST_DE_OMSLAG = 3
+
+function FotoStrook({
+  locatie, mag, verborgen, naarFotos,
+}: {
+  locatie: Location
+  mag: boolean
+  verborgen: boolean
+  naarFotos: () => void
+}) {
+  const opgeslagen = useLiveQuery(
+    () => db.locationPhotos.where('locationId').equals(locatie.id).toArray(),
+    [locatie.id], [] as LocationPhoto[])
+  const lijst = useMemo(() => opVolgorde(opgeslagen), [opgeslagen])
+  const [groot, setGroot] = useState<LocationPhoto | null>(null)
+
+  // In het tabblad Foto's staan ze al groot en bewerkbaar. Twee keer dezelfde
+  // rij boven elkaar is verwarrend, en het venster wordt er dubbel zo lang van.
+  if (verborgen) return null
+
+  const [cover, ...rest] = lijst
+  const meer = rest.length - NAAST_DE_OMSLAG
+
+  return (
+    <div className="vf-galerij">
+      {cover ? (
+        <button
+          type="button"
+          className="vf-omslag"
+          title="Groot bekijken"
+          onClick={() => setGroot(cover)}
+        >
+          <Foto foto={cover} />
+          <span className="vf-etiket"><Star size={10} /> Omslag</span>
+        </button>
+      ) : (
+        <div className="vf-omslag vf-leegvlak">
+          <Camera size={22} />
+          <span>Nog geen foto</span>
+          <small>De tegel blijft grijs en de website toont een standaardfoto.</small>
+        </div>
+      )}
+
+      <div className="vf-zij">
+        {rest.slice(0, NAAST_DE_OMSLAG).map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            className="vf-klein"
+            title={f.caption || 'Groot bekijken'}
+            onClick={() => setGroot(f)}
+          >
+            <Foto foto={f} />
+          </button>
+        ))}
+        {meer > 0 && (
+          <button
+            type="button"
+            className="vf-klein vf-meer"
+            title="Alle foto's"
+            onClick={naarFotos}
+          >
+            +{meer}
+          </button>
+        )}
+        <button type="button" className="btn ghost sm vf-beheer" onClick={naarFotos}>
+          <Camera size={14} />
+          {mag ? (lijst.length ? "Foto's beheren" : "Foto's toevoegen") : "Alle foto's"}
+        </button>
+      </div>
+
+      <Lichtbak foto={groot} onClose={() => setGroot(null)} />
+    </div>
+  )
+}
+
+/* ================================================================== *
+ *  Foto's: het tabblad
+ *
+ *  Een raster van tegels. Bij vijf foto's las de oude lijst met rijtjes
+ *  nog, bij twaalf werd het scrollen zonder overzicht -- en het ging om
+ *  foto's, dus de foto hoort voorop en niet in een postzegel links van een
+ *  invulveld. Ster, prullenbak en greep liggen op de tegel; het bijschrift
+ *  staat eronder en is ter plekke te bewerken.
+ * ================================================================== */
+
+interface Spook {
+  foto: LocationPhoto
+  x: number
+  y: number
+  w: number
+  h: number
+}
 
 function Fotos({ locatie, mag }: { locatie: Location; mag: boolean }) {
   const { user } = useAuth()
   const [bezig, setBezig] = useState(0)
-  const [sleept, setSleept] = useState(false)
+  const [sleeptBestand, setSleeptBestand] = useState(false)
   const [groot, setGroot] = useState<LocationPhoto | null>(null)
+  const [wegVraag, setWegVraag] = useState<string | null>(null)
   const kiezer = useRef<HTMLInputElement>(null)
 
   const opgeslagen = useLiveQuery(
@@ -1090,9 +1336,15 @@ function Fotos({ locatie, mag }: { locatie: Location; mag: boolean }) {
   const lijst = useMemo(() => opVolgorde(opgeslagen), [opgeslagen])
 
   // De volgorde tijdens het slepen staat hier, zodat de tegels meelopen met
-  // de muis en niet pas verspringen als de database het heeft rondgestuurd.
+  // de aanwijzer en niet pas verspringen als de database het heeft rondgestuurd.
   const [orde, setOrde] = useState<LocationPhoto[]>(lijst)
   useEffect(() => { setOrde(lijst) }, [lijst])
+  const ordeRef = useRef(orde)
+  useEffect(() => { ordeRef.current = orde }, [orde])
+
+  const [spook, setSpook] = useState<Spook | null>(null)
+  // De klik die op het loslaten volgt mag de lichtbak niet openen.
+  const netGesleept = useRef(false)
 
   const verwerk = useCallback(async (bestanden: FileList | File[]) => {
     const files = Array.from(bestanden)
@@ -1119,21 +1371,113 @@ function Fotos({ locatie, mag }: { locatie: Location; mag: boolean }) {
     if (goed) toast.ok(goed === 1 ? 'Foto toegevoegd.' : `${goed} foto's toegevoegd.`)
   }, [locatie, user])
 
+  /*
+   * Slepen in een raster.
+   *
+   * Reorder van framer-motion kan maar een kant op, en een raster heeft er
+   * twee. Dus met de hand: bij het vastpakken gaat er een spook met de
+   * aanwijzer mee, en zolang die boven een andere tegel zweeft wisselt de
+   * lijst van volgorde -- de tegels zelf schuiven met een layout-animatie op
+   * hun plek. Pas bij het loslaten gaat het naar de database; elke
+   * tussenstand opsturen zou een ronde langs de server maken, en die komen
+   * niet gegarandeerd op volgorde terug.
+   *
+   * Met een muis pak je de tegel overal vast. Met een vinger alleen aan de
+   * greep: een vinger op de foto moet het venster kunnen scrollen, en dat
+   * gaat niet samen met slepen op hetzelfde vlak.
+   *
+   * De volgorde leeft tijdens het slepen in deze functie en niet in de
+   * React-staat. De pointer-gebeurtenissen komen van het venster en niet van
+   * React, en dan is het maar net of de laatste tussenstand al is verwerkt
+   * op het moment dat je loslaat.
+   */
+  function pakOp(
+    e: React.PointerEvent<HTMLElement>,
+    f: LocationPhoto,
+    tegel: HTMLElement | null,
+    viaGreep: boolean,
+  ) {
+    if (!mag || !tegel || ordeRef.current.length < 2 || e.button !== 0) return
+    // Een vinger pakt alleen de greep (anders kun je niet meer scrollen);
+    // muis en pen mogen overal op de tegel.
+    if (e.pointerType === 'touch' && !viaGreep) return
+    // Niet vanuit het bijschrift of de knoppen: daar betekent bewegen iets anders.
+    if (!viaGreep && (e.target as HTMLElement).closest('input, .vf-knoppen')) return
+
+    const rect = tegel.getBoundingClientRect()
+    const start = { x: e.clientX, y: e.clientY }
+    const greep = { dx: e.clientX - rect.left, dy: e.clientY - rect.top, w: rect.width, h: rect.height }
+    let volgorde = [...ordeRef.current]
+    let begonnen = false
+
+    const beweeg = (ev: PointerEvent) => {
+      if (!begonnen) {
+        // Een paar pixels speling, anders is elke klik een sleep van nul.
+        if (Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 6) return
+        begonnen = true
+        netGesleept.current = true
+      }
+      setSpook({ foto: f, x: ev.clientX - greep.dx, y: ev.clientY - greep.dy, w: greep.w, h: greep.h })
+
+      const onder = document.elementFromPoint(ev.clientX, ev.clientY)
+        ?.closest<HTMLElement>('[data-foto]')
+      const doel = onder?.dataset.foto
+      if (!doel || doel === f.id) return
+      const van = volgorde.findIndex((p) => p.id === f.id)
+      const naar = volgorde.findIndex((p) => p.id === doel)
+      if (van < 0 || naar < 0 || van === naar) return
+      volgorde = [...volgorde]
+      volgorde.splice(naar, 0, volgorde.splice(van, 1)[0])
+      setOrde(volgorde)
+    }
+
+    const los = () => {
+      window.removeEventListener('pointermove', beweeg)
+      window.removeEventListener('pointerup', los)
+      window.removeEventListener('pointercancel', los)
+      if (!begonnen) return
+      setSpook(null)
+      void bewaarVolgorde(volgorde)
+      window.setTimeout(() => { netGesleept.current = false }, 0)
+    }
+
+    window.addEventListener('pointermove', beweeg)
+    window.addEventListener('pointerup', los)
+    window.addEventListener('pointercancel', los)
+  }
+
+  /*
+   * Wat vooraan wordt losgelaten wordt de omslag.
+   *
+   * De tegel in het raster, de galerij bovenin en de website tonen allemaal
+   * "de eerste", en dat is de omslag. Zou het slepen daar los van staan,
+   * dan kun je een foto vooraan zetten die vervolgens nergens vooraan komt
+   * -- twee dingen die "eerste" heten en verschillen zijn er een te veel.
+   */
+  async function bewaarVolgorde(nieuw: LocationPhoto[]) {
+    try {
+      if (nieuw.length && !nieuw[0].isCover) await fotoRepo.voorop(nieuw[0].id)
+      await fotoRepo.volgorde(nieuw)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'De volgorde kon niet worden bewaard.')
+    }
+  }
+
   return (
     <>
       {mag && (
         <div
-          className={`vest-drop ${sleept ? 'sleept' : ''}`}
-          onDragOver={(e) => { e.preventDefault(); setSleept(true) }}
-          onDragLeave={() => setSleept(false)}
+          className={`vest-drop ${sleeptBestand ? 'sleept' : ''}`}
+          onDragOver={(e) => { e.preventDefault(); setSleeptBestand(true) }}
+          onDragLeave={() => setSleeptBestand(false)}
           onDrop={(e) => {
             e.preventDefault()
-            setSleept(false)
+            setSleeptBestand(false)
             void verwerk(e.dataTransfer.files)
           }}
           onClick={() => kiezer.current?.click()}
         >
-          <motion.div animate={{ scale: sleept ? 1.08 : 1 }}>
+          <motion.div animate={{ scale: sleeptBestand ? 1.08 : 1 }}>
             <Upload size={20} />
           </motion.div>
           <span>Sleep foto's hierheen, of klik om te kiezen</span>
@@ -1152,94 +1496,129 @@ function Fotos({ locatie, mag }: { locatie: Location; mag: boolean }) {
       )}
 
       {!lijst.length ? (
-        <Empty text="Nog geen foto's van deze vestiging." icon={<Camera size={22} />} />
+        <div className="vf-leeg">
+          <Camera size={24} />
+          <span>Nog geen foto's van deze vestiging.</span>
+          <small>
+            {mag
+              ? 'De tegel blijft grijs en de website toont een standaardfoto tot er hierboven een is toegevoegd. De eerste wordt meteen de omslag.'
+              : 'De tegel blijft grijs en de website toont een standaardfoto.'}
+          </small>
+        </div>
       ) : (
-        <Reorder.Group
-          axis="y"
-          values={orde}
-          onReorder={setOrde}
-          className="vest-fotolijst"
-        >
-          {orde.map((f) => (
-            <Reorder.Item
-              key={f.id}
-              value={f}
-              drag={mag ? 'y' : false}
-              className="vest-fotorij"
-              whileDrag={{ scale: 1.02, zIndex: 2 }}
-              /*
-               * Pas bij het loslaten. Tijdens het slepen zou elke tussenstand
-               * een ronde langs de server maken, en die komen niet gegarandeerd
-               * op volgorde terug -- dan springt de lijst na afloop alsnog.
-               */
-              onDragEnd={() => { if (mag) void fotoRepo.volgorde(orde) }}
-            >
-              <button className="vest-mini" onClick={() => setGroot(f)}>
-                <Foto foto={f} />
-              </button>
+        <>
+          {mag && orde.length > 1 && (
+            <p className="hint" style={{ margin: '12px 0 0' }}>
+              Sleep om de volgorde te veranderen. Wat vooraan staat is de omslag en gaat
+              als eerste naar de website.
+            </p>
+          )}
 
-              <input
-                className="vest-bijschrift"
-                defaultValue={f.caption ?? ''}
-                disabled={!mag}
-                placeholder="Bijschrift"
-                onBlur={(e) => {
-                  if (e.target.value !== (f.caption ?? '')) {
-                    void fotoRepo.bijschrift(f.id, e.target.value)
-                  }
-                }}
-              />
+          <div className="vf-raster">
+            {orde.map((f) => {
+              const vraagt = wegVraag === f.id
+              return (
+                <motion.div
+                  key={f.id}
+                  layout
+                  data-foto={f.id}
+                  className={`vf-tegel ${f.isCover ? 'omslag' : ''} ${spook?.foto.id === f.id ? 'sleept' : ''}`}
+                  transition={{ type: 'spring', stiffness: 520, damping: 40 }}
+                  onPointerDown={(e) => pakOp(e, f, e.currentTarget, false)}
+                >
+                  <button
+                    type="button"
+                    className="vf-beeld"
+                    title={f.caption || 'Groot bekijken'}
+                    onClick={() => { if (!netGesleept.current) setGroot(f) }}
+                  >
+                    <Foto foto={f} />
+                  </button>
 
-              {mag && (
-                <>
-                  <button
-                    className={`btn ghost sm ${f.isCover ? 'primary' : ''}`}
-                    title={f.isCover ? 'Deze staat vooraan' : 'Zet deze vooraan'}
-                    onClick={() => void fotoRepo.voorop(f.id)}
-                  >
-                    <Star size={14} />
-                  </button>
-                  <button
-                    className="btn ghost sm danger"
-                    title="Verwijderen"
-                    onClick={() => void fotoRepo.wissen(f)}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </>
-              )}
-            </Reorder.Item>
-          ))}
-        </Reorder.Group>
+                  {f.isCover && <span className="vf-etiket"><Star size={10} /> Omslag</span>}
+
+                  {mag && orde.length > 1 && (
+                    <span
+                      className="vf-greep"
+                      title="Versleep om de volgorde te veranderen"
+                      onPointerDown={(e) => {
+                        e.stopPropagation()
+                        pakOp(e, f, e.currentTarget.closest<HTMLElement>('.vf-tegel'), true)
+                      }}
+                    >
+                      <GripVertical size={14} />
+                    </span>
+                  )}
+
+                  {mag && (
+                    <div className="vf-knoppen">
+                      <button
+                        type="button"
+                        className={`vf-knop ${f.isCover ? 'aan' : ''}`}
+                        title={f.isCover ? 'Dit is de omslag' : 'Zet deze vooraan als omslag'}
+                        disabled={f.isCover}
+                        onClick={() => void fotoRepo.voorop(f.id)}
+                      >
+                        <Star size={13} />
+                      </button>
+                      {/*
+                        * Eerste tik vraagt, tweede tik doet. Een prullenbak op
+                        * een foto op een telefoon is anders een ongeluk dat op
+                        * je wacht, en een foto terughalen kan niet.
+                        */}
+                      <button
+                        type="button"
+                        className={`vf-knop ${vraagt ? 'zeker' : ''}`}
+                        title={vraagt ? 'Nog een keer om echt te verwijderen' : 'Verwijderen'}
+                        onClick={() => {
+                          if (vraagt) { setWegVraag(null); void fotoRepo.wissen(f); return }
+                          setWegVraag(f.id)
+                          window.setTimeout(() => setWegVraag((v) => (v === f.id ? null : v)), 3500)
+                        }}
+                      >
+                        <Trash2 size={13} /> {vraagt && 'Zeker?'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/*
+                    * De sleutel bevat het bijschrift, zodat het veld opnieuw
+                    * wordt opgezet als het elders is gewijzigd. Zonder dat
+                    * blijft een defaultValue staan op wat er stond toen de
+                    * tegel voor het eerst werd getekend.
+                    */}
+                  <input
+                    key={`${f.id}:${f.caption ?? ''}`}
+                    className="vf-bijschrift"
+                    defaultValue={f.caption ?? ''}
+                    disabled={!mag}
+                    placeholder="Bijschrift"
+                    onBlur={(e) => {
+                      if (e.target.value !== (f.caption ?? '')) {
+                        void fotoRepo.bijschrift(f.id, e.target.value)
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                    }}
+                  />
+                </motion.div>
+              )
+            })}
+          </div>
+        </>
       )}
 
-      <AnimatePresence>
-        {groot && (
-          <motion.div
-            className="vest-lichtbak"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            onClick={() => setGroot(null)}
-          >
-            <motion.div
-              initial={{ scale: .94, y: 12 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: .96, opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 320, damping: 28 }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Foto foto={groot} />
-              {groot.caption && <p>{groot.caption}</p>}
-            </motion.div>
-            <button
-              className="btn ghost sm vest-dicht"
-              aria-label="Sluiten"
-              onClick={() => setGroot(null)}
-            >
-              <X size={16} />
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {spook && (
+        <div
+          className="vf-spook"
+          style={{ left: spook.x, top: spook.y, width: spook.w, height: spook.h }}
+        >
+          <Foto foto={spook.foto} />
+        </div>
+      )}
+
+      <Lichtbak foto={groot} onClose={() => setGroot(null)} />
     </>
   )
 }

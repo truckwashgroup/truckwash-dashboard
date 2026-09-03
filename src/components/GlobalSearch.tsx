@@ -3,18 +3,17 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   AlertTriangle, Briefcase, Bug, Building2, CalendarDays, CalendarRange,
-  ClipboardList, FileText, FolderLock, GraduationCap, Hash, Inbox,
-  LayoutDashboard, LayoutGrid, Loader2, Mail, MapPin, MessageSquare, Mic,
-  MicOff, Package, Radio, Receipt, ScrollText, Search, Server, Settings, Timer,
-  Truck, Users, Wrench, X,
+  ClipboardList, FileText, GraduationCap, Hash, Inbox, Loader2, Mail, MapPin,
+  MessageSquare, Mic, MicOff, Package, Receipt, Search, Truck, Users, Wrench, X,
 } from 'lucide-react'
 import { db, alleMensen } from '../lib/db'
 import {
-  AGENDA_SOORTEN, ASSET_CATEGORIES, DOCUMENT_KINDS, KOPPELING_STATUS, SERVICES,
-  WERKGEVER_STATUS, type Permission, type Role,
+  AGENDA_SOORTEN, ASSET_CATEGORIES, DOCUMENT_KINDS, KOPPELING_STATUS,
+  ROLE_LABELS, SERVICES, WERKGEVER_STATUS,
 } from '../lib/types'
 import { money, time } from '../lib/format'
 import { mayRead } from '../lib/chat'
+import { SCHERMEN, dashboardsMet, kiesDashboard, kiesPagina } from '../lib/schermen'
 import { useAuth } from '../store/useAuth'
 import { usePerms, useNav } from '../store/useNav'
 import {
@@ -40,58 +39,12 @@ const MAX_QUERY = 64
 const MAX_PER_GROUP = 5
 const DEBOUNCE_MS = 180
 
-/* ------------------------------------------------------------------ *
- *  De schermen zelf
- *
- *  Wie de weg niet kent typt de naam van wat hij zoekt, niet die van een
- *  record. "Post", "voorraad", "rooster" -- dat hoort je naar dat scherm te
- *  brengen. Onder `ook` staan de woorden waarmee mensen het óók noemen.
- * ------------------------------------------------------------------ */
-
-interface Scherm {
-  page: string
-  label: string
-  hint: string
-  icon: typeof Truck
-  recht?: Permission
-  /** Sommige schermen bestaan alleen in één dashboard. */
-  rol?: Role
-  ook?: string[]
-}
-
-const SCHERMEN: Scherm[] = [
-  { page: 'start',      label: 'Start',        hint: 'Het tegeloverzicht van je dashboard', icon: LayoutGrid, ook: ['home', 'begin', 'tegels'] },
-  { page: 'vandaag',    label: 'Vandaag',      hint: 'Wasopdrachten en wachtrij',       icon: Truck,           recht: 'jobs.view', ook: ['wachtrij', 'wasbeurten'] },
-  { page: 'planning',   label: 'Planning',     hint: 'Alle wasopdrachten',              icon: CalendarRange,   recht: 'planning.view' },
-  { page: 'rooster',    label: 'Rooster',      hint: 'Wanneer je bent ingeroosterd',    icon: CalendarDays,    recht: 'roster.viewOwn', ook: ['diensten', 'werktijden'] },
-  { page: 'uren',       label: 'Uren',         hint: 'Je geregistreerde uren',          icon: Timer,           recht: 'hours.own', ook: ['tijd', 'klok', 'inklokken', 'urenstaat'] },
-  { page: 'materiaal',  label: 'Materiaal',    hint: 'Voorraad en verbruik',            icon: Package,         recht: 'inventory.view', ook: ['voorraad', 'chemie'] },
-  { page: 'kosten',     label: 'Kosten',       hint: 'Bonnen indienen',                 icon: Receipt,         recht: 'expenses.submit', ook: ['bon', 'declaratie'] },
-  { page: 'financieel', label: 'Financieel',   hint: 'Kosten valideren en resultaat',   icon: Receipt,         recht: 'finance.view', ook: ['omzet', 'marge', 'bonnen'] },
-  { page: 'overzicht',  label: 'Overzicht',    hint: 'Cijfers en grafieken',            icon: LayoutDashboard, ook: ['kpi', 'cijfers'] },
-  { page: 'personeel',  label: 'Personeel',    hint: 'Dossiers, rechten en vestigingen', icon: Users,          recht: 'staff.view', ook: ['medewerkers', 'dossier'] },
-  { page: 'aanmeldingen', label: 'Aanmeldingen', hint: 'Wie zich heeft aangemeld',      icon: Inbox,           recht: 'signups.view' },
-  { page: 'dossier',    label: 'Mijn dossier', hint: 'Je contract en documenten',       icon: FolderLock,      ook: ['contract', 'documenten', 'loonstrook'] },
-  { page: 'techniek',   label: 'Techniek',     hint: 'Storingen, onderhoud, werkbonnen', icon: Wrench,         recht: 'faults.view' },
-  { page: 'storingen',  label: 'Storingen',    hint: 'Meldingen beoordelen',            icon: AlertTriangle,   recht: 'faults.view', ook: ['defect', 'kapot'] },
-  { page: 'werkbonnen', label: 'Werkbonnen',   hint: 'Het werk zelf',                   icon: ClipboardList,   recht: 'workorders.view' },
-  { page: 'installaties', label: 'Installaties', hint: 'Machinepark en QR-labels',      icon: Wrench,          recht: 'assets.view', ook: ['machines', 'apparaten'] },
-  { page: 'onderhoud',  label: 'Onderhoud',    hint: 'Schema’s en beurten',             icon: CalendarRange,   recht: 'maintenance.view' },
-  { page: 'opleiding',  label: 'Opleiding',    hint: 'Cursussen en certificaten',       icon: GraduationCap,   recht: 'learning.take', ook: ['cursus', 'elearning', 'veiligheid'] },
-  { page: 'overleg',    label: 'Overleg',      hint: 'Kanalen en gesprekken',           icon: MessageSquare,   recht: 'chat.use', ook: ['chat', 'berichten', 'kanaal'] },
-  { page: 'tickets',    label: 'Meldingen',    hint: 'Wat gebruikers tegenkomen',       icon: Bug,             recht: 'dev.tickets' },
-  { page: 'logboek',    label: 'Logboek',      hint: 'Fouten en waarschuwingen',        icon: ScrollText,      recht: 'dev.logs', ook: ['errors', 'fouten'] },
-  { page: 'meekijken',  label: 'Meekijken',    hint: 'Alles wat er nu gebeurt',         icon: Radio,           recht: 'dev.logs', ook: ['live', 'monitor'] },
-  { page: 'post',       label: 'Post',         hint: 'Wat er via Resend is verstuurd',  icon: Mail,            recht: 'dev.logs', ook: ['mail', 'email', 'resend'] },
-  { page: 'systeem',    label: 'Systeem',      hint: 'Versies, verbinding en opslag',   icon: Server,          recht: 'dev.logs' },
-  { page: 'beheer',     label: 'Beheer',       hint: 'Vestigingen, klanten, instellingen', icon: Settings,     recht: 'admin.settings', ook: ['locaties', 'instellingen'] },
-  { page: 'postbus',    label: 'Postbus',      hint: 'Wat er binnenkomt op het mailadres', icon: Inbox,        recht: 'mail.read', ook: ['post', 'mail', 'email', 'facturen', 'bijlagen'] },
-  { page: 'agenda',     label: 'Agenda',       hint: 'Afspraken, verjaardagen en jubilea', icon: CalendarDays, recht: 'agenda.view', ook: ['kalender', 'afspraak', 'verjaardag'] },
-  { page: 'werkgevers', label: 'Werkgevers',   hint: 'Bedrijven waarvan de chauffeurs hier wassen', icon: Briefcase, recht: 'employer.view', ook: ['bedrijven', 'transporteur', 'chauffeurs'] },
-  { page: 'beurten',    label: 'Wasbeurten',   hint: 'Wat er op naam van je bedrijf staat', icon: Truck,      rol: 'employer' },
-  { page: 'chauffeurs', label: 'Chauffeurs',   hint: 'Wie er namens je bedrijf komt wassen', icon: Users,     rol: 'employer', recht: 'employer.staff' },
-  { page: 'afspraken',  label: 'Afspraken',    hint: 'Wat er per wagen wel en niet mag',  icon: ClipboardList, rol: 'employer', recht: 'employer.rules' },
-]
+/*
+ * De lijst met schermen (SCHERMEN) en de kaart pagina -> dashboard staan in
+ * lib/schermen.ts. Ze stonden hier, tot de zoekbalk ook op het keuzescherm
+ * kwam: daar is nog geen rol, en dan moet iets weten in welk dashboard een
+ * treffer thuishoort. Die kennis hoort op één plek, en testbaar.
+ */
 
 type Hit = {
   id: string
@@ -118,7 +71,17 @@ export default function GlobalSearch() {
   const perms = usePerms()
   const me = useAuth((s) => s.user)
   const rol = useAuth((s) => s.role)
+  const chooseRole = useAuth((s) => s.chooseRole)
   const goto = useNav((s) => s.goto)
+
+  /*
+   * Op het keuzescherm is er nog geen rol. Dan doorzoekt de balk alle
+   * dashboards die deze gebruiker heeft, en hoort er bij elke treffer te
+   * staan in welk dashboard die opengaat -- anders weet je niet waar je
+   * straks belandt.
+   */
+  const mijnRollen = me?.roles ?? []
+  const zonderRol = rol === null
   const searchRequest = useNav((s) => s.searchRequest)
   const clearSearchRequest = useNav((s) => s.clearSearchRequest)
 
@@ -188,6 +151,13 @@ export default function GlobalSearch() {
         return true
       }
 
+      /**
+       * Sommige records wonen per dashboard op een andere pagina. De keuze
+       * hangt niet af van de gekozen rol (die is er op het keuzescherm niet)
+       * maar van welke dashboards de gebruiker heeft; zie kiesPagina.
+       */
+      const pagina = (...kandidaten: string[]) => kiesPagina(kandidaten, mijnRollen, rol)
+
       /* ---------------------------------------------------------------- *
        *  Schermen
        *
@@ -197,7 +167,11 @@ export default function GlobalSearch() {
        * ---------------------------------------------------------------- */
 
       for (const scherm of SCHERMEN) {
-        if (scherm.rol && scherm.rol !== rol) continue
+        if (zonderRol) {
+          // Nog geen dashboard gekozen: alles wat in een van jouw dashboards staat
+          if (!dashboardsMet(scherm.page).some((r) => mijnRollen.includes(r))) continue
+          if (scherm.rol && !mijnRollen.includes(scherm.rol)) continue
+        } else if (scherm.rol && scherm.rol !== rol) continue
         if (scherm.recht && !perms.can(scherm.recht)) continue
         if (!has(scherm.label, scherm.hint, scherm.ook?.join(' '))) continue
         voegToe('Schermen', () => ({
@@ -222,7 +196,10 @@ export default function GlobalSearch() {
             title: j.plate,
             subtitle: `${j.companyName} · ${SERVICES[j.service].label} · ${j.status}`,
             right: time(j.scheduledAt),
-            page: perms.can('planning.view') ? 'planning' : 'vandaag',
+            // Planning alleen voor wie dat mag; de rest ziet zijn wasbeurten op Vandaag of, als werkgever, onder Wasbeurten
+            page: perms.can('planning.view')
+              ? pagina('planning', 'vandaag', 'beurten')
+              : pagina('vandaag', 'beurten'),
           }))) break
         }
       }
@@ -471,7 +448,7 @@ export default function GlobalSearch() {
             title: w.naam,
             subtitle: [w.contactNaam, w.plaats].filter(Boolean).join(' · '),
             right: WERKGEVER_STATUS[w.status].label,
-            page: rol === 'employer' ? 'start' : 'werkgevers',
+            page: pagina('werkgevers', 'start'),
           }))) break
         }
 
@@ -484,7 +461,7 @@ export default function GlobalSearch() {
             title: k.naam,
             subtitle: `${k.werkgeverNaam}${k.kentekens.length ? ' · ' + k.kentekens.join(', ') : ''}`,
             right: KOPPELING_STATUS[k.status].label,
-            page: rol === 'employer' ? 'chauffeurs' : 'werkgevers',
+            page: pagina('werkgevers', 'chauffeurs'),
           }))) break
         }
       }
@@ -540,8 +517,33 @@ export default function GlobalSearch() {
         }
       }
 
+      /*
+       * Zonder gekozen dashboard krijgt elke treffer erbij waar hij opengaat
+       * ("in Management"). Dat gebeurt hier in één keer en niet per bron:
+       * een wasbeurt, een medewerker en een scherm bepalen hun dashboard op
+       * dezelfde manier, via de pagina waar ze naartoe springen.
+       *
+       * Kent geen van je dashboards de pagina, dan verdwijnt de treffer hier.
+       * Tonen en dan nergens heen kunnen is erger dan niet tonen: het doel
+       * zou in useNav blijven staan en pas afgaan als ooit een dashboard
+       * mount dat de pagina wél kent -- op een moment dat niemand het
+       * verwacht.
+       */
+      const zichtbaar: Hit[] = []
+      for (const h of found) {
+        const doel = kiesDashboard(h.page, mijnRollen, rol)
+        if (!doel && zonderRol) continue
+        // Springt de treffer naar een ander dashboard dan waar je nu zit, dan
+        // staat dat erbij -- ook binnen een dashboard, anders zit je ineens
+        // in Werknemer zonder dat de treffer dat aankondigde.
+        const erbij = doel && doel !== rol ? `in ${ROLE_LABELS[doel]}` : ''
+        zichtbaar.push(erbij
+          ? { ...h, subtitle: [h.subtitle, erbij].filter(Boolean).join(' · ') }
+          : h)
+      }
+
       if (!cancelled) {
-        setHits(found)
+        setHits(zichtbaar)
         setActive(0)
         setBusy(false)
       }
@@ -585,6 +587,30 @@ export default function GlobalSearch() {
   }
 
   function pick(hit: Hit) {
+    /*
+     * Eerst het juiste dashboard, dan de pagina. Het doel blijft in useNav
+     * staan tot een dashboard het oppakt, dus chooseRole gevolgd door goto
+     * werkt ook als dat dashboard nog moet mounten. Vanaf het keuzescherm
+     * is dat de hele reden van de zoekbalk daar: één keer typen en je bent
+     * er, zonder eerst een kaart aan te klikken.
+     *
+     * Kent geen van je dashboards de pagina en is er nog niets gekozen, dan
+     * gebeurt er niets: geen dashboard openen dat de treffer niet kan tonen,
+     * en vooral geen doel achterlaten dat later onverwacht afgaat. Zulke
+     * treffers worden op het keuzescherm al niet getoond; dit is het slot op
+     * de deur voor het geval de kaart een pagina mist.
+     *
+     * Binnen een dashboard gaat het doel wél altijd door, ook als de kaart
+     * de pagina niet kent: dat dashboard kan haar via zijn eigen useNavTarget
+     * kennen, en zo werkte de zoekbalk daar al voordat hij op het keuzescherm
+     * kwam.
+     */
+    const doel = kiesDashboard(hit.page, mijnRollen, rol)
+    if (!doel && zonderRol) {
+      toast.info('Dit staat in geen van je dashboards')
+      return
+    }
+    if (doel && doel !== rol) chooseRole(doel)
     goto(hit.page, { query: debounced, id: hit.id.split(':')[1] })
     setOpen(false)
   }

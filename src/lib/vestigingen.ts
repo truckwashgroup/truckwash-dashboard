@@ -1,6 +1,6 @@
 import { db, uid } from './db'
 import { enqueue } from './sync'
-import { supabase, supabaseConfigured } from './api/supabaseApi'
+import { supabase, supabaseConfigured, supabaseUrl } from './api/supabaseApi'
 import type {
   Location, LocationKind, LocationPhoto, Openingstijden, User, Venster, Weekdag,
 } from './types'
@@ -634,11 +634,22 @@ export const fotos = {
     return put('locationPhotos', db.locationPhotos, { ...foto, isCover: true })
   },
 
-  /** De hele volgorde in een keer; het scherm laat ze slepen. */
+  /**
+   * De hele volgorde in een keer; het scherm laat ze slepen.
+   *
+   * Elke regel wordt vers uit de database gelezen en niet uit de lijst die
+   * het scherm meegeeft. Die lijst is van voor het slepen begon, en in de
+   * tussentijd kan er iets anders aan dezelfde foto zijn veranderd -- het
+   * scherm zet bijvoorbeeld de foto die naar voren is gesleept eerst als
+   * omslag. Zou hier de oude regel worden teruggeschreven, dan is die omslag
+   * meteen weer weg en is het maar net welke van de twee schrijfacties als
+   * laatste aankomt.
+   */
   async volgorde(lijst: LocationPhoto[]) {
     for (let i = 0; i < lijst.length; i++) {
-      if (lijst[i].sort === i) continue
-      await put('locationPhotos', db.locationPhotos, { ...lijst[i], sort: i })
+      const vers = await db.locationPhotos.get(lijst[i].id)
+      if (!vers || vers.sort === i) continue
+      await put('locationPhotos', db.locationPhotos, { ...vers, sort: i })
     }
   },
 
@@ -688,16 +699,44 @@ export function coverVan(lijst: LocationPhoto[]): LocationPhoto | undefined {
  * ================================================================== */
 
 /**
- * Een adres waarmee het plaatje te tekenen is.
- *
- * Eerst uit het geheugen om de hoek, en pas daarna van de server. Dat is niet
- * alleen sneller: het is het verschil tussen een scherm dat het doet in een
- * wasstraat zonder bereik en een scherm vol grijze vlakken.
+ * Het openbare adres van een foto, om zo in een <img> te zetten.
  *
  * De emmer is openbaar leesbaar, anders dan de dossiers. Dat is een keuze:
  * een foto van een wasstraat langs de snelweg staat ook op de website, en
  * negentien ondertekende adressen ophalen bij elk scherm maakt de lijst traag
  * en offline leeg.
+ *
+ * En als de emmer toch openbaar is, dan is dit de goedkoopste manier om een
+ * foto te tonen. De oude route -- fotoUrl() hieronder -- haalt het bestand
+ * via de client binnen, zet het in de lokale opslag en maakt er een
+ * object-adres van dat weer moet worden vrijgegeven. Voor negentien tegels
+ * met elk een omslag en drie mini's is dat tachtig keer die hele dans, terwijl
+ * de browser een gewoon plaatje uit zijn eigen cache haalt zonder dat er een
+ * regel code aan te pas komt. Dit is dezelfde url die de website gebruikt.
+ *
+ * Geeft null als er geen database is ingesteld; dan is er ook geen adres.
+ * Zonder verbinding is het adres er wel maar laadt het plaatje niet -- het
+ * scherm valt dan terug op fotoUrl(), die de lokale kopie kent.
+ */
+export function publiekeFotoUrl(foto: Pick<LocationPhoto, 'storagePath'>): string | null {
+  const basis = supabaseUrl()
+  if (!basis || !supabaseConfigured) return null
+  // Per segment gecodeerd: de strepen tussen de mappen moeten blijven staan,
+  // maar een teken dat een browser als vraagteken of hekje leest niet.
+  const pad = foto.storagePath.split('/').map(encodeURIComponent).join('/')
+  return `${basis}/storage/v1/object/public/${EMMER}/${pad}`
+}
+
+/**
+ * Een adres waarmee het plaatje ook zonder verbinding te tekenen is.
+ *
+ * Eerst uit het geheugen om de hoek, en pas daarna van de server. Dat is
+ * het verschil tussen een scherm dat het doet in een wasstraat zonder bereik
+ * en een scherm vol grijze vlakken.
+ *
+ * Voor de gewone weergave gebruikt het scherm publiekeFotoUrl() hierboven;
+ * dit is de terugvaloptie als dat plaatje niet laadt, en de route waarlangs
+ * een foto in de lokale opslag komt.
  */
 export async function fotoUrl(foto: LocationPhoto): Promise<string | null> {
   const bekend = await db.media.get(foto.storagePath)

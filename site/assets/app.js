@@ -1042,6 +1042,71 @@ function vulReleases() {
     });
 }
 
+/* Het adres van de edge function "trucky" in het dashboardproject. Hetzelfde
+   adres staat in assets/trucky.js, maar daar zit het in een afgesloten functie
+   en trucky.js is met opzet een los bestand dat niemand aanraakt -- dus hier
+   nog een keer, met de reden erbij. Het formulier "Klant worden" op /contact/
+   stuurt zijn aanmelding als contactverzoek naar diezelfde functie. Daardoor
+   komt het op precies dezelfde plek binnen als wat Trucky zelf doorgeeft: in
+   het dashboard bij Administratie en Management (tabel trucky_contact) en per
+   mail. Er staat geen sleutel in; de functie is open en bewaakt zichzelf. */
+const TRUCKY_ADRES = "https://yxsbmhavnttswxczeovt.supabase.co/functions/v1/trucky";
+
+/* Het formulier "Klant worden" op /contact/ aansluiten. Gaat als contactverzoek
+   naar de trucky-functie (TRUCKY_ADRES), met dezelfde velden als het formulier
+   dat Trucky in de chat toont. Het verschil zit in `vraag`: die begint met een
+   vaste kop KLANT WORDEN en het aantal wagens en de vestiging, zodat wie het
+   in het dashboard opent in een oogopslag ziet dat dit geen vraag is maar een
+   aanmelding. Het gespreks-id moet van de functie aan /^[a-z0-9-]{8,64}$/
+   voldoen; er is hier geen gesprek, dus het wordt "klant-" met wat toevals-
+   tekens -- lang genoeg, en aan het voorvoegsel is het in de tabel te
+   herkennen. De bevestiging gaat via textContent: wat de server terugzegt is
+   tekst, geen HTML. In de statische bouw is er geen document om aan te hangen
+   en stapt hij er meteen uit. */
+function klantWordenFormulier() {
+  if (typeof STATISCH !== "undefined" && STATISCH) return;
+  const f = document.getElementById("klantform");
+  if (!f) return;
+  const melding = document.getElementById("klantmelding");
+  const w = id => { const el = document.getElementById(id); return el && el.value ? String(el.value).trim() : ""; };
+  const zeg = (tekst, klasse) => { melding.textContent = tekst; melding.className = "klantmelding" + (klasse ? " " + klasse : ""); };
+  f.addEventListener("submit", e => {
+    e.preventDefault();
+    const knop = f.querySelector("button[type=submit]");
+    const gesprek = "klant-" + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+    const vraag = "KLANT WORDEN\nWagens: " + (w("kwagens") || "onbekend") +
+      "\nVestiging: " + (w("kvest") || "geen voorkeur") + "\n\n" + (w("kopm") || "(geen opmerking)");
+    knop.disabled = true;
+    knop.textContent = "Versturen\u2026";
+    zeg("");
+    fetch(TRUCKY_ADRES, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        gesprek, actie: "contact",
+        naam: w("knaam"), email: w("kmail"), telefoon: w("ktel"), bedrijf: w("kbedrijf"),
+        vraag, beurten: [],
+      }),
+    })
+      .then(r => r.json())
+      .then(a => {
+        if (a && a.ok) {
+          f.hidden = true;
+          zeg("Bedankt, je aanmelding is binnen. Je krijgt een bevestiging per mail en een collega belt je terug. Heb je haast? Bel 088 - 0600 100.", "gelukt");
+          return;
+        }
+        knop.disabled = false;
+        knop.textContent = "Aanmelding versturen";
+        zeg((a && a.reden) || "Versturen lukte niet. Probeer het zo nog eens, of bel 088 - 0600 100.", "mislukt");
+      })
+      .catch(() => {
+        knop.disabled = false;
+        knop.textContent = "Aanmelding versturen";
+        zeg("Geen verbinding. Probeer het zo nog eens, of bel 088 - 0600 100.", "mislukt");
+      });
+  });
+}
+
 
 /* ---------- opstarten ---------- */
 document.addEventListener("DOMContentLoaded", () => {
@@ -1153,4 +1218,7 @@ document.addEventListener("DOMContentLoaded", () => {
     location.href = "mailto:info@truckwash1group.nl?subject=" +
       encodeURIComponent("Bericht via de website - " + w("cnaam")) + "&body=" + encodeURIComponent(body);
   });
+
+  /* Alleen /contact/ heeft #klantform; overal elders stapt hij er meteen uit. */
+  klantWordenFormulier();
 });

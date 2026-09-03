@@ -51,6 +51,14 @@
  *  sinds deze functie bestaat is dat niet alleen een privacycontrole maar een
  *  publicatiecontrole.
  *
+ *  Er is een uitzondering op "geen kolommen bijgemaakt", en die staat hier
+ *  hardop: bij elke foto komt een veld "url". Dat is geen nieuw gegeven maar
+ *  het pad uit de database met het adres van de opslag ervoor -- en dat adres
+ *  kent alleen deze functie. De site hoort niet te weten bij welk Supabase-
+ *  project hij hoort; dan staat het projectadres op twee plekken en loopt het
+ *  bij een verhuizing uit elkaar. Er wordt daarbij niets uit het verzoek
+ *  gelezen, dus de regel hierboven blijft staan.
+ *
  * ---------------------------------------------------------------------------
  *  WAT ERUIT KOMT
  *
@@ -58,14 +66,15 @@
  *    {
  *      "ok": true,
  *      "medewerkers": 5,
- *      "vestigingen": [ { ...zestien velden... }, ... ]
+ *      "vestigingen": [ { ...zeventien velden... }, ... ]
  *    }
  *
  *  Mis:   405 of 500
  *    { "ok": false, "reden": "een zin die zegt wat er aan de hand is" }
  *
- *  De zestien velden per vestiging, in de namen van de database. Dit is
- *  letterlijk wat website_vestigingen() teruggeeft, ongewijzigd:
+ *  De zeventien velden per vestiging, in de namen van de database. Dit is
+ *  letterlijk wat website_vestigingen() teruggeeft, ongewijzigd (op de "url"
+ *  per foto na, zie hierboven):
  *
  *    slug            text      het webadres, bijvoorbeeld "aalsmeer"
  *    naam            text      "Truckwash Aalsmeer" -- MET het voorvoegsel
@@ -84,6 +93,18 @@
  *    bijzonder       text      vrij veld; staat vandaag nergens op de site
  *    diensten        text[]    SLEUTELS naar dienstpagina's
  *    punten          text[]    de verkooptekst die op de pagina staat
+ *    fotos           jsonb     de foto's uit het beheerscherm, omslag eerst:
+ *                              [{ "pad": "loc_x/lfoto_y.jpg",
+ *                                 "bijschrift": "De oprit" | null,
+ *                                 "cover": true,
+ *                                 "volgorde": 0,
+ *                                 "url": "https://.../storage/v1/object/public/vestigingen/loc_x/lfoto_y.jpg" }]
+ *                              "url" is hier toegevoegd (zie boven); de rest
+ *                              komt zo uit de database. Een vestiging zonder
+ *                              foto's heeft een lege lijst, geen null. De emmer
+ *                              is openbaar leesbaar (0026), dus de url werkt
+ *                              zonder sleutel -- de site zet hem zo in een
+ *                              <img>.
  *
  *  Er staat met opzet geen tijdstempel in het antwoord. Wanneer iets is
  *  opgehaald weet de beller zelf beter dan deze functie, en het is geen
@@ -224,7 +245,41 @@ async function haalOp(): Promise<Response> {
     return json({ ok: false, reden: 'De personeelstelling gaf geen getal terug.' }, 500)
   }
 
-  return json({ ok: true, medewerkers: aantal, vestigingen: vest })
+  return json({ ok: true, medewerkers: aantal, vestigingen: vest.map(metFotoUrls) })
+}
+
+/* ------------------------------------------------------------------ *
+ *  De foto's een adres geven
+ *
+ *  De database kent van een foto alleen het pad in de emmer. Waar die emmer
+ *  staat weet zij niet en hoort de site ook niet te weten -- dat is het
+ *  projectadres, en dat staat hier al in de omgeving. Dus wordt het hier
+ *  aan elkaar geplakt, en nergens anders.
+ *
+ *  Per segment gecodeerd en niet de hele string in een keer: encodeURI laat
+ *  een schuine streep staan (goed) maar ook een vraagteken of een hekje
+ *  (fout), en encodeURIComponent op het geheel zou de scheidende strepen
+ *  wegcoderen. De paden die de app maakt zijn <vestiging-id>/<foto-id>.<ext>
+ *  en bevatten niets van dat alles, maar een url die alleen goed gaat als
+ *  de invoer zich netjes gedraagt is geen url.
+ * ------------------------------------------------------------------ */
+
+const EMMER = 'vestigingen'
+
+function publiekeUrl(pad: string): string {
+  const schoon = pad.split('/').map(encodeURIComponent).join('/')
+  return `${SUPABASE_URL.replace(/\/+$/, '')}/storage/v1/object/public/${EMMER}/${schoon}`
+}
+
+function metFotoUrls(v: Record<string, unknown>) {
+  const fotos = Array.isArray(v.fotos) ? v.fotos : []
+  return {
+    ...v,
+    fotos: fotos
+      .filter((f): f is Record<string, unknown> =>
+        !!f && typeof f === 'object' && typeof (f as Record<string, unknown>).pad === 'string')
+      .map((f) => ({ ...f, url: publiekeUrl(f.pad as string) })),
+  }
 }
 
 /* ================================================================== */

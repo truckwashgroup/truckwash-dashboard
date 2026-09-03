@@ -1,5 +1,6 @@
 import { db, uid } from './db'
 import { enqueue } from './sync'
+import { leesInstelling, SLEUTELS } from './instellingen'
 import { laatsteMailFout, mailVrij } from './mail'
 import { supabase, supabaseConfigured } from './api/supabaseApi'
 import { CONTROLE_LABELS } from './types'
@@ -209,6 +210,80 @@ export const postbus = {
   },
 
   /**
+   * Van een bericht dat de post als verkoopfactuur wegzette alsnog een
+   * kostenpost maken.
+   *
+   * De weg terug. De post haalt bij een verkoopfactuur de kostenpost weg, en
+   * hoe goed het tweede slot ook is, ooit zit hij ernaast -- en dan stond er
+   * tot nu toe niets tegenover: overtikken, zonder bijlage. Dit maakt
+   * dezelfde kostenpost als de post zelf zou hebben gemaakt: leeg bedrag,
+   * de bijlage eraan, bron 'mail', de vestiging uit het adres. Alleen wie
+   * hem indiende is nu een mens in plaats van niemand, want dat is ook zo.
+   *
+   * Wat er niet gebeurt: voorlezen. Dat doet de knop bij de bon in de
+   * administratie, en daar hoort ook de mens die dit net heeft beslist.
+   */
+  async tochKostenpost(berichtId: string, door: Pick<User, 'id' | 'name'>): Promise<Expense> {
+    const bericht = await db.mailbox.get(berichtId)
+    if (!bericht) throw new Error('Dit bericht staat niet (meer) in de postbus.')
+
+    // Twee keer drukken levert geen twee bonnen op.
+    if (bericht.expenseId) {
+      const bestaand = await db.expenses.get(bericht.expenseId)
+      if (bestaand) return bestaand
+    }
+
+    /*
+     * Dezelfde keuze als de post: eerst een PDF, dan een foto, en alleen
+     * wat écht in de opslag staat. Anders hangt het logo uit de handtekening
+     * aan de bon in plaats van de factuur.
+     */
+    const bruikbaar = bericht.attachments.filter((b) => b.path)
+    const bon =
+      bruikbaar.find((b) => b.mime === 'application/pdf')
+      ?? bruikbaar.find((b) => b.mime.startsWith('image/'))
+      ?? bruikbaar[0]
+    if (!bon) {
+      throw new Error(
+        'Bij dit bericht staat geen bijlage in de opslag, dus er valt geen ' +
+        'kostenpost met bewijs van te maken. Haal eerst de bijlagen opnieuw op.',
+      )
+    }
+
+    const vestiging = await vestigingUitAdres(bericht.aan)
+
+    /*
+     * Het type zegt dat locationId er altijd is; de post zet hem op niets als
+     * het adres bij geen vestiging hoort, en de database staat dat toe. Dat
+     * hier ook zo doen is beter dan een lege tekst, want die botst op de
+     * verwijzing naar locations.
+     */
+    const zonderVestiging: Omit<Expense, 'locationId'> & { locationId?: string } = {
+      id: uid('exp'),
+      locationId: vestiging,
+      date: Date.now(),
+      category: 'overig',
+      supplier: bericht.vanNaam || bericht.van,
+      description: bericht.onderwerp,
+      amountExcl: 0,
+      vatPct: 21,
+      status: 'open',
+      submittedBy: door.id,
+      submittedByName: door.name,
+      source: 'mail',
+      mailboxId: bericht.id,
+      attachmentPath: bon.path,
+      attachmentName: bon.naam,
+      updatedAt: Date.now(),
+    }
+    const kostenpost = zonderVestiging as Expense
+
+    await put('expenses', db.expenses, kostenpost)
+    await put('mailbox', db.mailbox, { ...bericht, expenseId: kostenpost.id, soort: 'inkoop' })
+    return kostenpost
+  },
+
+  /**
    * Zelf een mail versturen.
    *
    * Dit is het enige geval waarin de app een adres meegeeft in plaats van
@@ -255,6 +330,36 @@ export const postbus = {
   },
 }
 
+/**
+ * Bij welke vestiging hoort post op dit adres?
+ *
+ * Dezelfde regel als de post op de server hanteert: inkoop.<slug>@<domein>,
+ * met de slug van de website of anders de code van de vestiging. Past het
+ * niet, dan hoort de bon bij geen vestiging -- en dat is een uitkomst, geen
+ * fout. Post weggooien of weigeren omdat het adres net anders is, doet de
+ * server ook niet.
+ */
+async function vestigingUitAdres(aan: string): Promise<string | undefined> {
+  const bak = (aan ?? '').trim().toLowerCase()
+  if (!bak.includes('@')) return undefined
+  const [postvak, domein] = bak.split('@')
+
+  const verwachtDomein = (await leesInstelling(SLEUTELS.inkoopDomein)).toLowerCase()
+  const voorvoegsel = (await leesInstelling(SLEUTELS.inkoopVoorvoegsel, 'inkoop')).toLowerCase()
+
+  if (verwachtDomein && domein !== verwachtDomein) return undefined
+  if (!postvak.startsWith(voorvoegsel + '.')) return undefined
+
+  const slug = postvak.slice(voorvoegsel.length + 1).split('+')[0].trim()
+  if (!slug) return undefined
+
+  const locaties = await db.locations.toArray()
+  const plek =
+    locaties.find((l) => (l.websiteSlug ?? '').toLowerCase() === slug)
+    ?? locaties.find((l) => l.code.toLowerCase() === slug)
+  return plek?.id
+}
+
 /* ------------------------------------------------------------------ *
  *  Wat je ervan ziet
  * ------------------------------------------------------------------ */
@@ -262,7 +367,18 @@ export const postbus = {
 export interface PostbusFilter {
   richting: 'in' | 'uit' | 'alles'
   status?: MailStatus | 'alles'
+  /**
+   * Alleen post van dit soort. Het scherm gebruikt het om de verkoopfacturen
+   * bij elkaar te zetten -- die zaten verstopt tussen de bonnen, en dat was
+   * precies het probleem.
+   */
+  soort?: NonNullable<MailBericht['soort']> | 'alles'
   zoek?: string
+}
+
+/** Is dit een factuur van Truckwash zelf, die iemand heeft doorgestuurd? */
+export function isVerkoopfactuur(bericht: MailBericht): boolean {
+  return bericht.soort === 'verkoop'
 }
 
 export function filterPost(
@@ -274,6 +390,7 @@ export function filterPost(
   return alle
     .filter((m) => filter.richting === 'alles' || m.richting === filter.richting)
     .filter((m) => !filter.status || filter.status === 'alles' || m.status === filter.status)
+    .filter((m) => !filter.soort || filter.soort === 'alles' || m.soort === filter.soort)
     .filter((m) => !q ||
       m.onderwerp.toLowerCase().includes(q) ||
       m.van.toLowerCase().includes(q) ||
@@ -285,6 +402,11 @@ export function filterPost(
 /** Hoeveel post er nog niet is bekeken. Voor het bolletje in het menu. */
 export function onbekeken(alle: MailBericht[]): number {
   return alle.filter((m) => m.richting === 'in' && m.status === 'nieuw').length
+}
+
+/** Hoeveel verkoopfacturen er binnenkwamen. Voor de teller op het tabblad. */
+export function aantalVerkoopfacturen(alle: MailBericht[]): number {
+  return alle.filter((m) => m.richting === 'in' && isVerkoopfactuur(m)).length
 }
 
 /**

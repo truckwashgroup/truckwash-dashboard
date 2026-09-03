@@ -65,8 +65,8 @@ function naarBase64(bytes: Uint8Array): string {
  * ------------------------------------------------------------------ */
 
 const SYSTEEM = [
-  'Je leest een inkoopfactuur of kassabon van een Nederlands truckwash-bedrijf',
-  'en geeft terug wat er letterlijk op staat.',
+  'Je leest een factuur of kassabon die per mail is binnengekomen bij een',
+  'Nederlands truckwash-bedrijf, en geeft terug wat er letterlijk op staat.',
   '',
   'Regels:',
   '- Neem over wat er staat. Reken niets uit dat er niet staat, en vul niets',
@@ -81,6 +81,29 @@ const SYSTEEM = [
   '  getallen niet aan om het kloppend te maken.',
   '- Is dit geen factuur of bon maar bijvoorbeeld een pakbon of een aanmaning,',
   '  zet dat in "soort" en geef terug wat je wel ziet.',
+  '- "richting" zegt wie hier aan wie factureert. Het bedrijf dat dit leest',
+  '  heet Truckwash 1 Group, met vestigingen die "Truckwash" in de naam hebben',
+  '  (Truckwash Oss, Truckwash 1 Utrecht, enzovoort).',
+  '    "inkoop":  Truckwash staat als ontvanger op het stuk -- bij "aan",',
+  '               "factuuradres", "klant" of "t.a.v." -- en een ANDER bedrijf',
+  '               staat als afzender bovenaan, met zijn eigen KvK- en',
+  '               btw-nummer, IBAN en logo. Dan is dit een rekening die',
+  '               Truckwash moet betalen.',
+  '    "verkoop": Truckwash staat zelf als afzender bovenaan, met KvK, btw-',
+  '               nummer en IBAN van Truckwash, en een ander bedrijf staat als',
+  '               klant. Dan is dit een rekening die Truckwash zelf heeft',
+  '               gestuurd en die iemand heeft doorgestuurd.',
+  '    "onbekend": je kunt het niet met zekerheid zeggen, bijvoorbeeld omdat',
+  '               er geen namen op staan of Truckwash nergens voorkomt.',
+  '  Kijk naar wie het stuk heeft opgemaakt, niet naar wie de mail stuurde.',
+  '  Zeg alleen "verkoop" als Truckwash zelf het stuk heeft opgemaakt. Een',
+  '  stempel of aantekening "ontvangen" van Truckwash maakt Truckwash niet de',
+  '  afzender. Een ander bedrijf met "Truckwash" in de naam dat niet Truckwash',
+  '  1 Group of een van zijn vestigingen is (een buitenlandse wasserij, een',
+  '  leverancier van wasinstallaties) is een ander bedrijf: dan "inkoop". Een',
+  '  creditnota van een leverancier aan Truckwash is ook "inkoop". Twijfel je,',
+  '  dan "onbekend" -- dat is nooit fout.',
+  '  "leverancier" is altijd de afzender op het stuk, ook bij verkoop.',
   '- "kenmerk" is de korte omschrijving waar deze factuur over gaat, zoals je',
   '  hem zelf in een boekhouding zou zetten: "elektra maart", "afvalcontainer",',
   '  "osmosefilters". Niet de bedrijfsnaam en niet het factuurnummer.',
@@ -89,6 +112,7 @@ const SYSTEEM = [
   '',
   '{',
   '  "soort": "factuur" | "bon" | "pakbon" | "aanmaning" | "onbekend",',
+  '  "richting": "inkoop" | "verkoop" | "onbekend",',
   '  "leverancier": "string",',
   '  "factuurnummer": "string",',
   '  "datum": "jjjj-mm-dd",',
@@ -154,6 +178,15 @@ const CATEGORIEEN = ['materiaal', 'energie', 'onderhoud', 'personeel', 'transpor
 
 export interface Lezing {
   soort: string
+  /**
+   * Wie factureert hier aan wie. "inkoop" is een rekening aan Truckwash,
+   * "verkoop" een rekening ván Truckwash die iemand heeft doorgestuurd.
+   *
+   * Dit veld bestaat omdat alles wat met een PDF binnenkwam een kostenpost
+   * werd -- ook een factuur die Truckwash zelf aan een klant had gestuurd.
+   * Die stond dan aan de kostenkant, en niemand zag het.
+   */
+  richting: 'inkoop' | 'verkoop' | 'onbekend'
   leverancier?: string
   factuurnummer?: string
   datum?: number
@@ -392,6 +425,10 @@ export async function leesFactuur(opties: {
   const lezing: Lezing = {
     soort: ['factuur', 'bon', 'pakbon', 'aanmaning', 'onbekend']
       .includes(String(uit.soort)) ? String(uit.soort) : 'onbekend',
+    // Alleen de drie waarden die de beller kent. Alles anders is "onbekend",
+    // en onbekend wordt gewoon een kostenpost -- zoals het altijd al ging.
+    richting: uit.richting === 'inkoop' || uit.richting === 'verkoop'
+      ? uit.richting : 'onbekend',
     leverancier: tekst(uit.leverancier),
     factuurnummer: tekst(uit.factuurnummer, 60),
     datum: datum(uit.datum),

@@ -1,0 +1,79 @@
+/* ================================================================== *
+ *  De zoekbalk op het keuzescherm
+ *
+ *  Na het inloggen stond je voor acht kaarten en moest je eerst kiezen
+ *  voordat je iets kon zoeken. Casper wilde de zoekbalk daar al hebben,
+ *  "zodat je iets sneller ergens kan komen, zonder eerst door te moeten
+ *  klikken." Dit is dezelfde knop als .search-trigger in de balk van een
+ *  dashboard, maar groter en in het midden: hier is hij niet een hulpmiddel
+ *  ernaast, maar de snelste weg het scherm uit.
+ *
+ *  Alles komt uit de tokens van theme.css, dus licht en donker doen het
+ *  vanzelf goed. auth.css en theme.css blijven ongemoeid.
+ * ================================================================== */
+
+.rolzoek {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: min(560px, 100%);
+  margin: -8px auto 30px;
+}
+
+.rolzoek-knop {
+  flex: 1; min-width: 0; min-height: 52px;
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 14px 0 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-3);
+  font-size: 1rem; text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: border-color .16s var(--ease), box-shadow .16s var(--ease);
+}
+.rolzoek-knop:hover,
+.rolzoek-knop:focus-visible {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--tint-brand-weak), var(--shadow-sm);
+}
+.rolzoek-knop .label {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rolzoek-knop kbd {
+  flex: none;
+  font: inherit; font-size: .7rem;
+  padding: 3px 7px; border-radius: 6px;
+  background: var(--surface-2); border: 1px solid var(--line);
+  color: var(--text-3);
+}
+
+/* De microfoon ernaast, even hoog als de balk zodat het één geheel is. */
+.rolzoek-mic {
+  display: grid; place-items: center;
+  width: 52px; height: 52px; flex: none;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: color .16s var(--ease), border-color .16s var(--ease);
+}
+.rolzoek-mic:hover,
+.rolzoek-mic:focus-visible { outline: none; color: var(--brand); border-color: var(--brand); }
+.rolzoek-mic.off { opacity: .45; }
+.rolzoek-mic.off:hover { color: var(--text-2); border-color: var(--line); }
+
+/*
+ * Op een telefoon pakt de balk de volle breedte en blijft hij minstens 48px
+ * hoog: dat is de maat van een duim. De sneltoets verdwijnt, want die heeft
+ * op een aanraakscherm geen betekenis.
+ */
+@media (max-width: 560px) {
+  .rolzoek { width: 100%; gap: 8px; margin-bottom: 22px; }
+  .rolzoek-knop { min-height: 48px; font-size: .95rem; padding: 0 12px 0 14px; }
+  .rolzoek-knop kbd { display: none; }
+  .rolzoek-mic { width: 48px; height: 48px; }
+}

@@ -1,0 +1,316 @@
+/* ================================================================== *
+ *  Vestigingsfoto's  (.vf-)
+ *
+ *  Aanleiding: de foto's van een vestiging zaten achter een tabblad. Op de
+ *  tegel stond de omslag, maar of er nog vier andere waren -- en welke -- zag
+ *  je pas na twee keer klikken. Terwijl die foto's sinds 0046 ook op de
+ *  website staan, in deze volgorde, met dit bijschrift. Wat naar buiten gaat
+ *  hoort in een blik te zien te zijn.
+ *
+ *  De .vest-* klassen in theme.css zijn van het scherm zelf en blijven
+ *  staan; alles hier heet .vf- en gaat alleen over de foto's.
+ * ================================================================== */
+
+/* ------------------------------ De tegel -------------------------- */
+
+/* Op de tegel in het raster is de omslag hoger dan 16:9. De tegel is
+   toch al een foto met een naam eronder; hier mag hij het beeld dragen. */
+.vest-foto.vf-groot { aspect-ratio: 3 / 2; }
+
+/* De eerste drie overige foto's als mini's onder de omslag, zodat je aan
+   de tegel ziet dat er meer is dan een plaatje -- en welke. */
+.vf-ministrook {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+  padding: 3px 3px 0;
+  background: var(--panel, var(--surface));
+}
+.vf-mini {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--surface);
+}
+.vf-mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* "+4": er zijn er meer dan hier passen. */
+.vf-mini.vf-meer {
+  display: grid; place-items: center;
+  border: 1px dashed var(--line);
+  color: var(--text-3);
+  font-size: .74rem; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----------------------------- De galerij ------------------------- *
+ *
+ *  Bovenin het detailscherm, boven de tabbladen: de omslag groot, de rest
+ *  als kleine tegels ernaast. Dit is een uitzicht, geen beheer -- het
+ *  slepen en de bijschriften zitten in het tabblad, en de knop rechtsonder
+ *  brengt je daar.
+ * ------------------------------------------------------------------ */
+
+.vf-galerij {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.vf-omslag {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: zoom-in;
+}
+.vf-omslag img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Nog geen foto. Het vlak staat er wel, in dezelfde maat, zodat het venster
+   niet verspringt zodra de eerste foto binnenkomt. */
+.vf-omslag.vf-leegvlak {
+  display: grid; place-content: center; justify-items: center; gap: 6px;
+  color: var(--text-3);
+  font-size: .82rem;
+  text-align: center;
+  cursor: default;
+  border: 1px dashed var(--line);
+  background:
+    repeating-linear-gradient(135deg, var(--surface) 0 10px, var(--line-soft) 10px 11px);
+}
+.vf-omslag.vf-leegvlak small { font-size: .72rem; max-width: 26ch; }
+
+/* Het etiket "Omslag" op de foto die vooraan staat. */
+.vf-etiket {
+  position: absolute; left: 8px; top: 8px;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: var(--on-brand);
+  font-size: .66rem; font-weight: 700; letter-spacing: .02em;
+  pointer-events: none;
+}
+
+.vf-zij {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-auto-rows: min-content;
+  gap: 8px;
+  align-content: start;
+}
+.vf-klein {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: zoom-in;
+}
+.vf-klein img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.vf-klein.vf-meer {
+  display: grid; place-items: center;
+  border: 1px dashed var(--line);
+  color: var(--text-2);
+  font-size: .86rem; font-weight: 600;
+  cursor: pointer;
+}
+.vf-klein.vf-meer:hover { border-color: var(--brand); color: var(--text); }
+
+/* De knop naar het tabblad staat onder de kleine tegels, over de volle
+   breedte van de zijkolom. */
+.vf-beheer { grid-column: 1 / -1; justify-content: center; }
+
+@media (max-width: 560px) {
+  /* Op een telefoon onder elkaar: eerst de omslag, dan een rij mini's. */
+  .vf-galerij { grid-template-columns: 1fr; }
+  .vf-zij { grid-template-columns: repeat(4, 1fr); }
+  .vf-beheer { grid-column: 1 / -1; }
+}
+
+/* ---------------------------- Het tabblad ------------------------- *
+ *
+ *  Een raster van tegels in plaats van een lijst met rijtjes. Bij vijf
+ *  foto's las de lijst nog, bij twaalf werd het scrollen zonder overzicht.
+ *  Nu staat de foto voorop en zitten ster, prullenbak en greep erop.
+ * ------------------------------------------------------------------ */
+
+.vf-raster {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+@media (max-width: 560px) {
+  .vf-raster { grid-template-columns: repeat(2, 1fr); }
+}
+
+.vf-tegel {
+  position: relative;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  /* Anders selecteert een sleep met de muis de bijschriften onderweg. */
+  user-select: none;
+}
+.vf-tegel.omslag { border-color: var(--line-brand, var(--line)); }
+
+/* De tegel die onderweg is: blijft op zijn plek staan als gat, het spook
+   hieronder loopt met de vinger mee. */
+.vf-tegel.sleept { opacity: .35; }
+.vf-tegel.sleept > * { visibility: hidden; }
+
+.vf-beeld {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: var(--panel, var(--surface));
+  cursor: zoom-in;
+}
+.vf-beeld img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Waar je de tegel aan vastpakt. Met een muis mag het overal op de foto;
+   met een vinger alleen hier, want een vinger op de foto moet het venster
+   kunnen scrollen. Vandaar touch-action: none op precies dit vlak. */
+.vf-greep {
+  position: absolute; left: 6px; top: 6px;
+  display: grid; place-items: center;
+  width: 26px; height: 26px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, .5);
+  color: #fff;
+  cursor: grab;
+  touch-action: none;
+}
+.vf-greep:active { cursor: grabbing; }
+
+/* De ster en de prullenbak liggen op de foto. */
+.vf-knoppen {
+  position: absolute; right: 6px; top: 6px;
+  display: flex; gap: 4px;
+}
+.vf-knop {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 26px; min-width: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, .5);
+  color: #fff;
+  font-size: .7rem; font-weight: 600;
+  cursor: pointer;
+  transition: background .14s ease, color .14s ease;
+}
+.vf-knop:hover { background: rgba(0, 0, 0, .72); }
+.vf-knop.aan { background: var(--brand); color: var(--on-brand); }
+/* Eerste tik vraagt, tweede tik doet. Een prullenbak op een foto op een
+   telefoon is anders een ongeluk dat op je wacht. */
+.vf-knop.zeker { background: var(--danger); color: #fff; }
+
+/* Het etiket op de tegel zit onderaan de foto, want bovenaan zitten de greep
+   en de knoppen al. */
+.vf-tegel .vf-etiket { top: auto; bottom: 6px; left: 6px; }
+
+/* Het bijschrift, inline te bewerken. Geen rand tot je erin klikt: het is
+   een onderschrift, geen formulier. */
+.vf-bijschrift {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: .78rem;
+}
+.vf-bijschrift::placeholder { color: var(--text-3); }
+.vf-bijschrift:focus { outline: none; background: var(--tint-brand-weak); }
+.vf-bijschrift:disabled { color: var(--text-2); }
+/* De tegel zet user-select uit tegen het meeslepen van tekst; het bijschrift
+   is een veld en moet gewoon te selecteren en (op oudere iOS) te focussen zijn. */
+.vf-tegel .vf-bijschrift { user-select: text; }
+
+/* Het spook: een kopie van de tegel die met de aanwijzer meegaat. Geen
+   pointer-events, anders zit hij zelf onder de aanwijzer en weet
+   elementFromPoint niet meer boven welke tegel je zweeft. */
+.vf-spook {
+  position: fixed;
+  z-index: 300;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .45);
+  pointer-events: none;
+  transform: rotate(-1.5deg) scale(1.03);
+}
+.vf-spook img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Met een muis verschijnen de knoppen pas als je over de tegel gaat; op een
+   telefoon is er geen "over", dus daar staan ze er gewoon. */
+@media (hover: hover) and (pointer: fine) {
+  .vf-tegel .vf-knoppen, .vf-tegel .vf-greep { opacity: 0; transition: opacity .14s ease; }
+  .vf-tegel:hover .vf-knoppen, .vf-tegel:hover .vf-greep,
+  .vf-tegel:focus-within .vf-knoppen, .vf-tegel:focus-within .vf-greep,
+  .vf-knop.zeker { opacity: 1; }
+}
+
+/* Nog geen foto's in het tabblad. */
+.vf-leeg {
+  display: grid; justify-items: center; gap: 6px;
+  margin-top: 14px;
+  padding: 28px 16px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--text-2);
+  font-size: .84rem;
+  text-align: center;
+}
+.vf-leeg svg { color: var(--text-3); }
+.vf-leeg small { color: var(--text-3); font-size: .74rem; max-width: 42ch; }
+
+/* Een foto waarvan het plaatje niet te krijgen is: geen verbinding en geen
+   lokale kopie. Een stil vlak, geen eeuwig glanzende laadbalk. */
+.vf-kapot {
+  display: grid; place-items: center;
+  width: 100%; height: 100%;
+  color: var(--text-3);
+  background:
+    repeating-linear-gradient(135deg, var(--surface) 0 10px, var(--line-soft) 10px 11px);
+}
+
+/* ------------------------- Het website-tabblad -------------------- */
+
+/* De regel over wat er aan foto's mee naar de site gaat. */
+.vf-siteregel {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 0 14px;
+  padding: 9px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: .8rem; color: var(--text-2);
+}
+.vf-siteregel svg { flex: none; }
+.vf-siteregel span { flex: 1; min-width: 0; }
+.vf-siteregel.waarschuwt {
+  border-color: var(--line-warn);
+  background: var(--tint-warn-weak, var(--tint-warn));
+  color: var(--text-warn);
+}
+
+/* Wie liever geen beweging ziet krijgt hem ook niet. */
+@media (prefers-reduced-motion: reduce) {
+  .vf-spook { transform: none; }
+}

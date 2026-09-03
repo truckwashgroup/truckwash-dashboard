@@ -1652,6 +1652,28 @@ check('een zoekterm die nergens staat levert niets',
 check('verstuurde post is er nog niet',
   filterPost(post, { richting: 'uit' }).length === 0)
 
+/* --- de verkoopfacturen apart (0047) --- */
+
+const { isVerkoopfactuur, aantalVerkoopfacturen } = await import('../src/lib/postbus')
+const gemengd: typeof post = [
+  ...post.map((m, i) => ({
+    ...m,
+    soort: i === 0 ? 'verkoop' as const : i === 1 ? 'inkoop' as const : undefined,
+  })),
+  // Een verstuurde verkoopfactuur telt niet mee: het gaat om wat binnenkwam.
+  { ...post[0], id: 'mb_uit_verkoop', richting: 'uit' as const, soort: 'verkoop' as const },
+]
+const verkoop = filterPost(gemengd, { richting: 'in', soort: 'verkoop' })
+check('filteren op verkoop geeft alleen binnengekomen verkoopfacturen',
+  verkoop.length === 1 && verkoop[0].soort === 'verkoop' && verkoop[0].richting === 'in')
+check('zonder soort of met alles verandert het filter niets',
+  filterPost(gemengd, { richting: 'in' }).length === 4
+  && filterPost(gemengd, { richting: 'in', soort: 'alles' }).length === 4)
+check('isVerkoopfactuur kijkt alleen naar het soort',
+  isVerkoopfactuur(gemengd[0]) && !isVerkoopfactuur(gemengd[1]) && !isVerkoopfactuur(gemengd[2]))
+check('de teller op het tabblad telt alleen binnengekomen verkoopfacturen',
+  aantalVerkoopfacturen(gemengd) === 1)
+
 /* --- de bon die eruit ontstond --- */
 
 const alleBonnen = await db.expenses.toArray()
@@ -4263,6 +4285,104 @@ console.log('\n28. De historie bij een factuur')
   const ander = bon({ supplier: 'PreZero Nederland B.V.' })
   const h7 = historieVan(ander, [ander, ...eerdere])
   check('de historie blijft bij dezelfde leverancier', h7.eerder.length === 0)
+}
+
+/* ====================================================================
+ *  29. Zoeken vóór je een dashboard hebt gekozen
+ *
+ *  De zoekbalk staat ook op het keuzescherm. Daar is nog geen rol, en de
+ *  app heeft geen router: een treffer kan alleen open als het dashboard dat
+ *  de pagina kent gemount wordt. kiesDashboard bepaalt welk dat is. De kaart
+ *  is handgeschreven; deze tests houden hem compleet.
+ * ==================================================================== */
+
+console.log('\n29. Zoeken vóór je een dashboard hebt gekozen')
+
+{
+  const { kiesDashboard, kiesPagina, DASHBOARDS_MET, SCHERMEN } = await import('../src/lib/schermen')
+  const { ROLE_ORDER } = await import('../src/lib/types')
+
+  /* ---- wie de pagina al heeft, houdt hem ---- */
+
+  check('de huidige rol wint als die de pagina heeft',
+    kiesDashboard('overleg', ['employee', 'management'], 'management') === 'management')
+  check('ook als een eerdere rol in de volgorde hem óók heeft',
+    kiesDashboard('uren', ['employee', 'supervisor'], 'supervisor') === 'supervisor')
+
+  /* ---- anders het eerste dashboard in ROLE_ORDER dat hem kent ---- */
+
+  check('zonder rol het eerste dashboard uit ROLE_ORDER dat de pagina kent',
+    kiesDashboard('overleg', ['management', 'employee'], null) === 'employee')
+  check('de volgorde komt uit ROLE_ORDER, niet uit de lijst van de gebruiker',
+    kiesDashboard('uren', ['management', 'administratie', 'supervisor'], null) === 'supervisor')
+  check('heeft de huidige rol de pagina niet, dan een ander dashboard',
+    kiesDashboard('financieel', ['employee', 'management'], 'employee') === 'management')
+  check('een huidige rol die de gebruiker niet heeft telt niet',
+    kiesDashboard('uren', ['supervisor'], 'employee') === 'supervisor')
+
+  /* ---- en niets als niemand hem kent ---- */
+
+  check('null als geen van je dashboards de pagina kent',
+    kiesDashboard('financieel', ['employee'], 'employee') === null)
+  check('null voor een pagina die niet bestaat',
+    kiesDashboard('bestaatniet', ROLE_ORDER, 'management') === null)
+  check('null zonder rollen', kiesDashboard('start', [], null) === null)
+
+  /* ---- dezelfde treffer, per dashboard een andere pagina ---- *
+   *
+   * Een werkgever die op het keuzescherm zijn chauffeur zocht, kreeg de
+   * pagina van het management mee en landde op zijn startpagina. De pagina
+   * hoort te volgen uit welke dashboards je hebt, niet uit een rol die er
+   * nog niet is.
+   */
+
+  const wasbeurt = ['planning', 'vandaag', 'beurten']
+  check('een wasbeurt opent binnen het werknemersdashboard op Vandaag',
+    kiesPagina(wasbeurt, ['employee', 'management'], 'employee') === 'vandaag')
+  check('en binnen Management op Planning',
+    kiesPagina(wasbeurt, ['employee', 'management'], 'management') === 'planning')
+  check('en binnen het werkgeversdashboard onder Wasbeurten',
+    kiesPagina(wasbeurt, ['employer'], 'employer') === 'beurten')
+  check('zonder rol volgt de pagina uit de dashboards die je hebt: werkgever -> Wasbeurten',
+    kiesPagina(wasbeurt, ['employer'], null) === 'beurten')
+  check('zonder rol met alleen het werknemersdashboard: Vandaag',
+    kiesPagina(wasbeurt, ['employee'], null) === 'vandaag')
+
+  const koppeling = ['werkgevers', 'chauffeurs']
+  check('een chauffeur opent voor een werkgever zonder rol onder Chauffeurs',
+    kiesPagina(koppeling, ['employer'], null) === 'chauffeurs')
+  check('wie ook management heeft, gaat zonder rol naar Werkgevers',
+    kiesPagina(koppeling, ['employer', 'management'], null) === 'werkgevers')
+  check('maar binnen het werkgeversdashboard blijft het Chauffeurs',
+    kiesPagina(koppeling, ['employer', 'management'], 'employer') === 'chauffeurs')
+  check('een werkgever zelf opent voor een werkgever zonder rol op Start',
+    kiesPagina(['werkgevers', 'start'], ['employer'], null) === 'start')
+  check('kent geen dashboard een kandidaat, dan de eerste (en kiesDashboard geeft daar null)',
+    kiesPagina(['meldingen'], ['employee'], null) === 'meldingen'
+    && kiesDashboard('meldingen', ['employee'], null) === null)
+  check('een huidige rol die de gebruiker niet heeft telt ook hier niet',
+    kiesPagina(wasbeurt, ['employee'], 'management') === 'vandaag')
+
+  /* ---- de kaart is compleet ---- */
+
+  const zonderRol = Object.entries(DASHBOARDS_MET).filter(([, r]) => r.length === 0).map(([p]) => p)
+  check('elke pagina in de kaart heeft minstens één dashboard',
+    zonderRol.length === 0, zonderRol.join(', '))
+
+  const alleRollen = new Set(Object.values(DASHBOARDS_MET).flat())
+  const ontbreekt = ROLE_ORDER.filter((r) => !alleRollen.has(r))
+  check('elke rol uit ROLE_ORDER komt in de kaart voor',
+    ontbreekt.length === 0, ontbreekt.join(', '))
+
+  const onbekend = SCHERMEN.filter((s) => !DASHBOARDS_MET[s.page]).map((s) => s.page)
+  check('elk scherm uit de zoeklijst staat in de kaart',
+    onbekend.length === 0, onbekend.join(', '))
+
+  const tegenstrijdig = SCHERMEN
+    .filter((s) => s.rol && !DASHBOARDS_MET[s.page]?.includes(s.rol))
+    .map((s) => s.page)
+  check('een scherm met een vaste rol staat bij die rol in de kaart',
+    tegenstrijdig.length === 0, tegenstrijdig.join(', '))
 }
 
 /* ==================================================================== */

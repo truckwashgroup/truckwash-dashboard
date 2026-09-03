@@ -28,6 +28,14 @@ export const SLEUTELS = {
   inkoopDomein: 'inkoop_domein',
   inkoopVoorvoegsel: 'inkoop_voorvoegsel',
   factuurAutomatisch: 'factuur_automatisch',
+  /*
+   * De eigen nummers van Truckwash. De post haalt een kostenpost alleen weg
+   * als het model "verkoop" zegt EN een van deze nummers op het stuk staat
+   * (0047); staan ze leeg, dan wordt er nooit iets weggehaald.
+   */
+  eigenKvk: 'eigen_kvk',
+  eigenBtw: 'eigen_btw',
+  eigenIban: 'eigen_iban',
 } as const
 
 export type Sleutel = (typeof SLEUTELS)[keyof typeof SLEUTELS]

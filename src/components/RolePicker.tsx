@@ -1,13 +1,18 @@
 import { motion } from 'framer-motion'
 import {
   ArrowRight, BarChart3, Briefcase, Building2, ClipboardList, Code2, FileCheck, HardHat,
-  LogOut, ShieldCheck, Wrench,
+  LogOut, Mic, Search, ShieldCheck, Wrench,
 } from 'lucide-react'
 import { useAuth } from '../store/useAuth'
+import { useNav } from '../store/useNav'
 import { ROLE_ORDER, type Role } from '../lib/types'
+import { voiceSupported, voiceUnavailableReason } from '../lib/voice'
+import { toast } from '../store/useToasts'
 import SyncPill from './SyncPill'
 import Logo from './Logo'
+import GlobalSearch from './GlobalSearch'
 import { useSync } from '../lib/sync'
+import '../styles/rolzoek.css'
 
 const CARDS: Record<Role, {
   title: string
@@ -76,6 +81,7 @@ const ORDER: Role[] = ROLE_ORDER
 
 export default function RolePicker() {
   const { user, chooseRole, logout } = useAuth()
+  const openSearch = useNav((s) => s.openSearch)
   const syncing = useSync((s) => s.syncing)
   if (!user) return null
 
@@ -94,9 +100,42 @@ export default function RolePicker() {
           <Logo width={210} className="role-logo" />
           <h1>Waar wil je heen, {user.name.split(' ')[0]}?</h1>
           <p>
-            Kies het dashboard dat je nodig hebt. Je kunt later altijd wisselen
-            via het menu linksonder.
+            Kies het dashboard dat je nodig hebt, of zoek meteen wat je zoekt.
+            Je kunt later altijd wisselen via het menu linksonder.
           </p>
+        </motion.div>
+
+        {/*
+          * De zoekbalk staat hier omdat het keuzescherm anders een extra klik
+          * is voor wie al weet waar hij heen wil. De balk doorzoekt alle
+          * dashboards die deze gebruiker heeft en opent het juiste; het
+          * paneel zelf (GlobalSearch, onderaan) regelt ook Ctrl+K.
+          */}
+        <motion.div
+          className="rolzoek"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: .3, delay: .06 }}
+        >
+          <button
+            className="rolzoek-knop"
+            onClick={() => openSearch(false)}
+            title="Zoeken (Ctrl+K)"
+          >
+            <Search size={19} />
+            <span className="label">Zoek een scherm, kenteken, klant of medewerker…</span>
+            <kbd>Ctrl K</kbd>
+          </button>
+          <button
+            className={`rolzoek-mic ${voiceSupported() ? '' : 'off'}`}
+            onClick={() =>
+              voiceSupported() ? openSearch(true) : toast.info(voiceUnavailableReason())
+            }
+            title={voiceSupported() ? 'Zoeken met je stem' : voiceUnavailableReason()}
+            aria-label="Zoeken met je stem"
+          >
+            <Mic size={19} />
+          </button>
         </motion.div>
 
         <div className="role-grid">
@@ -147,6 +186,9 @@ export default function RolePicker() {
           </button>
         </motion.div>
       </div>
+
+      {/* Het zoekpaneel; zonder rol doorzoekt het alle dashboards van deze gebruiker. */}
+      <GlobalSearch />
     </div>
   )
 }

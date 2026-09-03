@@ -446,6 +446,12 @@ export interface FactuurRegel {
 export interface FactuurLezing {
   /** Wat voor stuk dit is; een pakbon heeft geen bedragen en dat is geen fout. */
   soort?: 'factuur' | 'bon' | 'pakbon' | 'aanmaning' | 'onbekend'
+  /**
+   * Wie er bovenaan het stuk staat: een leverancier (inkoop) of Truckwash
+   * zelf (verkoop). De post schrijft dit sinds 0047 weg; het scherm bij de
+   * kostenpost mag het tonen, en 'onbekend' betekent dat de lezer twijfelde.
+   */
+  richting?: 'inkoop' | 'verkoop' | 'onbekend'
   leverancier?: string
   factuurnummer?: string
   /** Epoch ms. */
@@ -1555,6 +1561,15 @@ export interface MailBericht {
   attachments: MailBijlage[]
   /** De kostenpost die hieruit is ontstaan */
   expenseId?: string
+  /**
+   * Wat de post ervan maakte, nadat de lezer naar de bijlage keek.
+   *
+   * 'verkoop' is de reden dat dit veld bestaat: een factuur die Truckwash
+   * zelf aan een klant stuurde en die iemand doorstuurt, werd tot dan toe
+   * een kostenpost. Nu blijft alleen het bericht over, met dit label erop.
+   * Leeg bij oudere post en zolang de lezer het niet zeker wist.
+   */
+  soort?: 'inkoop' | 'verkoop' | 'overig'
 
   handledBy?: string
   handledByName?: string

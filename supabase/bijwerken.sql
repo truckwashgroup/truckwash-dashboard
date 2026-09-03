@@ -1,5 +1,5 @@
 -- ===========================================================================
---  Bijwerken: migratie 0017 tot en met 0044
+--  Bijwerken: migratie 0017 tot en met 0047
 --
 --  Plak dit in de SQL-editor van Supabase en druk op Run. Opnieuw draaien mag.
 --
@@ -35,6 +35,9 @@
 --    0042  Trucky kent de antwoorden zelf (draai deze)
 --    0043  de app en de database oneens over kanalen (draai deze)
 --    0044  facturen boeken zichzelf (draai deze -- grootboek en tags)
+--    0045  een kassa ziet wie er bij hem mag werken (kassa)
+--    0046  de foto's gaan mee naar de website (draai deze -- de site toont ze)
+--    0047  een verkoopfactuur is geen kostenpost (draai deze, voor de post)
 -- ===========================================================================
 
 -- ===========================================================================
@@ -4850,3 +4853,260 @@ insert into public.instellingen (id, sleutel, waarde, omschrijving) values
    'Of een binnengekomen factuur meteen wordt uitgelezen en ingedeeld. Op '
    '"nee" blijft hij staan tot iemand in de app op voorlezen drukt.')
 on conflict (id) do nothing;
+
+-- ===========================================================================
+--  Een kassa ziet wie er bij hem mag werken
+--
+--  De kassa gaat afdwingen dat iemand alleen aanmeldt op de vestiging waar hij
+--  staat -- wie op Asten staat, mag de kassa van Asten en verder geen enkele.
+--  Wie overal mag werken, mag elke kassa.
+--
+--  Dat tweede deel werkte niet, en niet door de kassa maar door deze regel:
+--
+--      profiles_select:  auth_id = auth.uid()
+--                        or sees_all_locations()
+--                        or (is_staff() and in_my_locations(location_id))
+--
+--  sees_all_locations() gaat over wie kíjkt, niet over wie bekeken wordt. Een
+--  kassa in Asten ziet dus: zijn eigen dossier, iedereen op Asten, en iedereen
+--  zonder vestiging (want in_my_locations(null) is waar). Iemand van het
+--  kantoor die overal mag werken staat op de vestiging van het kantoor -- en
+--  die is voor de kassa in Asten onzichtbaar. Zijn nummer staat niet in de
+--  cache, dus "dat personeelsnummer is niet bekend op deze vestiging".
+--
+--  Met één vestiging viel dat niet op. Met achttien wel.
+--
+--  Waarom dit alleen voor een kassa geldt
+--  -------------------------------------
+--
+--  Een dossier bevat meer dan een naam: telefoonnummer, uurloon, aantekeningen.
+--  Zou deze regel voor iedereen gelden, dan zag elke werknemer op elke
+--  vestiging het dossier van iedereen die overal mag werken. Dat is een prijs
+--  die niemand gevraagd heeft.
+--
+--  Een apparaataccount is wat anders. Dat is geen mens die rondkijkt maar een
+--  kassa die moet weten wie er voor hem staat, en het is nodig voor precies
+--  één ding: een nummer of een badge herkennen.
+--
+--  Wat er niet mee opgelost is
+--  ---------------------------
+--
+--  De kassa haalt hele dossierrijen op en bewaart die in zijn eigen cache. Er
+--  staat vanaf nu dus ook het uurloon van het kantoor op een tablet achter de
+--  balie. Dat was al zo voor iedereen op die vestiging; dit maakt de kring
+--  groter en niet anders. De echte oplossing is dat de kassa een smalle
+--  weergave leest met alleen wat hij nodig heeft -- naam, nummer, rollen,
+--  vestiging -- en dat is een eigen klus. Zolang die er niet is, hoort dit
+--  hardop te staan.
+-- ===========================================================================
+
+drop policy if exists profiles_select on public.profiles;
+create policy profiles_select on public.profiles for select to authenticated
+  using (
+    auth_id = auth.uid()
+    or public.sees_all_locations()
+    or (public.is_staff() and public.in_my_locations(location_id))
+    /*
+     * En dit is nieuw: een kassa mag zien wie er bij hem mag werken.
+     *
+     * Twee gevallen, en ze volgen precies de regel die de kassa daarna zelf
+     * toetst (magOpKassa in src/lib/code.ts):
+     *
+     *   all_locations   deze persoon mag overal werken, dus ook hier
+     *   manages         hij heeft leiding over de vestiging van deze kassa
+     */
+    or (
+      public.is_apparaataccount(auth.uid())
+      and (
+        coalesce(all_locations, false)
+        or (manages is not null and manages && public.my_locations())
+      )
+    )
+  );
+
+-- ===========================================================================
+--  De foto's gaan mee naar de website
+--
+--  De vestigingspagina op de site toont een vaste stockfoto: dezelfde
+--  wasstraat voor Aalsmeer, Venlo en Maasvlakte, met twee uitzonderingen die
+--  met de hand in brok.js staan. Terwijl in het beheerscherm per vestiging
+--  echte foto's zijn geupload, met een bijschrift en een omslag die vooraan
+--  staat. Die kwamen niet verder dan de app.
+--
+--  Vanaf hier geeft website_vestigingen() ze mee, als een lijst per
+--  vestiging. De omslag staat vooraan en daarna komt de volgorde zoals die
+--  in het scherm is gesleept -- dat is dezelfde volgorde die de app zelf
+--  toont, zodat wat je in het beheerscherm ziet ook is wat de site laat zien.
+--
+--  Wat er per foto meegaat
+--  -----------------------
+--
+--    pad         het pad in de emmer "vestigingen" (die is openbaar leesbaar,
+--                zie 0026); de serverfunctie maakt er de volledige url van
+--    bijschrift  wat er in het scherm bij is getikt, of null
+--    cover       staat deze vooraan
+--    volgorde    het sorteergetal uit het scherm
+--
+--  En met opzet NIET: wie hem heeft geupload, wanneer, hoe groot het
+--  bestand is, welk id de regel heeft. Dat is administratie van binnen en
+--  hoort niet op een openbare pagina. scripts/sqltest.mjs bewaakt dat.
+--
+--  Waarom drop + create: de functie krijgt een kolom erbij, en bij een
+--  "returns table" kan dat niet met "create or replace". Dezelfde reden als
+--  in 0035, en met dezelfde valkuil: het droppen gooit de rechten weg, dus
+--  die staan onderaan opnieuw.
+-- ===========================================================================
+
+drop function if exists public.website_vestigingen();
+
+create function public.website_vestigingen()
+returns table (
+  slug        text,
+  naam        text,
+  adres       text,
+  postcode    text,
+  plaats      text,
+  telefoon    text,
+  email       text,
+  lat         double precision,
+  lon         double precision,
+  wasstraten  integer,
+  openingstijden jsonb,
+  intro       text,
+  bereikbaar  text,
+  bijzonder   text,
+  diensten    text[],
+  punten      text[],
+  fotos       jsonb
+)
+language sql stable security definer set search_path = public as $$
+  select
+    l.website_slug, l.name, l.address, l.postcode, l.city,
+    l.phone, l.email, l.lat, l.lon, l.bays,
+    l.opening_hours, l.intro, l.bereikbaar, l.bijzonder, l.diensten, l.punten,
+    /*
+     * Een lege lijst en geen null: het bouwscript van de site doet
+     * fotos.map(...) en moet dat kunnen doen zonder eerst te kijken.
+     *
+     * De volgorde staat IN de aggregatie. Een "order by" op de buitenste
+     * select zou de vestigingen sorteren en de foto's laten staan zoals
+     * ze toevallig uit de tabel komen.
+     */
+    coalesce((
+      select jsonb_agg(
+               jsonb_build_object(
+                 'pad',        f.storage_path,
+                 'bijschrift', f.caption,
+                 'cover',      f.is_cover,
+                 'volgorde',   f.sort)
+               order by f.is_cover desc, f.sort asc, f.uploaded_at asc)
+        from public.location_photos f
+       where f.location_id = l.id
+    ), '[]'::jsonb)
+  from public.locations l
+  where l.op_website
+    and l.active
+    and l.website_slug is not null
+  order by l.name;
+$$;
+
+/*
+ * De rechten opnieuw zetten, precies zoals in 0033.
+ *
+ * "drop function" gooit ook de rechten weg, en de nieuwe functie krijgt van
+ * Supabase weer automatisch anon en authenticated erbij via de standaardregel
+ * in het schema. Intrekken bij PUBLIC alleen haalt die eigen rechten er niet
+ * af -- daarom staan anon en authenticated er apart bij. Zonder deze regels
+ * staat het gat dat in 0033 en 0034 is gedicht meteen weer open, en dan kan
+ * een onbekende bezoeker de hele lijst zelf opvragen.
+ */
+revoke execute on function public.website_vestigingen() from public, anon, authenticated;
+grant  execute on function public.website_vestigingen() to service_role;
+
+-- ===========================================================================
+--  Een verkoopfactuur is geen kostenpost
+--
+--  Draai dit ná 0046. Opnieuw draaien mag.
+--
+--  Wat er misging
+--  --------------
+--
+--  Alles wat met een PDF op een inkoopadres binnenkwam werd een kostenpost.
+--  Ook een factuur die Truckwash zélf aan een klant had gestuurd -- een klant
+--  die hem terugmailt met een vraag, een collega die hem doorstuurt "voor de
+--  administratie". Die stond dan aan de kostenkant, met het eigen btw-nummer
+--  als leverancier, en niemand zag het verschil met een echte rekening.
+--
+--  De lezer kijkt nu wie er bovenaan het stuk staat. Is dat Truckwash, dan
+--  haalt de post de zojuist aangemaakte kostenpost weer weg en zet op het
+--  bericht dat het een verkoopfactuur is. Daarvoor is deze kolom.
+--
+--  Bewust geen verkoopadministratie. Alleen herkennen, apart zetten en
+--  duidelijk laten zien; wat er verder mee moet is aan de administratie.
+-- ===========================================================================
+
+alter table public.mailbox add column if not exists soort text;
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'mailbox_soort_check') then
+    alter table public.mailbox
+      add constraint mailbox_soort_check
+      check (soort is null or soort in ('inkoop','verkoop','overig'));
+  end if;
+end $$;
+
+comment on column public.mailbox.soort is
+  'Wat de post ervan maakte: inkoop (er is een kostenpost van gemaakt), '
+  'verkoop (een factuur van Truckwash zelf, geen kostenpost) of overig (geen '
+  'bijlage om te lezen). Leeg zolang de lezer er nog niet naar keek of het '
+  'niet zeker wist, en bij post van vóór deze migratie.';
+
+-- Het scherm zet de verkoopfacturen bij elkaar; dat hoort niet de hele
+-- postbus door te lopen.
+create index if not exists mailbox_soort_idx on public.mailbox (soort) where soort is not null;
+
+-- ---------------------------------------------------------------------------
+--  De eigen nummers, voor het tweede slot
+--
+--  De post haalt een kostenpost pas weg als het stuk naast de lezing
+--  "verkoop" van het model óók een nummer van Truckwash zelf draagt: KvK,
+--  btw-nummer of IBAN. Het model alleen is niet genoeg -- een andere wasserij
+--  met "Truckwash" in de naam of een scan met een stempel "ontvangen" leest
+--  het soms als verkoop, en een weggehaalde kostenpost komt niet vanzelf
+--  terug.
+--
+--  Bewust leeg aangemaakt. Zolang ze leeg zijn wordt er niets weggehaald en
+--  blijft elke factuur een kostenpost, met de twijfel erop. Invullen in het
+--  ontwikkelaarsscherm bij de inkoopadressen, of hier met een update.
+--  Meerdere nummers mag, met een komma ertussen (één per werkmaatschappij).
+-- ---------------------------------------------------------------------------
+
+insert into public.instellingen (id, sleutel, waarde, omschrijving) values
+  ('in_eigen_kvk', 'eigen_kvk', '',
+   'Het KvK-nummer van Truckwash 1 Group (meerdere mag, met een komma). De '
+   'post gebruikt het om een doorgestuurde verkoopfactuur van Truckwash zelf '
+   'te herkennen; leeg betekent dat er nooit een kostenpost wordt weggehaald.'),
+  ('in_eigen_btw', 'eigen_btw', '',
+   'Het btw-nummer van Truckwash 1 Group, bijvoorbeeld NL123456789B01 '
+   '(meerdere mag, met een komma). Zelfde doel als het KvK-nummer.'),
+  ('in_eigen_iban', 'eigen_iban', '',
+   'De eigen bankrekening(en) van Truckwash, met een komma ertussen. Zelfde '
+   'doel als het KvK-nummer: staat deze op een factuur als rekening om op te '
+   'betalen, dan is het een factuur van Truckwash zelf.')
+on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
+--  De verwijdering moet zichzelf melden
+--
+--  Dit is de eerste plek waar de server een kostenpost weghaalt achter de app
+--  om. Een apparaat dat de bon net had opgehaald houdt hem anders in zijn
+--  lokale kopie staan -- precies het spook uit 0032 en 0038, nu op expenses.
+--  Dezelfde trigger als daar, zodat elk apparaat hem bij het volgende ophalen
+--  opruimt.
+-- ---------------------------------------------------------------------------
+
+drop trigger if exists expenses_verwijderd on public.expenses;
+create trigger expenses_verwijderd
+  after delete on public.expenses
+  for each row execute function public.meld_verwijdering();

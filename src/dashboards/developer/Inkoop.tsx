@@ -53,6 +53,9 @@ function Adressen() {
   const [domein, setDomein] = useState('')
   const [voorvoegsel, setVoorvoegsel] = useState('inkoop')
   const [automatisch, setAutomatisch] = useState(true)
+  const [eigenKvk, setEigenKvk] = useState('')
+  const [eigenBtw, setEigenBtw] = useState('')
+  const [eigenIban, setEigenIban] = useState('')
   const [geladen, setGeladen] = useState(false)
   const [bezig, setBezig] = useState(false)
 
@@ -63,6 +66,9 @@ function Adressen() {
       setDomein(alle[SLEUTELS.inkoopDomein] ?? '')
       setVoorvoegsel(alle[SLEUTELS.inkoopVoorvoegsel] || 'inkoop')
       setAutomatisch((alle[SLEUTELS.factuurAutomatisch] || 'ja') !== 'nee')
+      setEigenKvk(alle[SLEUTELS.eigenKvk] ?? '')
+      setEigenBtw(alle[SLEUTELS.eigenBtw] ?? '')
+      setEigenIban(alle[SLEUTELS.eigenIban] ?? '')
       setGeladen(true)
     })
     return () => { levend = false }
@@ -78,6 +84,9 @@ function Adressen() {
       await zetInstelling(SLEUTELS.inkoopDomein, domein.trim().toLowerCase())
       await zetInstelling(SLEUTELS.inkoopVoorvoegsel, voorvoegsel.trim().toLowerCase())
       await zetInstelling(SLEUTELS.factuurAutomatisch, automatisch ? 'ja' : 'nee')
+      await zetInstelling(SLEUTELS.eigenKvk, eigenKvk.trim())
+      await zetInstelling(SLEUTELS.eigenBtw, eigenBtw.trim().toUpperCase())
+      await zetInstelling(SLEUTELS.eigenIban, eigenIban.trim().toUpperCase())
       toast.ok('Opgeslagen. Nieuwe post komt hier binnen.')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Opslaan mislukte.')
@@ -147,6 +156,47 @@ function Adressen() {
           </span>
         </span>
       </label>
+
+      {/* ---- de eigen nummers ---- */}
+
+      <h4 style={{ marginTop: 20, marginBottom: 4 }}>Onze eigen nummers</h4>
+      <p className="help" style={{ marginBottom: 10 }}>
+        Een factuur die Truckwash zélf stuurde en die iemand doorstuurt naar een
+        inkoopadres, mag geen kostenpost worden. De lezer herkent dat aan wie
+        bovenaan staat, maar haalt de kostenpost pas weg als één van deze
+        nummers ook echt op het stuk staat. Leeg betekent: nooit weghalen, de
+        bon blijft dan staan met de twijfel erop. Meerdere nummers mag, met een
+        komma ertussen.
+      </p>
+      <div className="grid cols-3 mb">
+        <Field label="KvK-nummer">
+          <input
+            className="input"
+            value={eigenKvk}
+            onChange={(e) => setEigenKvk(e.target.value)}
+            placeholder="12345678"
+            spellCheck={false}
+          />
+        </Field>
+        <Field label="Btw-nummer">
+          <input
+            className="input"
+            value={eigenBtw}
+            onChange={(e) => setEigenBtw(e.target.value)}
+            placeholder="NL123456789B01"
+            spellCheck={false}
+          />
+        </Field>
+        <Field label="IBAN">
+          <input
+            className="input"
+            value={eigenIban}
+            onChange={(e) => setEigenIban(e.target.value)}
+            placeholder="NL00BANK0123456789"
+            spellCheck={false}
+          />
+        </Field>
+      </div>
 
       <div className="row" style={{ marginTop: 14 }}>
         <button

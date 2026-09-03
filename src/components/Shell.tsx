@@ -190,8 +190,9 @@ export default function Shell({
                 onClick={() => onNavigate(it.key)}
                 title={klein ? it.label : undefined}
                 data-rondleiding={`nav-${it.key}`}
+                aria-current={active === it.key ? 'page' : undefined}
               >
-                <Icon size={17} />
+                <Icon size={18} />
                 <span>{it.label}</span>
                 {!!it.badge && <span className="badge brand">{it.badge}</span>}
               </button>
@@ -201,7 +202,7 @@ export default function Shell({
 
         <div className="sidebar-foot">
           <button className="nav-item" onClick={clearRole} title={klein ? 'Ander dashboard' : undefined}>
-            <LayoutGrid size={17} />
+            <LayoutGrid size={18} />
             <span>Ander dashboard</span>
           </button>
           <button
@@ -209,7 +210,7 @@ export default function Shell({
             onClick={() => setInstellingen(true)}
             title={klein ? 'Instellingen' : undefined}
           >
-            <Settings size={17} />
+            <Settings size={18} />
             <span>Instellingen</span>
           </button>
           <button
@@ -217,7 +218,7 @@ export default function Shell({
             onClick={() => setZijbalk(!klein)}
             title={klein ? 'Menu uitklappen' : 'Menu inklappen'}
           >
-            {klein ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+            {klein ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
             <span>Inklappen</span>
           </button>
 
@@ -328,8 +329,15 @@ export default function Shell({
           {children}
         </motion.main>
 
-        {/* --------------------- Mobiele navigatie ------------------ */}
-        <nav className="mobile-nav">
+        {/* --------------------- Mobiele navigatie ------------------
+          *
+          *  Vijf even brede vakken: de eerste vier schermen en "Meer". Wat er
+          *  bovenin niet past op een telefoon -- de acties, synchroniseren,
+          *  instellingen, wisselen van dashboard -- zit onder "Meer". De
+          *  schermen die niet in de eerste vier zitten zijn via zoeken te
+          *  bereiken; dat is op een telefoon toch de snelste weg.
+          * ---------------------------------------------------------- */}
+        <nav className="mobile-nav" aria-label="Hoofdmenu">
           {items.slice(0, 4).map((it) => {
             const Icon = it.icon
             return (
@@ -337,15 +345,16 @@ export default function Shell({
                 key={it.key}
                 className={active === it.key ? 'active' : ''}
                 onClick={() => onNavigate(it.key)}
+                aria-current={active === it.key ? 'page' : undefined}
               >
-                <Icon size={19} />
+                <Icon size={22} />
                 <span>{it.label}</span>
                 {!!it.badge && <span className="stip" />}
               </button>
             )
           })}
           <Dropdown
-            icon={<MoreHorizontal size={19} />}
+            icon={<MoreHorizontal size={22} />}
             items={[...acties, ...persoonlijk]}
             align="right"
             className="mobile-meer"

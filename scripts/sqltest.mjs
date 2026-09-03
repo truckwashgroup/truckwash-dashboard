@@ -176,6 +176,8 @@ await run(db, '0042_trucky_kent_de_antwoorden_zelf.sql draait', sqlFile('supabas
 await run(db, '0043_de_app_en_de_database_oneens_over_kanalen.sql draait', sqlFile('supabase/migrations/0043_de_app_en_de_database_oneens_over_kanalen.sql'))
 await run(db, '0044_facturen_boeken_zichzelf.sql draait', sqlFile('supabase/migrations/0044_facturen_boeken_zichzelf.sql'))
 await run(db, '0045_een_kassa_ziet_wie_er_mag_werken.sql draait', sqlFile('supabase/migrations/0045_een_kassa_ziet_wie_er_mag_werken.sql'))
+await run(db, '0046_de_fotos_gaan_mee_naar_de_website.sql draait', sqlFile('supabase/migrations/0046_de_fotos_gaan_mee_naar_de_website.sql'))
+await run(db, '0047_een_verkoopfactuur_is_geen_kostenpost.sql draait', sqlFile('supabase/migrations/0047_een_verkoopfactuur_is_geen_kostenpost.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -223,6 +225,8 @@ await run(db, '0042 nogmaals', sqlFile('supabase/migrations/0042_trucky_kent_de_
 await run(db, '0043 nogmaals', sqlFile('supabase/migrations/0043_de_app_en_de_database_oneens_over_kanalen.sql'))
 await run(db, '0044 nogmaals', sqlFile('supabase/migrations/0044_facturen_boeken_zichzelf.sql'))
 await run(db, '0045 nogmaals', sqlFile('supabase/migrations/0045_een_kassa_ziet_wie_er_mag_werken.sql'))
+await run(db, '0046 nogmaals', sqlFile('supabase/migrations/0046_de_fotos_gaan_mee_naar_de_website.sql'))
+await run(db, '0047 nogmaals', sqlFile('supabase/migrations/0047_een_verkoopfactuur_is_geen_kostenpost.sql'))
 
 
 
@@ -2919,6 +2923,72 @@ check('en de personeelstelling ook niet',
 check('de vestigingentabel al helemaal niet',
   !(await anonMag('select * from public.locations;')))
 
+/* ---------------------------------------------------------------------------
+ *  De foto's gaan mee (0046)
+ *
+ *  De site toont wat hier uit komt, in deze volgorde, met dit bijschrift.
+ *  Twee dingen moeten vastliggen: dat de omslag vooraan staat -- dat is de
+ *  foto die op de pagina groot komt -- en dat er niets van binnen meekomt.
+ *  Wie een foto heeft geupload is administratie, geen inhoud.
+ * ------------------------------------------------------------------------ */
+
+await asServer(db)
+await db.exec(`
+  insert into public.location_photos
+    (id, location_id, storage_path, mime, caption, sort, is_cover, uploaded_by, uploaded_by_name)
+  values
+    ('lfoto_web_1', 'loc_web_aan', 'loc_web_aan/lfoto_web_1.jpg', 'image/jpeg',
+     'De oprit',       0, false, 'u_iemand', 'Iemand'),
+    ('lfoto_web_2', 'loc_web_aan', 'loc_web_aan/lfoto_web_2.jpg', 'image/jpeg',
+     null,             1, false, 'u_iemand', 'Iemand'),
+    -- De omslag staat qua sorteergetal achteraan. Dat is precies het geval
+    -- dat moet bewijzen dat de omslag toch als eerste komt.
+    ('lfoto_web_3', 'loc_web_aan', 'loc_web_aan/lfoto_web_3.jpg', 'image/jpeg',
+     'De wasstraat',   2, true,  'u_iemand', 'Iemand')
+  on conflict (id) do nothing;
+`)
+
+const metFotos = (await db.query(
+  "select fotos from public.website_vestigingen() where slug = 'websitestad'")).rows[0]
+
+check('de foto\'s komen als lijst mee', Array.isArray(metFotos?.fotos))
+check('het zijn er drie', metFotos?.fotos?.length === 3)
+check('de omslag staat vooraan, ook al is zijn sorteergetal het hoogste',
+  metFotos?.fotos?.[0]?.pad === 'loc_web_aan/lfoto_web_3.jpg'
+  && metFotos?.fotos?.[0]?.cover === true)
+check('daarna volgt de volgorde uit het scherm',
+  metFotos?.fotos?.[1]?.pad === 'loc_web_aan/lfoto_web_1.jpg'
+  && metFotos?.fotos?.[2]?.pad === 'loc_web_aan/lfoto_web_2.jpg')
+check('het bijschrift gaat mee, en ontbreekt als null en niet als lege tekst',
+  metFotos?.fotos?.[0]?.bijschrift === 'De wasstraat'
+  && metFotos?.fotos?.[2]?.bijschrift === null)
+
+const fotoVelden = Object.keys(metFotos?.fotos?.[0] ?? {}).sort()
+check('een foto heeft precies pad, bijschrift, cover en volgorde',
+  JSON.stringify(fotoVelden) === JSON.stringify(['bijschrift', 'cover', 'pad', 'volgorde']),
+  fotoVelden.join(', '))
+check('wie hem heeft geupload komt niet mee naar buiten',
+  !fotoVelden.some((v) => v.startsWith('uploaded')) && !fotoVelden.includes('id'))
+
+/* Een vestiging zonder foto's krijgt een lege lijst, geen null: het
+   bouwscript doet fotos.map(...) zonder eerst te kijken. */
+await db.exec(`
+  update public.locations
+     set op_website = true, website_slug = 'stilstad', intro = 'Zonder foto.'
+   where id = 'loc_web_uit';`)
+const zonderFotos = (await db.query(
+  "select fotos from public.website_vestigingen() where slug = 'stilstad'")).rows[0]
+check('een vestiging zonder foto\'s geeft een lege lijst en geen null',
+  Array.isArray(zonderFotos?.fotos) && zonderFotos.fotos.length === 0)
+await db.exec(`
+  update public.locations set op_website = false, website_slug = null, intro = null
+   where id = 'loc_web_uit';`)
+
+/* De functie is opnieuw aangemaakt en dat gooit de rechten weg. Dit is de
+   controle dat 0046 ze ook opnieuw heeft gezet. */
+check('en ook met de foto\'s erbij mag een onbekende bezoeker de lijst niet opvragen',
+  !(await anonMag('select fotos from public.website_vestigingen();')))
+
 /* ===========================================================================
  *  De achttien vestigingen uit 0035
  * ======================================================================== */
@@ -3889,6 +3959,56 @@ await magSchrijven(kassaRtm,
 check('en wijzigen mag de kassa ze niet',
   (await db.query(
     "select name from public.profiles where id = 'u_overal'")).rows[0].name === 'Wendy Overal')
+
+
+/* ===========================================================================
+ *  Een verkoopfactuur is geen kostenpost (0047)
+ *
+ *  De post zet op het bericht wat hij ervan maakte, en haalt bij een factuur
+ *  van Truckwash zelf de kostenpost weer weg. Twee dingen moeten vastliggen:
+ *  dat de kolom alleen de drie afgesproken waarden aanneemt -- het scherm
+ *  filtert erop, een tikfout zou stil in een vierde bak verdwijnen -- en dat
+ *  een weggehaalde kostenpost zichzelf meldt, anders blijft hij als spook op
+ *  elk apparaat staan (0032, 0038).
+ * ======================================================================== */
+
+console.log('\n31. Een verkoopfactuur is geen kostenpost (0047)')
+
+await asServer(db)
+
+check('mailbox heeft de kolom soort',
+  (await db.query(`select count(*)::int as n from information_schema.columns
+     where table_schema = 'public' and table_name = 'mailbox' and column_name = 'soort'`))
+    .rows[0].n === 1)
+
+check('een verzonnen soort wordt geweigerd',
+  (await botst("update public.mailbox set soort = 'xyz' where id = 'mb_1'"))
+    ?.includes('mailbox_soort_check') === true)
+
+for (const soort of ['inkoop', 'verkoop', 'overig']) {
+  check(`soort '${soort}' mag`,
+    (await botst(`update public.mailbox set soort = '${soort}' where id = 'mb_1'`)) === null)
+}
+check('en leeg mag ook, voor post van voor deze migratie',
+  (await botst("update public.mailbox set soort = null where id = 'mb_1'")) === null)
+
+/* Het tweede slot: de eigen nummers. Leeg aangemaakt, zodat er zonder
+   invullen nooit een kostenpost wordt weggehaald. */
+const eigen = (await db.query(`select sleutel, waarde from public.instellingen
+   where sleutel in ('eigen_kvk', 'eigen_btw', 'eigen_iban') order by sleutel`)).rows
+check('de drie eigen nummers staan als instelling klaar', eigen.length === 3,
+  eigen.map((r) => r.sleutel).join(', '))
+check('en zijn leeg tot iemand ze invult', eigen.every((r) => r.waarde === ''))
+
+/* De kostenpost uit hoofdstuk 17 hangt aan mb_1. Weghalen moet in het logboek
+   komen en het bericht moet zijn verwijzing kwijt zijn (on delete set null). */
+await db.exec(`update public.mailbox set expense_id = 'exp_mail_1' where id = 'mb_1';`)
+await db.exec(`delete from public.expenses where id = 'exp_mail_1';`)
+const gemeld = (await db.query(`select tabel, record_id from public.deletion_log
+   where tabel = 'expenses' and record_id = 'exp_mail_1'`)).rows
+check('een weggehaalde kostenpost meldt zichzelf in het logboek', gemeld.length === 1)
+check('en het bericht wijst niet meer naar een bon die er niet is',
+  (await db.query("select expense_id from public.mailbox where id = 'mb_1'")).rows[0].expense_id === null)
 
 
 await db.close()

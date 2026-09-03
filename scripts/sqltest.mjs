@@ -222,6 +222,7 @@ await run(db, '0041 nogmaals', sqlFile('supabase/migrations/0041_trucky_praat_me
 await run(db, '0042 nogmaals', sqlFile('supabase/migrations/0042_trucky_kent_de_antwoorden_zelf.sql'))
 await run(db, '0043 nogmaals', sqlFile('supabase/migrations/0043_de_app_en_de_database_oneens_over_kanalen.sql'))
 await run(db, '0044 nogmaals', sqlFile('supabase/migrations/0044_facturen_boeken_zichzelf.sql'))
+await run(db, '0045 nogmaals', sqlFile('supabase/migrations/0045_een_kassa_ziet_wie_er_mag_werken.sql'))
 
 
 
@@ -3833,36 +3834,36 @@ await db.exec(`
           array['employee'], true, 'loc_rtm', true)
   on conflict (id) do nothing;
 
+  -- Een derde vestiging, want de proefpersonen mogen niet op de vestiging van
+  -- de kassa staan en niet op die van de wasser uit de opstelling -- anders
+  -- bewijst de controle eronder niets.
+  insert into public.locations (id, code, name, kind)
+  values ('loc_asten', 'TW-AST', 'Asten', 'vestiging')
+  on conflict (id) do nothing;
+
   -- Drie mensen, alledrie NIET op Rotterdam.
   insert into public.profiles
     (id, email, name, roles, active, location_id, personnel_number, all_locations, manages)
   values
     ('u_overal', 'overal@truckwash1group.nl', 'Wendy Overal',
-     array['employee'], true, 'loc_utr', 'TW-901', true, null),
+     array['employee'], true, 'loc_asten', 'TW-901', true, null),
     ('u_baas_rtm', 'baasrtm@truckwash1group.nl', 'Bas Leiding',
-     array['supervisor'], true, 'loc_utr', 'TW-902', false, array['loc_rtm']),
-    ('u_alleen_utr', 'alleenutr@truckwash1group.nl', 'Ali Utrecht',
-     array['employee'], true, 'loc_utr', 'TW-903', false, null)
+     array['supervisor'], true, 'loc_asten', 'TW-902', false, array['loc_rtm']),
+    ('u_alleen_asten', 'alleenasten@truckwash1group.nl', 'Ali Asten',
+     array['employee'], true, 'loc_asten', 'TW-903', false, null)
   on conflict (id) do nothing;
 
   alter table public.profiles force row level security;
 `)
 
 const kassaRtm = 'dddddddd-0000-0000-0000-000000000001'
-await asUser(db, kassaRtm)
-console.log('    DEBUG apparaat:', JSON.stringify((await db.query(
-  "select public.is_apparaataccount(auth.uid()) as app, public.my_locations() as mijne, public.my_id() as wie")).rows))
-console.log('    DEBUG regel:', JSON.stringify((await db.query(
-  "select qual from pg_policies where tablename='profiles' and policyname='profiles_select'")).rows).slice(0, 400))
-await asServer(db)
-
 const zietKassa = async (wie) => (await countAs(kassaRtm,
   `select count(*)::int as n from public.profiles where id = '${wie}'`)) === 1
 
 check('de kassa ziet iemand die overal mag werken', await zietKassa('u_overal'))
 check('en iemand die leiding heeft over zijn vestiging', await zietKassa('u_baas_rtm'))
 check('maar niet iemand die alleen op een andere vestiging staat',
-  !(await zietKassa('u_alleen_utr')))
+  !(await zietKassa('u_alleen_asten')))
 
 /*
  * En dit is de prijs die deze regel níet betaalt: hij geldt alleen voor een
@@ -3873,7 +3874,7 @@ check('maar niet iemand die alleen op een andere vestiging staat',
 check('een gewone werknemer ziet die mensen nog steeds niet',
   (await countAs(wasser,
     `select count(*)::int as n from public.profiles
-      where id in ('u_overal', 'u_baas_rtm', 'u_alleen_utr')`)) === 0)
+      where id in ('u_overal', 'u_baas_rtm', 'u_alleen_asten')`)) === 0)
 
 check('en een klant ziet er al helemaal niets van',
   (await countAs(klant,

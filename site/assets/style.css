@@ -507,3 +507,83 @@ tr.verborgen{display:none}
 .voet-locaties h4{width:100%;margin-bottom:6px}
 .voet-locaties a{display:inline;font-size:14.5px}
 main{display:block}
+
+/* ==================================================================
+   Trucky -- de assistent rechtsonder
+
+   Rechtsonder omdat daar de plek is waar mensen hem zoeken. Boven de
+   voettekst blijven met een marge, zodat hij op de laatste schermhoogte
+   geen telefoonnummer afdekt.
+   ================================================================== */
+
+.visueel-verborgen{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+.trucky{position:fixed;right:20px;bottom:20px;z-index:90;font-family:Barlow,-apple-system,'Segoe UI',sans-serif}
+
+/* --- de knop --- */
+.trucky-knop{width:64px;height:64px;border-radius:50%;border:0;cursor:pointer;background:var(--geel);box-shadow:0 6px 24px rgba(7,19,46,.28);display:grid;place-items:center;padding:0;transition:transform .18s ease,box-shadow .18s ease}
+.trucky-knop:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(7,19,46,.34)}
+.trucky-knop svg{width:40px;height:40px}
+.trucky-open .trucky-knop{transform:scale(.9)}
+
+/* Wenken, niet springen: twee keer en dan stil. */
+@keyframes trucky-wenkt{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.trucky-wenkt .trucky-knop{animation:trucky-wenkt 1.1s ease-in-out 2}
+@media (prefers-reduced-motion:reduce){.trucky-wenkt .trucky-knop{animation:none}}
+
+/* --- de uitnodiging --- */
+.trucky-uitnodiging{position:absolute;right:0;bottom:78px;width:264px;background:#fff;border-radius:14px;padding:16px 18px;box-shadow:0 10px 34px rgba(7,19,46,.2);cursor:pointer}
+.trucky-uitnodiging p{margin:0;font-size:15px;line-height:1.5;color:var(--inkt)}
+.trucky-uitnodiging::after{content:"";position:absolute;right:22px;bottom:-7px;width:14px;height:14px;background:#fff;transform:rotate(45deg)}
+.trucky-weg{position:absolute;top:6px;right:8px;border:0;background:none;font-size:20px;line-height:1;color:#8a93a3;cursor:pointer;padding:2px 4px}
+
+/* --- het venster --- */
+.trucky-venster{position:absolute;right:0;bottom:78px;width:360px;max-width:calc(100vw - 40px);height:min(520px,calc(100vh - 140px));background:#fff;border-radius:16px;box-shadow:0 18px 50px rgba(7,19,46,.28);display:flex;flex-direction:column;overflow:hidden}
+.trucky-kop{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--navy-900);color:#fff}
+.trucky-kop-icoon{width:34px;height:34px;border-radius:50%;background:var(--geel);display:grid;place-items:center;flex:none}
+.trucky-kop-icoon svg{width:24px;height:24px}
+.trucky-kop strong{display:block;font-size:15px}
+.trucky-kop small{display:block;font-size:12px;color:#a9bbdd}
+.trucky-dicht{margin-left:auto;border:0;background:none;color:#a9bbdd;font-size:22px;line-height:1;cursor:pointer;padding:2px 6px}
+.trucky-dicht:hover{color:#fff}
+
+.trucky-loop{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;background:#f5f7fb}
+.trucky-bericht{display:flex;flex-direction:column;gap:6px;max-width:88%}
+.trucky-bel{padding:10px 13px;border-radius:14px;font-size:14.5px;line-height:1.55;white-space:pre-wrap}
+.trucky-van-hem{align-self:flex-start}
+.trucky-van-hem .trucky-bel{background:#fff;color:var(--inkt);border-bottom-left-radius:5px;box-shadow:0 1px 3px rgba(7,19,46,.08)}
+.trucky-van-jou{align-self:flex-end;align-items:flex-end}
+.trucky-van-jou .trucky-bel{background:var(--navy-700);color:#fff;border-bottom-right-radius:5px}
+
+.trucky-pagina{align-self:flex-start;display:inline-block;padding:8px 14px;border-radius:999px;background:var(--geel);color:var(--navy-900);font-weight:700;font-size:13.5px;text-decoration:none}
+.trucky-pagina:hover{background:var(--geel-licht)}
+
+.trucky-denkt .trucky-bel{display:flex;gap:4px;align-items:center;padding:13px}
+.trucky-denkt i{width:6px;height:6px;border-radius:50%;background:#b3bdcc;animation:trucky-stip 1.1s infinite}
+.trucky-denkt i:nth-child(2){animation-delay:.16s}
+.trucky-denkt i:nth-child(3){animation-delay:.32s}
+@keyframes trucky-stip{0%,60%,100%{opacity:.3}30%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.trucky-denkt i{animation:none;opacity:.6}}
+
+.trucky-invoer{display:flex;gap:8px;padding:10px 12px 6px;border-top:1px solid #e4e9f2;background:#fff}
+.trucky-invoer input{flex:1;border:1px solid #d5dce8;border-radius:999px;padding:10px 15px;font:inherit;font-size:14.5px;color:var(--inkt)}
+.trucky-invoer input:focus{outline:2px solid var(--geel);outline-offset:1px;border-color:transparent}
+.trucky-invoer button{flex:none;width:40px;height:40px;border:0;border-radius:50%;background:var(--navy-700);color:#fff;cursor:pointer;display:grid;place-items:center}
+.trucky-invoer button:hover{background:var(--navy-600)}
+.trucky-invoer button svg{width:19px;height:19px}
+
+.trucky-klein{margin:0;padding:0 14px 10px;font-size:11.5px;color:#7b8698;background:#fff}
+.trucky-klein a{color:var(--navy-600)}
+
+.trucky-verslag{background:#fff;border-radius:12px;padding:13px 14px;box-shadow:0 1px 3px rgba(7,19,46,.08)}
+.trucky-verslag p{margin:0 0 9px;font-size:14px;line-height:1.5;color:var(--inkt)}
+.trucky-verslag form{display:flex;gap:7px}
+.trucky-verslag input{flex:1;min-width:0;border:1px solid #d5dce8;border-radius:8px;padding:8px 11px;font:inherit;font-size:14px}
+.trucky-verslag button[type=submit]{border:0;border-radius:8px;background:var(--geel);color:var(--navy-900);font-weight:700;font-size:13.5px;padding:8px 13px;cursor:pointer}
+.trucky-nee{margin-top:8px;border:0;background:none;color:#7b8698;font-size:13px;text-decoration:underline;cursor:pointer;padding:0}
+
+@media (max-width:480px){
+  .trucky{right:14px;bottom:14px}
+  .trucky-venster{width:calc(100vw - 28px);height:min(70vh,520px)}
+  .trucky-uitnodiging{width:calc(100vw - 28px);max-width:280px}
+}

@@ -62,6 +62,31 @@ export default function Meekijken() {
     if (volgen && !pauze) bodem.current?.scrollIntoView({ block: 'end' })
   }, [regels.length, volgen, pauze])
 
+  /**
+   * Een wijziging uit de wachtrij halen.
+   *
+   * Vraagt eerst na, want dit is onomkeerbaar: wat hier weggaat is werk dat de
+   * server nooit heeft gezien. Daarom staat er in de vraag ook bij wát het is
+   * en waarom het vastloopt.
+   */
+  async function weggooien(r: OutboxRecord) {
+    const zeker = window.confirm(
+      `${r.entity} / ${r.recordId} uit de wachtrij halen?
+
+` +
+      `Deze wijziging is ${r.tries}x geweigerd:
+${r.lastError ?? 'onbekende reden'}
+
+` +
+      'Weggooien kan niet ongedaan worden gemaakt. Wat hier weggaat heeft de ' +
+      'server nooit gezien.',
+    )
+    if (!zeker) return
+    await db.outbox.delete(r.id!)
+    await useSync.getState().refreshPending()
+    toast.ok('Uit de wachtrij gehaald.')
+  }
+
   const outbox = useLiveQuery(
     async () => (await db.outbox.orderBy('createdAt').toArray()).slice(0, 100),
     [],
@@ -257,6 +282,7 @@ export default function Meekijken() {
                   <th>Wat</th>
                   <th className="num">Pogingen</th>
                   <th>Laatste fout</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -272,6 +298,28 @@ export default function Meekijken() {
                     </td>
                     <td style={{ color: 'var(--text-3)', fontSize: '.78rem' }}>
                       {r.lastError ?? '—'}
+                    </td>
+                    <td>
+                      {/*
+                        * Met de hand weggooien, en alleen met de hand.
+                        *
+                        * De wachtrij gooit sinds 1.27.1 niets meer vanzelf weg --
+                        * dat kostte een compleet personeelsdossier. Maar dan moet
+                        * er wél een uitweg zijn voor het geval dat een regel de
+                        * server werkelijk nooit gaat halen: iets dat is aangemaakt
+                        * door iemand die het niet mocht, bijvoorbeeld.
+                        *
+                        * Zonder deze knop blijft zo'n regel eeuwig staan en blijft
+                        * de app erover klagen. Mét de knop is het een besluit van
+                        * een mens die de reden ernaast ziet staan.
+                        */}
+                      <button
+                        className="btn ghost sm danger"
+                        title="Deze wijziging weggooien"
+                        onClick={() => void weggooien(r)}
+                      >
+                        <Trash2 size={13} />
+                      </button>
                     </td>
                   </tr>
                 ))}

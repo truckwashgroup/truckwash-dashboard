@@ -1,5 +1,6 @@
 import { db, uid } from './db'
-import { enqueue } from './sync'
+import { enqueue, useSync } from './sync'
+import { logLive } from './trail'
 import { notifications } from './repo'
 import { effectivePermissions } from './permissions'
 import type { Channel, ChannelRead, ChatMessage, Location, User } from './types'
@@ -411,16 +412,35 @@ export async function ensureDefaultChannels(
   const heeft = (slug: string, kind: Channel['kind']) =>
     bestaand.some((c) => c.slug === slug && c.kind === kind)
 
+  /*
+   * Eén kanaal eerst, en pas verder als dat er ook echt door komt.
+   *
+   * Dit liep een keer flink mis. De app besliste zelf of je kanalen mag maken
+   * -- op het recht chat.manage -- en de database besliste op je rol. Bij
+   * iemand waar die twee niet samenvielen zette dit in één keer
+   * drieëntwintig kanalen klaar (vijf vaste plus een per vestiging), die
+   * allemaal voor altijd door de server werden geweigerd. Honderdvijftig
+   * pogingen later stond de wachtrij er nog vol mee.
+   *
+   * De regels zijn intussen gelijkgetrokken, maar dat is niet genoeg: een
+   * lokale kopie van je dossier kan verouderd zijn, en dan denkt de app nog
+   * steeds iets anders dan de server. Dus vragen we het gewoon: maak er één,
+   * kijk of hij aankomt, en stop als het antwoord nee is.
+   *
+   * Eén onverstuurbare regel in plaats van drieëntwintig, en de reden staat
+   * er in het logboek bij.
+   */
+  const teMaken: Array<Parameters<typeof channels.create>[0]> = []
+
   for (const s of STANDAARD) {
     if (heeft(slugify(s.name), 'kanaal')) continue
-    await channels.create({ name: s.name, topic: s.topic, by })
+    teMaken.push({ name: s.name, topic: s.topic, by })
   }
 
   for (const loc of locaties) {
     if (!loc.active) continue
-    const slug = slugify(loc.name)
-    if (heeft(slug, 'vestiging')) continue
-    await channels.create({
+    if (heeft(slugify(loc.name), 'vestiging')) continue
+    teMaken.push({
       name: loc.name,
       kind: 'vestiging',
       topic: `Het overleg van ${loc.name}`,
@@ -428,4 +448,33 @@ export async function ensureDefaultChannels(
       by,
     })
   }
+
+  if (!teMaken.length) return
+
+  const eerste = await channels.create(teMaken[0])
+  if (!(await kwamAan(eerste.id))) {
+    logLive('netwerk',
+      'De vaste overlegkanalen zijn niet aangemaakt: de server weigert het. ' +
+      'Alleen management en een leidinggevende mogen dat, of wie het recht ' +
+      'chat.manage heeft.')
+    return
+  }
+
+  for (const rest of teMaken.slice(1)) await channels.create(rest)
+}
+
+/**
+ * Is dit record werkelijk op de server aangekomen?
+ *
+ * De wachtrij is met opzet geduldig -- hij gooit niets weg en probeert het
+ * later opnieuw. Prima voor gewoon werk, maar hier wil je het antwoord nu:
+ * anders maken we er nog tweeëntwintig die net zo hard geweigerd worden.
+ */
+async function kwamAan(id: string): Promise<boolean> {
+  try {
+    await useSync.getState().sync({ silent: true })
+  } catch {
+    /* De ronde kan op iets anders stuklopen; dat zegt niets over dit record. */
+  }
+  return (await db.outbox.where('recordId').equals(id).count()) === 0
 }

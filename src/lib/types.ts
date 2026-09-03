@@ -491,6 +491,20 @@ export interface Expense {
   gelezen?: FactuurLezing
 
   /**
+   * De lokale lezer (0049).
+   *
+   * Staat de instelling factuur_lezer op lokaal, dan leest de post de factuur
+   * niet zelf maar zet hij de bon op 'wacht'. Het programma op de eigen server
+   * haalt hem op ('bezig'), leest hem met Ollama en meldt zich terug ('klaar'
+   * of 'mislukt'). Leeg betekent: niet via de lokale lezer gegaan.
+   */
+  leesStatus?: 'wacht' | 'bezig' | 'klaar' | 'mislukt'
+  /** Wanneer de lokale lezer hem opeiste, epoch ms; na tien minuten geldt dat als vastgelopen */
+  leesGeclaimdAt?: number
+  /** Wie er las: 'claude', 'claude (terugval)' of 'lokaal: <model>' */
+  lezer?: string
+
+  /**
    * De boeking.
    *
    * Anders dan gelezen staan deze velden wél naast de gewone velden en niet

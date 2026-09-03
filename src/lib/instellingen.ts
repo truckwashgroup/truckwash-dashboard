@@ -37,6 +37,19 @@ export const SLEUTELS = {
   eigenBtw: 'eigen_btw',
   eigenIban: 'eigen_iban',
   /*
+   * Wie de facturen leest (0049). 'claude' is Claude in de cloud, 'lokaal' is
+   * Ollama op de eigen server via het programma in lezer/, en
+   * 'lokaal-terugval' is lokaal met Claude als vangnet wanneer het lokale
+   * model twijfelt of uitvalt. De post leest dit bij elke binnenkomende
+   * factuur; daarom een instelling en niet een .env.
+   *
+   * De andere twee zet het lokale programma zelf bij elke ronde, zodat het
+   * Inkoop-scherm kan laten zien of het nog draait en met welk model.
+   */
+  factuurLezer: 'factuur_lezer',
+  lezerLaatstGezien: 'lezer_laatst_gezien',
+  lezerModel: 'lezer_model',
+  /*
    * Trucksupply. Het adres waar de voorraadalarmen heen gaan, het uur waarop
    * de ochtendmail vertrekt (Europe/Amsterdam) en de divisie in Exact. De
    * serverfunctie leest ze bij elke ronde; daarom staan ze hier en niet in

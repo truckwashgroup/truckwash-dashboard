@@ -28,9 +28,48 @@ import {
   SLEUTELS, domeinProbleem, inkoopAdres, leesInstellingen, voorvoegselProbleem,
   zetInstelling,
 } from '../../lib/instellingen'
-import type { Grootboek, KostenTag, Location } from '../../lib/types'
+import { relative } from '../../lib/format'
+import type { Grootboek, Instelling, KostenTag, Location } from '../../lib/types'
 import { Badge, Card, Empty, Field, Modal } from '../../components/ui'
 import { toast } from '../../store/useToasts'
+
+/*
+ * De drie standen van de factuurlezer (instelling factuur_lezer, 0049). De
+ * waarde is wat de post en de functie lezer op de server vergelijken; de
+ * tekst is wat Casper leest. Wie hier een stand toevoegt, moet hem ook in
+ * ontvang-mail en lezer kennen.
+ */
+type Lezer = 'claude' | 'lokaal' | 'lokaal-terugval'
+
+const LEZERS: { waarde: Lezer; naam: string; uitleg: string }[] = [
+  {
+    waarde: 'claude',
+    naam: 'Claude (Sonnet 5, in de cloud)',
+    uitleg: 'Leest ook foto’s van gekreukte bonnen goed; kost een paar cent per factuur en de factuur gaat naar Anthropic.',
+  },
+  {
+    waarde: 'lokaal',
+    naam: 'Lokaal (Ollama op de eigen server)',
+    uitleg: 'Gratis per factuur en de factuur verlaat het pand niet. Staat de server uit, dan blijven de bonnen wachten tot hij weer draait.',
+  },
+  {
+    waarde: 'lokaal-terugval',
+    naam: 'Lokaal, met Claude als terugval',
+    uitleg: 'De veilige middenweg: lokaal lezen, en alleen als het lokale model twijfelt of uitvalt gaat de factuur alsnog naar Claude.',
+  },
+]
+
+/** Langer dan dit niets gehoord van het lokale programma terwijl het zou moeten draaien: rood. */
+const LEZER_STIL_NA_MS = 5 * 60_000
+
+/*
+ * Rode hulptekst. De stylesheet kent .btn.danger en .badge.danger, maar geen
+ * .help.danger: een span met die klasse kreeg het driehoekje wel en de kleur
+ * niet (viel op bij de statusregel van de lezer, maar de foutregels onder de
+ * velden hadden hetzelfde). Tot er een regel in theme.css staat, zetten we de
+ * kleur hier inline; het token bestaat voor licht en donker.
+ */
+const ROOD = { color: 'var(--text-danger)' } as const
 
 export default function Inkoop() {
   return (
@@ -53,6 +92,7 @@ function Adressen() {
   const [domein, setDomein] = useState('')
   const [voorvoegsel, setVoorvoegsel] = useState('inkoop')
   const [automatisch, setAutomatisch] = useState(true)
+  const [lezer, setLezer] = useState<Lezer>('claude')
   const [eigenKvk, setEigenKvk] = useState('')
   const [eigenBtw, setEigenBtw] = useState('')
   const [eigenIban, setEigenIban] = useState('')
@@ -66,6 +106,13 @@ function Adressen() {
       setDomein(alle[SLEUTELS.inkoopDomein] ?? '')
       setVoorvoegsel(alle[SLEUTELS.inkoopVoorvoegsel] || 'inkoop')
       setAutomatisch((alle[SLEUTELS.factuurAutomatisch] || 'ja') !== 'nee')
+      /*
+       * Een onbekende waarde -- een typefout in de SQL-editor -- wordt hier
+       * 'claude', net zoals de post hem leest. Anders zou het scherm een stand
+       * tonen die de server niet kent.
+       */
+      const gekozen = alle[SLEUTELS.factuurLezer]
+      setLezer(LEZERS.some((l) => l.waarde === gekozen) ? gekozen as Lezer : 'claude')
       setEigenKvk(alle[SLEUTELS.eigenKvk] ?? '')
       setEigenBtw(alle[SLEUTELS.eigenBtw] ?? '')
       setEigenIban(alle[SLEUTELS.eigenIban] ?? '')
@@ -84,6 +131,7 @@ function Adressen() {
       await zetInstelling(SLEUTELS.inkoopDomein, domein.trim().toLowerCase())
       await zetInstelling(SLEUTELS.inkoopVoorvoegsel, voorvoegsel.trim().toLowerCase())
       await zetInstelling(SLEUTELS.factuurAutomatisch, automatisch ? 'ja' : 'nee')
+      await zetInstelling(SLEUTELS.factuurLezer, lezer)
       await zetInstelling(SLEUTELS.eigenKvk, eigenKvk.trim())
       await zetInstelling(SLEUTELS.eigenBtw, eigenBtw.trim().toUpperCase())
       await zetInstelling(SLEUTELS.eigenIban, eigenIban.trim().toUpperCase())
@@ -124,7 +172,7 @@ function Adressen() {
             placeholder="preview.truckwash.cloud"
             spellCheck={false}
           />
-          {foutDomein && <span className="help danger">{foutDomein}</span>}
+          {foutDomein && <span className="help danger" style={ROOD}>{foutDomein}</span>}
         </Field>
 
         <Field label="Voorvoegsel" help="Het stuk voor de punt: inkoop.oss@…">
@@ -135,7 +183,7 @@ function Adressen() {
             placeholder="inkoop"
             spellCheck={false}
           />
-          {foutVoorvoegsel && <span className="help danger">{foutVoorvoegsel}</span>}
+          {foutVoorvoegsel && <span className="help danger" style={ROOD}>{foutVoorvoegsel}</span>}
         </Field>
       </div>
 
@@ -156,6 +204,41 @@ function Adressen() {
           </span>
         </span>
       </label>
+
+      {/* ---- wie leest ---- */}
+
+      <h4 style={{ marginTop: 20, marginBottom: 4 }}>Wie leest de facturen</h4>
+      <p className="help" style={{ marginBottom: 10 }}>
+        Alleen het lezen verschilt; wat er daarna gebeurt — opschonen,
+        verkoopcontrole, indelen, boeken — doet de server in alle drie de
+        standen op dezelfde manier. Werkt alleen als het vinkje hierboven aanstaat.
+      </p>
+      <div className="grid" style={{ gap: 8 }}>
+        {LEZERS.map((l) => (
+          <label
+            key={l.waarde}
+            className="row"
+            style={{ gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}
+          >
+            <input
+              type="radio"
+              name="factuur-lezer"
+              value={l.waarde}
+              checked={lezer === l.waarde}
+              onChange={() => setLezer(l.waarde)}
+              disabled={!automatisch}
+              style={{ marginTop: 3 }}
+            />
+            <span>
+              <strong>{l.naam}</strong>
+              <br />
+              <span className="help">{l.uitleg}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      {/* Zonder het vinkje leest niemand en wacht er dus ook niets: dan geen rode regel. */}
+      <LezerStatus lokaalGekozen={automatisch && lezer !== 'claude'} />
 
       {/* ---- de eigen nummers ---- */}
 
@@ -260,6 +343,58 @@ function Adressen() {
         </p>
       )}
     </Card>
+  )
+}
+
+/**
+ * Leeft het lokale programma nog?
+ *
+ * De functie lezer zet bij elke ronde lezer_laatst_gezien en lezer_model.
+ * Die lezen we live uit de eigen tabel en niet één keer bij het laden: je
+ * start het programma op de server en wilt hier binnen een halve minuut zien
+ * dat het zich meldt, zonder het scherm te verversen.
+ *
+ * Rood alleen als lokaal gekozen is. Staat de lezer op Claude, dan is een
+ * programma dat al weken niets zegt geen probleem maar de bedoeling.
+ */
+function LezerStatus({ lokaalGekozen }: { lokaalGekozen: boolean }) {
+  const rijen = useLiveQuery(
+    () => db.instellingen.toArray(), [], [] as Instelling[])
+
+  /*
+   * De klok tikt elke halve minuut, anders blijft er "zojuist" staan terwijl
+   * het programma allang stil is.
+   */
+  const [nu, setNu] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNu(Date.now()), 30_000)
+    return () => clearInterval(t)
+  }, [])
+
+  const waarde = (sleutel: string) =>
+    (rijen.find((r) => r.sleutel === sleutel)?.waarde ?? '').trim()
+  const gezien = Number(waarde(SLEUTELS.lezerLaatstGezien)) || 0
+  const model = waarde(SLEUTELS.lezerModel)
+
+  const stil = lokaalGekozen && (!gezien || nu - gezien > LEZER_STIL_NA_MS)
+
+  return (
+    // Buiten een <Field> geldt .field .help niet; de maat en kleur dus hier.
+    <p
+      className={stil ? 'help danger' : 'help'}
+      style={{
+        marginTop: 10, fontSize: '.76rem', lineHeight: 1.45,
+        color: stil ? 'var(--text-danger)' : 'var(--text-3)',
+      }}>
+      {stil && <TriangleAlert size={13} style={{ verticalAlign: -2 }} />}{' '}
+      Lokale lezer{' '}
+      {gezien
+        ? <>laatst gezien {relative(gezien, nu)}{model && <>, model <code>{model}</code></>}</>
+        : 'nog nooit gezien'}
+      {stil && (gezien > 0
+        ? ' — draait het programma op de server nog?'
+        : ' — zonder draaiend programma blijven de bonnen wachten.')}
+    </p>
   )
 }
 
@@ -445,7 +580,7 @@ function RekeningModal({
             placeholder="4031"
             disabled={!!rij}
           />
-          {codeFout && <span className="help danger">{codeFout}</span>}
+          {codeFout && <span className="help danger" style={ROOD}>{codeFout}</span>}
         </Field>
         <Field label="Btw-percentage" help="Vangnet; wat op de factuur staat gaat voor.">
           <input

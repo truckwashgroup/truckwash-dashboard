@@ -179,6 +179,7 @@ await run(db, '0045_een_kassa_ziet_wie_er_mag_werken.sql draait', sqlFile('supab
 await run(db, '0046_de_fotos_gaan_mee_naar_de_website.sql draait', sqlFile('supabase/migrations/0046_de_fotos_gaan_mee_naar_de_website.sql'))
 await run(db, '0047_een_verkoopfactuur_is_geen_kostenpost.sql draait', sqlFile('supabase/migrations/0047_een_verkoopfactuur_is_geen_kostenpost.sql'))
 await run(db, '0048_trucksupply_ziet_de_voorraad.sql draait', sqlFile('supabase/migrations/0048_trucksupply_ziet_de_voorraad.sql'))
+await run(db, '0049_de_factuur_kan_ook_thuis_gelezen_worden.sql draait', sqlFile('supabase/migrations/0049_de_factuur_kan_ook_thuis_gelezen_worden.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -229,6 +230,7 @@ await run(db, '0045 nogmaals', sqlFile('supabase/migrations/0045_een_kassa_ziet_
 await run(db, '0046 nogmaals', sqlFile('supabase/migrations/0046_de_fotos_gaan_mee_naar_de_website.sql'))
 await run(db, '0047 nogmaals', sqlFile('supabase/migrations/0047_een_verkoopfactuur_is_geen_kostenpost.sql'))
 await run(db, '0048 nogmaals', sqlFile('supabase/migrations/0048_trucksupply_ziet_de_voorraad.sql'))
+await run(db, '0049 nogmaals', sqlFile('supabase/migrations/0049_de_factuur_kan_ook_thuis_gelezen_worden.sql'))
 
 
 
@@ -4346,6 +4348,87 @@ check('en krijgt daarbij niets anders dan koppeling, prijs en aan/uit',
 /* Een klant is geen staf, geen leverancier en beheert de kassa niet: leeg. */
 check('een klant ziet via die deur niets',
   (await kassaPrijzen(klant))?.length === 0)
+
+
+/* ===========================================================================
+ *  De factuur kan ook thuis gelezen worden (0049)
+ *
+ *  De post zet een bon klaar voor de pc met Ollama, en de pc meldt terug hoe
+ *  het ging. Die overdracht loopt via drie kolommen op expenses. Wat vast moet
+ *  liggen: dat de kolommen er zijn, dat lees_status alleen de vier afgesproken
+ *  waarden aanneemt (de functie lezer zoekt op 'wacht' en 'bezig'; een tikfout
+ *  zou een bon stil in een vijfde bak laten verdwijnen) en dat de instelling
+ *  op Claude staat -- anders blijft na deze migratie elke bon op wacht staan
+ *  tot iemand een pc aanzet.
+ * ======================================================================== */
+
+console.log('\n33. De factuur kan ook thuis gelezen worden (0049)')
+
+await asServer(db)
+
+check('expenses heeft lees_status, lees_geclaimd_at en lezer',
+  (await db.query(`select count(*)::int as n from information_schema.columns
+     where table_schema = 'public' and table_name = 'expenses'
+       and column_name in ('lees_status', 'lees_geclaimd_at', 'lezer')`))
+    .rows[0].n === 3)
+
+/* Een eigen bon: die uit hoofdstuk 17 is in hoofdstuk 31 weggehaald. */
+await db.exec(`
+  insert into public.expenses
+    (id, expense_date, category, supplier, description, amount_excl, status, source, mailbox_id)
+  values ('exp_lezer_1', 1, 'overig', 'PreZero', 'Factuur afval', 0, 'open', 'mail', 'mb_1');
+`)
+
+check('een verzonnen lees_status wordt geweigerd',
+  (await botst("update public.expenses set lees_status = 'verzonnen' where id = 'exp_lezer_1'"))
+    ?.includes('expenses_lees_status_check') === true)
+
+for (const stand of ['wacht', 'bezig', 'klaar', 'mislukt']) {
+  check(`lees_status '${stand}' mag`,
+    (await botst(`update public.expenses set lees_status = '${stand}', lees_geclaimd_at = 1, lezer = 'lokaal: test' where id = 'exp_lezer_1'`)) === null)
+}
+check('en leeg mag ook, voor bonnen die niet via de pc gaan',
+  (await botst("update public.expenses set lees_status = null where id = 'exp_lezer_1'")) === null)
+
+check('de instelling factuur_lezer staat op claude',
+  (await db.query("select waarde from public.instellingen where sleutel = 'factuur_lezer'"))
+    .rows[0]?.waarde === 'claude')
+
+const lezerSleutels = (await db.query(`select sleutel, waarde from public.instellingen
+   where sleutel in ('lezer_laatst_gezien', 'lezer_model') order by sleutel`)).rows
+check('de twee statussleutels van de lokale lezer staan leeg klaar',
+  lezerSleutels.length === 2 && lezerSleutels.every((r) => r.waarde === ''),
+  lezerSleutels.map((r) => r.sleutel).join(', '))
+
+/*
+ * De app schrijft bij goedkeuren de hele rij terug, met de overdrachtkolommen
+ * zoals het toestel ze het laatst zag. Zou dat doorkomen, dan gaat een bon
+ * die de pc net op "klaar" zette terug naar "wacht" en leest de pc een
+ * goedgekeurde bon opnieuw. Dezelfde trigger die gelezen beschermt (0029)
+ * houdt nu ook deze drie kolommen bij de server.
+ */
+await db.exec(`update public.expenses
+   set lees_status = 'klaar', lees_geclaimd_at = 1, lezer = 'lokaal: test'
+ where id = 'exp_lezer_1';`)
+
+check('een ingelogde gebruiker mag de bon wel bijwerken',
+  await magSchrijven(admin, `update public.expenses
+     set lees_status = 'wacht', lees_geclaimd_at = 99, lezer = 'app', description = 'Aangepast'
+   where id = 'exp_lezer_1';`))
+
+const naApp = (await db.query(`select lees_status, lees_geclaimd_at, lezer, description
+   from public.expenses where id = 'exp_lezer_1'`)).rows[0]
+check('maar lees_status, lees_geclaimd_at en lezer blijven van de server',
+  naApp.lees_status === 'klaar' && Number(naApp.lees_geclaimd_at) === 1 && naApp.lezer === 'lokaal: test',
+  JSON.stringify(naApp))
+check('terwijl de rest van de wijziging wél doorkomt',
+  naApp.description === 'Aangepast')
+
+await db.exec(`update public.expenses set lees_status = 'wacht', lees_geclaimd_at = null where id = 'exp_lezer_1';`)
+check('de server zelf mag ze wel wijzigen',
+  (await db.query("select lees_status from public.expenses where id = 'exp_lezer_1'")).rows[0].lees_status === 'wacht')
+
+await db.exec(`delete from public.expenses where id = 'exp_lezer_1';`)
 
 
 await db.close()

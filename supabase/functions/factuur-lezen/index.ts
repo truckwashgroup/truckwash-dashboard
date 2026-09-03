@@ -119,6 +119,22 @@ Deno.serve(async (req) => {
 
   if (!uit.ok) return json({ ok: false, reden: uit.reden })
 
+  /*
+   * Stond deze bon klaar voor de lokale lezer (0049: lees_status wacht,
+   * bezig of mislukt), dan is dat nu voorbij: een mens heeft hem laten lezen.
+   * Zonder dit blijft de badge "wacht op de lokale lezer" staan en pakt de pc
+   * hem later alsnog, over de lezing van nu heen. Apart van het bewaren in
+   * leesFactuur, zodat een database zonder 0049 hier alleen een logregel
+   * oplevert en geen mislukte lezing.
+   */
+  const { error: overdrachtFout } = await admin
+    .from('expenses')
+    .update({ lees_status: null, lees_geclaimd_at: null, lezer: 'claude' })
+    .eq('id', expenseId)
+  if (overdrachtFout) {
+    console.warn(`[factuur-lezen] ${expenseId} uit de wachtrij van de lokale lezer halen: ${overdrachtFout.message} (is 0049 al gedraaid?)`)
+  }
+
   console.log(`[factuur-lezen] ${beller.naam} las ${uit.lezing?.bestand} bij ${expenseId}`)
   return json({ ok: true, lezing: uit.lezing, bewaard: uit.bewaard })
 })

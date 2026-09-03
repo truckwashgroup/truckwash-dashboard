@@ -13,10 +13,13 @@
  *
  *    factuur-lezen   een mens drukt op de knop -- eerst inloggen, dan lezen
  *    ontvang-mail    er komt post binnen      -- geen mens, dus geen token
+ *    lezer           de pc thuis leest met Ollama en valt zo nodig terug op
+ *                    Claude; gebruikt SYSTEEM, LEZING_SCHEMA en opschonen()
+ *                    zodat de uitkomst dezelfde is (0049)
  *
- *  Allebei roepen ze leesFactuur() aan. Geen tweede kopie van de aanwijzingen
- *  aan het model, en geen verzoek van de ene functie naar de andere waarbij
- *  onderweg bedacht moet worden hoe die zich legitimeert.
+ *  Alle drie komen ze hier. Geen tweede kopie van de aanwijzingen aan het
+ *  model, en geen verzoek van de ene functie naar de andere waarbij onderweg
+ *  bedacht moet worden hoe die zich legitimeert.
  *
  *  Wat hier met opzet NIET gebeurt: goedkeuren, boeken of velden overschrijven
  *  die een mens heeft ingevuld. Er komt een lezing uit. Wat daarmee gebeurt is
@@ -64,7 +67,7 @@ function naarBase64(bytes: Uint8Array): string {
  *  Wat we het model vragen
  * ------------------------------------------------------------------ */
 
-const SYSTEEM = [
+export const SYSTEEM = [
   'Je leest een factuur of kassabon die per mail is binnengekomen bij een',
   'Nederlands truckwash-bedrijf, en geeft terug wat er letterlijk op staat.',
   '',
@@ -73,6 +76,10 @@ const SYSTEEM = [
   '  aan uit ervaring. Staat er geen factuurnummer, laat het veld dan weg.',
   '- Bedragen als getal, met een punt als decimaalteken, zonder valutateken.',
   '  Een Nederlands bedrag van 1.234,56 wordt 1234.56.',
+  '- Een getal dat niet op het stuk staat is null, niet 0. Een 0 betekent dat',
+  '  er letterlijk nul staat (0% btw, een gratis regel). Staat er per regel',
+  '  geen btw-percentage, dan is "btwPct" null; staat er geen btw-bedrag, dan',
+  '  is "btwBedrag" null.',
   '- Datums als jjjj-mm-dd.',
   '- Twijfel je over een waarde -- onscherpe scan, doorgehaald bedrag, twee',
   '  bedragen die elkaar tegenspreken -- zet die waarde er dan NIET in, en zet',
@@ -135,6 +142,78 @@ const SYSTEEM = [
   '}',
 ].join('\n')
 
+/*
+ * Hetzelfde antwoord, maar als JSON-schema.
+ *
+ * Claude krijgt de vorm hierboven als tekst en houdt zich eraan. Een lokaal
+ * model via Ollama krijgt dit schema als "format" mee, en dan kán het niet
+ * anders antwoorden. Uit de proef op de eigen pc bleek één ding doorslaggevend:
+ * velden die niet als verplicht staan laat het model weg, ook als ze op de
+ * factuur staan. Daarom is hier bijna alles verplicht.
+ *
+ * Verplicht betekent wel dat het model áltijd iets moet geven, ook als het
+ * er niet staat. Voor tekst is dat een lege tekst en die maakt opschonen()
+ * undefined, net als een weggelaten veld. Voor getallen lag daar een val: een
+ * verplicht getal zonder waarde werd 0, en 0 is een echte waarde. Een
+ * kassabon zonder btw per regel kreeg zo btwPct 0 op elke regel en btwBedrag
+ * 0, en verwerkLezing schreef dan 0% en 0,00 btw op de bon -- waar Claude,
+ * die de velden gewoon weglaat, 21% afleidt uit btw en subtotaal. Precies het
+ * verschil dat er niet mag zijn. Daarom mag elk getal hier ook null zijn,
+ * zegt SYSTEEM dat onbekend null is en niet 0, en maakt getal() van null
+ * undefined.
+ *
+ * De velden en hun betekenis staan in SYSTEEM; verander je daar iets, dan
+ * hier ook. De server is de enige plek waar dit staat -- het lokale programma
+ * haalt prompt en schema bij elke ronde hier op.
+ */
+const GETAL_OF_NIETS = { type: ['number', 'null'] }
+
+export const LEZING_SCHEMA = {
+  type: 'object',
+  properties: {
+    soort: { type: 'string', enum: ['factuur', 'bon', 'pakbon', 'aanmaning', 'onbekend'] },
+    richting: { type: 'string', enum: ['inkoop', 'verkoop', 'onbekend'] },
+    leverancier: { type: 'string' },
+    factuurnummer: { type: 'string' },
+    datum: { type: 'string' },
+    vervaldatum: { type: 'string' },
+    iban: { type: 'string' },
+    betalingskenmerk: { type: 'string' },
+    btwNummer: { type: 'string' },
+    kvk: { type: 'string' },
+    valuta: { type: 'string' },
+    kenmerk: { type: 'string' },
+    regels: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          omschrijving: { type: 'string' },
+          aantal: GETAL_OF_NIETS,
+          eenheid: { type: 'string' },
+          stukprijs: GETAL_OF_NIETS,
+          btwPct: GETAL_OF_NIETS,
+          bedragExcl: GETAL_OF_NIETS,
+        },
+        required: ['omschrijving', 'aantal', 'eenheid', 'stukprijs', 'btwPct', 'bedragExcl'],
+      },
+    },
+    subtotaalExcl: GETAL_OF_NIETS,
+    btwBedrag: GETAL_OF_NIETS,
+    totaalIncl: GETAL_OF_NIETS,
+    voorstelCategorie: {
+      type: 'string',
+      enum: ['materiaal', 'energie', 'onderhoud', 'personeel', 'transport', 'overig'],
+    },
+    twijfel: { type: 'array', items: { type: 'string' } },
+  },
+  required: [
+    'soort', 'richting', 'leverancier', 'factuurnummer', 'datum', 'vervaldatum',
+    'iban', 'btwNummer', 'kvk', 'kenmerk', 'regels', 'subtotaalExcl', 'btwBedrag',
+    'totaalIncl', 'voorstelCategorie', 'twijfel',
+  ],
+}
+
 function leesJson(ruw: string): Record<string, unknown> | null {
   const hek = String.fromCharCode(96, 96, 96)
   let schoon = ruw.trim()
@@ -163,15 +242,32 @@ function datum(waarde: unknown): number | undefined {
   return Number.isFinite(t) ? t : undefined
 }
 
+/**
+ * Een getal, of niets. Alleen een echt getal of een tekst met een getal erin
+ * telt. null en een lege tekst zijn "niet op het stuk" en worden undefined --
+ * niet 0, want Number(null) en Number('') zijn allebei 0, en een 0 die er niet
+ * stond wordt verderop een btw-tarief van 0%.
+ */
 function getal(waarde: unknown): number | undefined {
-  const n = typeof waarde === 'string' ? Number(waarde.replace(',', '.')) : Number(waarde)
+  if (typeof waarde === 'number') return Number.isFinite(waarde) ? waarde : undefined
+  if (typeof waarde !== 'string' || !waarde.trim()) return undefined
+  const n = Number(waarde.trim().replace(',', '.'))
   return Number.isFinite(n) ? n : undefined
 }
+
+/**
+ * Wat een model invult als het een verplicht tekstveld niet kan vullen. Claude
+ * laat het veld weg; gemma schrijft met het afgedwongen schema soms letterlijk
+ * "null" of "onbekend" (gezien bij de eenheid van een regel). Dat is geen
+ * waarde van het stuk en hoort dus ook niet in de lezing.
+ */
+const NIETS_GEZEGD = new Set(['null', 'none', 'onbekend', 'n/a', 'n.v.t.', 'nvt', '-', '--'])
 
 function tekst(waarde: unknown, max = 200): string | undefined {
   if (typeof waarde !== 'string') return undefined
   const schoon = waarde.trim().slice(0, max)
-  return schoon || undefined
+  if (!schoon || NIETS_GEZEGD.has(schoon.toLowerCase())) return undefined
+  return schoon
 }
 
 const CATEGORIEEN = ['materiaal', 'energie', 'onderhoud', 'personeel', 'transport', 'overig']
@@ -218,47 +314,33 @@ export interface Uitkomst {
 }
 
 /* ------------------------------------------------------------------ *
- *  Lezen
+ *  Welke bijlage
+ *
+ *  Los van het lezen, omdat de functie lezer dezelfde keuze moet maken voor
+ *  de pc thuis: die krijgt een lijst met bijlagen en moet dezelfde pakken die
+ *  Claude hier gepakt zou hebben. Anders leest de ene lezer de factuur en de
+ *  andere het logo uit de handtekening.
  * ------------------------------------------------------------------ */
 
+export interface Kandidaat {
+  pad: string
+  naam: string
+  mime?: string
+  /** De reden waarom de bijlagecontrole dit bestand tegenhield, als dat zo was. */
+  gemarkeerd?: string
+}
+
 /**
- * Leest de bijlage bij een kostenpost en zet de uitkomst in het veld gelezen.
- *
- * doorWie komt in de lezing te staan, zodat later te zien is of een mens
- * hierom vroeg of dat de post het uit zichzelf deed.
+ * De bijlagen die bij een kostenpost horen: eerst de aangewezen bijlage
+ * (attachment_path), dan alles wat bij het mailbox-bericht zat.
  */
 // deno-lint-ignore no-explicit-any
-export async function leesFactuur(opties: {
-  admin: any
-  expenseId: string
-  pad?: string
-  doorWie: string
-}): Promise<Uitkomst> {
-  const { admin, expenseId, doorWie } = opties
-
-  if (!ANTHROPIC_KEY) {
-    return {
-      ok: false,
-      reden: 'De leesdienst is nog niet ingesteld. Zet ANTHROPIC_API_KEY als ' +
-             'geheim bij de functies.',
-    }
-  }
-
-  const { data: bon } = await admin
-    .from('expenses')
-    .select('id, supplier, attachment_path, attachment_name, mailbox_id')
-    .eq('id', expenseId)
-    .maybeSingle()
-
-  if (!bon) return { ok: false, reden: 'Kostenpost niet gevonden' }
-
-  /*
-   * Welk bestand. De beller mag er een aanwijzen als er meer bijlagen bij de
-   * mail zaten, maar alleen uit de bijlagen die bij deze bon horen -- niet
-   * een willekeurig pad uit de emmer.
-   */
-  const gevraagd = tekst(opties.pad, 400)
-  const kandidaten: { pad: string; naam: string; mime?: string; gemarkeerd?: string }[] = []
+export async function bijlagenVan(admin: any, bon: {
+  attachment_path?: string | null
+  attachment_name?: string | null
+  mailbox_id?: string | null
+}): Promise<Kandidaat[]> {
+  const kandidaten: Kandidaat[] = []
 
   if (bon.attachment_path) {
     kandidaten.push({
@@ -300,16 +382,148 @@ export async function leesFactuur(opties: {
     }
   }
 
+  return kandidaten
+}
+
+/**
+ * Zonder aanwijzing niet zomaar de eerste bijlage.
+ *
+ * Bij mail met een logo in de handtekening staat er een plaatje voor de
+ * factuur, en dan werd er een bedrijfslogo gelezen terwijl de PDF eronder
+ * bleef liggen. Een PDF gaat daarom voor.
+ */
+export function kiesBijlage(kandidaten: Kandidaat[]): Kandidaat | undefined {
+  return kandidaten.find((k) => soortVan(k.naam, k.mime) === PDF) ?? kandidaten[0]
+}
+
+/* ------------------------------------------------------------------ *
+ *  Opschonen
+ *
+ *  Alles wat uit een model terugkomt gaat langs dit filter. Niet omdat het
+ *  model kwaad wil, maar omdat een tekstveld dat rechtstreeks in de database
+ *  landt vroeg of laat iets bevat waar niemand op rekende.
+ *
+ *  Het staat los van leesFactuur omdat de lokale lezer (Ollama op de pc van
+ *  Casper) het ruwe antwoord van zijn model naar de server stuurt en de
+ *  server het hier doorheen haalt. Zo is de lezing die in de database landt
+ *  op precies dezelfde manier schoongemaakt, wie er ook las.
+ * ------------------------------------------------------------------ */
+
+export function opschonen(
+  uit: Record<string, unknown>,
+  meta: { doorWie: string; bestand: string; model: string; gemarkeerd?: string },
+): Lezing {
+  const regels = Array.isArray(uit.regels)
+    ? (uit.regels as Record<string, unknown>[]).slice(0, 100).map((r) => ({
+        omschrijving: tekst(r.omschrijving, 300) ?? '',
+        aantal: getal(r.aantal),
+        eenheid: tekst(r.eenheid, 20),
+        stukprijs: getal(r.stukprijs),
+        btwPct: getal(r.btwPct),
+        bedragExcl: getal(r.bedragExcl),
+      })).filter((r) => r.omschrijving)
+    : []
+
+  const twijfel = Array.isArray(uit.twijfel)
+    ? (uit.twijfel as unknown[]).slice(0, 10)
+        .map((t) => tekst(t, 300)).filter(Boolean) as string[]
+    : []
+
+  const voorstel = tekst(uit.voorstelCategorie, 20)
+
+  const lezing: Lezing = {
+    soort: ['factuur', 'bon', 'pakbon', 'aanmaning', 'onbekend']
+      .includes(String(uit.soort)) ? String(uit.soort) : 'onbekend',
+    // Alleen de drie waarden die de beller kent. Alles anders is "onbekend",
+    // en onbekend wordt gewoon een kostenpost -- zoals het altijd al ging.
+    richting: uit.richting === 'inkoop' || uit.richting === 'verkoop'
+      ? uit.richting : 'onbekend',
+    leverancier: tekst(uit.leverancier),
+    factuurnummer: tekst(uit.factuurnummer, 60),
+    datum: datum(uit.datum),
+    vervaldatum: datum(uit.vervaldatum),
+    iban: tekst(uit.iban, 40),
+    betalingskenmerk: tekst(uit.betalingskenmerk, 60),
+    btwNummer: tekst(uit.btwNummer, 30),
+    kvk: tekst(uit.kvk, 20),
+    valuta: tekst(uit.valuta, 8) ?? 'EUR',
+    kenmerk: tekst(uit.kenmerk, 200),
+    regels,
+    subtotaalExcl: getal(uit.subtotaalExcl),
+    btwBedrag: getal(uit.btwBedrag),
+    totaalIncl: getal(uit.totaalIncl),
+    voorstelCategorie: voorstel && CATEGORIEEN.includes(voorstel) ? voorstel : undefined,
+    twijfel,
+    gelezenOp: nu(),
+    gelezenDoor: meta.doorWie,
+    gemarkeerd: meta.gemarkeerd,
+    model: meta.model,
+    bestand: meta.bestand,
+  }
+
   /*
-   * Zonder aanwijzing niet zomaar de eerste bijlage.
-   *
-   * Bij mail met een logo in de handtekening staat er een plaatje voor de
-   * factuur, en dan werd er een bedrijfslogo gelezen terwijl de PDF eronder
-   * bleef liggen. Een PDF gaat daarom voor.
+   * Nog een controle die het model zelf niet doet: telt subtotaal plus btw op
+   * tot het totaal? Zo niet, dan is er iets overgeslagen -- een kortingsregel,
+   * statiegeld, verzendkosten -- en dat hoort de beoordelaar te weten.
    */
+  const som = (lezing.subtotaalExcl ?? 0) + (lezing.btwBedrag ?? 0)
+  if (lezing.subtotaalExcl != null && lezing.btwBedrag != null
+      && lezing.totaalIncl != null && Math.abs(som - lezing.totaalIncl) > 0.02) {
+    lezing.twijfel.push(
+      `Subtotaal plus btw is ${som.toFixed(2)}, maar er staat ${lezing.totaalIncl.toFixed(2)} ` +
+      'als totaal. Er zit iets tussen dat hier niet in staat.')
+  }
+
+  return lezing
+}
+
+/* ------------------------------------------------------------------ *
+ *  Lezen
+ * ------------------------------------------------------------------ */
+
+/**
+ * Leest de bijlage bij een kostenpost en zet de uitkomst in het veld gelezen.
+ *
+ * doorWie komt in de lezing te staan, zodat later te zien is of een mens
+ * hierom vroeg of dat de post het uit zichzelf deed.
+ */
+// deno-lint-ignore no-explicit-any
+export async function leesFactuur(opties: {
+  admin: any
+  expenseId: string
+  pad?: string
+  doorWie: string
+}): Promise<Uitkomst> {
+  const { admin, expenseId, doorWie } = opties
+
+  if (!ANTHROPIC_KEY) {
+    return {
+      ok: false,
+      reden: 'De leesdienst is nog niet ingesteld. Zet ANTHROPIC_API_KEY als ' +
+             'geheim bij de functies.',
+    }
+  }
+
+  const { data: bon } = await admin
+    .from('expenses')
+    .select('id, supplier, attachment_path, attachment_name, mailbox_id')
+    .eq('id', expenseId)
+    .maybeSingle()
+
+  if (!bon) return { ok: false, reden: 'Kostenpost niet gevonden' }
+
+  /*
+   * Welk bestand. De beller mag er een aanwijzen als er meer bijlagen bij de
+   * mail zaten, maar alleen uit de bijlagen die bij deze bon horen -- niet
+   * een willekeurig pad uit de emmer.
+   */
+  const gevraagd = tekst(opties.pad, 400)
+  const kandidaten = await bijlagenVan(admin, bon)
+
+  /* Zonder aanwijzing kiest kiesBijlage(): een PDF gaat voor een plaatje. */
   const gekozen = gevraagd
     ? kandidaten.find((k) => k.pad === gevraagd)
-    : (kandidaten.find((k) => soortVan(k.naam, k.mime) === PDF) ?? kandidaten[0])
+    : kiesBijlage(kandidaten)
 
   if (!gekozen) {
     return {
@@ -397,73 +611,14 @@ export async function leesFactuur(opties: {
     }
   }
 
-  /* ---- opschonen ----
-   *
-   * Alles wat terugkomt gaat langs een filter. Niet omdat het model kwaad wil,
-   * maar omdat een tekstveld dat rechtstreeks in de database landt vroeg of
-   * laat iets bevat waar niemand op rekende.
-   */
+  /* ---- opschonen ---- */
 
-  const regels = Array.isArray(uit.regels)
-    ? (uit.regels as Record<string, unknown>[]).slice(0, 100).map((r) => ({
-        omschrijving: tekst(r.omschrijving, 300) ?? '',
-        aantal: getal(r.aantal),
-        eenheid: tekst(r.eenheid, 20),
-        stukprijs: getal(r.stukprijs),
-        btwPct: getal(r.btwPct),
-        bedragExcl: getal(r.bedragExcl),
-      })).filter((r) => r.omschrijving)
-    : []
-
-  const twijfel = Array.isArray(uit.twijfel)
-    ? (uit.twijfel as unknown[]).slice(0, 10)
-        .map((t) => tekst(t, 300)).filter(Boolean) as string[]
-    : []
-
-  const voorstel = tekst(uit.voorstelCategorie, 20)
-
-  const lezing: Lezing = {
-    soort: ['factuur', 'bon', 'pakbon', 'aanmaning', 'onbekend']
-      .includes(String(uit.soort)) ? String(uit.soort) : 'onbekend',
-    // Alleen de drie waarden die de beller kent. Alles anders is "onbekend",
-    // en onbekend wordt gewoon een kostenpost -- zoals het altijd al ging.
-    richting: uit.richting === 'inkoop' || uit.richting === 'verkoop'
-      ? uit.richting : 'onbekend',
-    leverancier: tekst(uit.leverancier),
-    factuurnummer: tekst(uit.factuurnummer, 60),
-    datum: datum(uit.datum),
-    vervaldatum: datum(uit.vervaldatum),
-    iban: tekst(uit.iban, 40),
-    betalingskenmerk: tekst(uit.betalingskenmerk, 60),
-    btwNummer: tekst(uit.btwNummer, 30),
-    kvk: tekst(uit.kvk, 20),
-    valuta: tekst(uit.valuta, 8) ?? 'EUR',
-    kenmerk: tekst(uit.kenmerk, 200),
-    regels,
-    subtotaalExcl: getal(uit.subtotaalExcl),
-    btwBedrag: getal(uit.btwBedrag),
-    totaalIncl: getal(uit.totaalIncl),
-    voorstelCategorie: voorstel && CATEGORIEEN.includes(voorstel) ? voorstel : undefined,
-    twijfel,
-    gelezenOp: nu(),
-    gelezenDoor: doorWie,
-    gemarkeerd: gekozen.gemarkeerd,
-    model: MODEL,
+  const lezing = opschonen(uit, {
+    doorWie,
     bestand: gekozen.naam,
-  }
-
-  /*
-   * Nog een controle die het model zelf niet doet: telt subtotaal plus btw op
-   * tot het totaal? Zo niet, dan is er iets overgeslagen -- een kortingsregel,
-   * statiegeld, verzendkosten -- en dat hoort de beoordelaar te weten.
-   */
-  const som = (lezing.subtotaalExcl ?? 0) + (lezing.btwBedrag ?? 0)
-  if (lezing.subtotaalExcl != null && lezing.btwBedrag != null
-      && lezing.totaalIncl != null && Math.abs(som - lezing.totaalIncl) > 0.02) {
-    lezing.twijfel.push(
-      `Subtotaal plus btw is ${som.toFixed(2)}, maar er staat ${lezing.totaalIncl.toFixed(2)} ` +
-      'als totaal. Er zit iets tussen dat hier niet in staat.')
-  }
+    model: MODEL,
+    gemarkeerd: gekozen.gemarkeerd,
+  })
 
   const { error: bewaarFout } = await admin
     .from('expenses')

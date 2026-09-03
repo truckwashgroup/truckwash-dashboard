@@ -1,0 +1,19 @@
+{
+  "name": "truckwash-lezer",
+  "version": "1.0.0",
+  "description": "Truckwash1 Group - leest facturen lokaal met Ollama en geeft de lezing aan de functie lezer",
+  "private": true,
+  "type": "module",
+  "main": "lezer.mjs",
+  "scripts": {
+    "start": "node lezer.mjs",
+    "proef": "node lezer.mjs --proef"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^1.0.8",
+    "pdfjs-dist": "^6.3.289"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

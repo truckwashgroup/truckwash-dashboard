@@ -1,0 +1,156 @@
+{
+  "_opmerking": "KOPIE, alleen voor \"node lezer.mjs --proef <bestand>\" zonder LEZER_URL/LEZER_SECRET. De server is de waarheid: SYSTEEM en LEZING_SCHEMA staan in supabase/functions/_gedeeld/factuurlezer.ts en de lus haalt ze bij elke werk-aanroep op. Verandert het prompt daar, dan is deze kopie oud tot iemand hem overneemt (overgenomen op 2026-09-03).",
+  "prompt": "Je leest een factuur of kassabon die per mail is binnengekomen bij een\nNederlands truckwash-bedrijf, en geeft terug wat er letterlijk op staat.\n\nRegels:\n- Neem over wat er staat. Reken niets uit dat er niet staat, en vul niets\n  aan uit ervaring. Staat er geen factuurnummer, laat het veld dan weg.\n- Bedragen als getal, met een punt als decimaalteken, zonder valutateken.\n  Een Nederlands bedrag van 1.234,56 wordt 1234.56.\n- Een getal dat niet op het stuk staat is null, niet 0. Een 0 betekent dat\n  er letterlijk nul staat (0% btw, een gratis regel). Staat er per regel\n  geen btw-percentage, dan is \"btwPct\" null; staat er geen btw-bedrag, dan\n  is \"btwBedrag\" null.\n- Datums als jjjj-mm-dd.\n- Twijfel je over een waarde -- onscherpe scan, doorgehaald bedrag, twee\n  bedragen die elkaar tegenspreken -- zet die waarde er dan NIET in, en zet\n  in \"twijfel\" een korte Nederlandse zin die uitlegt wat er aan de hand is.\n- Tellen de regels niet op tot het subtotaal, meld dat in \"twijfel\". Pas de\n  getallen niet aan om het kloppend te maken.\n- Is dit geen factuur of bon maar bijvoorbeeld een pakbon of een aanmaning,\n  zet dat in \"soort\" en geef terug wat je wel ziet.\n- \"richting\" zegt wie hier aan wie factureert. Het bedrijf dat dit leest\n  heet Truckwash 1 Group, met vestigingen die \"Truckwash\" in de naam hebben\n  (Truckwash Oss, Truckwash 1 Utrecht, enzovoort).\n    \"inkoop\":  Truckwash staat als ontvanger op het stuk -- bij \"aan\",\n               \"factuuradres\", \"klant\" of \"t.a.v.\" -- en een ANDER bedrijf\n               staat als afzender bovenaan, met zijn eigen KvK- en\n               btw-nummer, IBAN en logo. Dan is dit een rekening die\n               Truckwash moet betalen.\n    \"verkoop\": Truckwash staat zelf als afzender bovenaan, met KvK, btw-\n               nummer en IBAN van Truckwash, en een ander bedrijf staat als\n               klant. Dan is dit een rekening die Truckwash zelf heeft\n               gestuurd en die iemand heeft doorgestuurd.\n    \"onbekend\": je kunt het niet met zekerheid zeggen, bijvoorbeeld omdat\n               er geen namen op staan of Truckwash nergens voorkomt.\n  Kijk naar wie het stuk heeft opgemaakt, niet naar wie de mail stuurde.\n  Zeg alleen \"verkoop\" als Truckwash zelf het stuk heeft opgemaakt. Een\n  stempel of aantekening \"ontvangen\" van Truckwash maakt Truckwash niet de\n  afzender. Een ander bedrijf met \"Truckwash\" in de naam dat niet Truckwash\n  1 Group of een van zijn vestigingen is (een buitenlandse wasserij, een\n  leverancier van wasinstallaties) is een ander bedrijf: dan \"inkoop\". Een\n  creditnota van een leverancier aan Truckwash is ook \"inkoop\". Twijfel je,\n  dan \"onbekend\" -- dat is nooit fout.\n  \"leverancier\" is altijd de afzender op het stuk, ook bij verkoop.\n- \"kenmerk\" is de korte omschrijving waar deze factuur over gaat, zoals je\n  hem zelf in een boekhouding zou zetten: \"elektra maart\", \"afvalcontainer\",\n  \"osmosefilters\". Niet de bedrijfsnaam en niet het factuurnummer.\n\nAntwoord met alleen JSON, zonder uitleg eromheen:\n\n{\n  \"soort\": \"factuur\" | \"bon\" | \"pakbon\" | \"aanmaning\" | \"onbekend\",\n  \"richting\": \"inkoop\" | \"verkoop\" | \"onbekend\",\n  \"leverancier\": \"string\",\n  \"factuurnummer\": \"string\",\n  \"datum\": \"jjjj-mm-dd\",\n  \"vervaldatum\": \"jjjj-mm-dd\",\n  \"iban\": \"string\",\n  \"betalingskenmerk\": \"string\",\n  \"btwNummer\": \"string\",\n  \"kvk\": \"string\",\n  \"valuta\": \"EUR\",\n  \"kenmerk\": \"string\",\n  \"regels\": [\n    { \"omschrijving\": \"string\", \"aantal\": 0, \"eenheid\": \"string\",\n      \"stukprijs\": 0, \"btwPct\": 0, \"bedragExcl\": 0 }\n  ],\n  \"subtotaalExcl\": 0,\n  \"btwBedrag\": 0,\n  \"totaalIncl\": 0,\n  \"voorstelCategorie\": \"materiaal\" | \"energie\" | \"onderhoud\" | \"personeel\" | \"transport\" | \"overig\",\n  \"twijfel\": [\"string\"]\n}",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "soort": {
+        "type": "string",
+        "enum": [
+          "factuur",
+          "bon",
+          "pakbon",
+          "aanmaning",
+          "onbekend"
+        ]
+      },
+      "richting": {
+        "type": "string",
+        "enum": [
+          "inkoop",
+          "verkoop",
+          "onbekend"
+        ]
+      },
+      "leverancier": {
+        "type": "string"
+      },
+      "factuurnummer": {
+        "type": "string"
+      },
+      "datum": {
+        "type": "string"
+      },
+      "vervaldatum": {
+        "type": "string"
+      },
+      "iban": {
+        "type": "string"
+      },
+      "betalingskenmerk": {
+        "type": "string"
+      },
+      "btwNummer": {
+        "type": "string"
+      },
+      "kvk": {
+        "type": "string"
+      },
+      "valuta": {
+        "type": "string"
+      },
+      "kenmerk": {
+        "type": "string"
+      },
+      "regels": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "omschrijving": {
+              "type": "string"
+            },
+            "aantal": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "eenheid": {
+              "type": "string"
+            },
+            "stukprijs": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "btwPct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "bedragExcl": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "omschrijving",
+            "aantal",
+            "eenheid",
+            "stukprijs",
+            "btwPct",
+            "bedragExcl"
+          ]
+        }
+      },
+      "subtotaalExcl": {
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "btwBedrag": {
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "totaalIncl": {
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "voorstelCategorie": {
+        "type": "string",
+        "enum": [
+          "materiaal",
+          "energie",
+          "onderhoud",
+          "personeel",
+          "transport",
+          "overig"
+        ]
+      },
+      "twijfel": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "soort",
+      "richting",
+      "leverancier",
+      "factuurnummer",
+      "datum",
+      "vervaldatum",
+      "iban",
+      "btwNummer",
+      "kvk",
+      "kenmerk",
+      "regels",
+      "subtotaalExcl",
+      "btwBedrag",
+      "totaalIncl",
+      "voorstelCategorie",
+      "twijfel"
+    ]
+  }
+}

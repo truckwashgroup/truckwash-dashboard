@@ -230,6 +230,7 @@ export default function Kostenposten() {
                               && ` · ${e.gelezen.twijfel!.length} punt${e.gelezen.twijfel!.length === 1 ? '' : 'en'} van twijfel`}
                           </div>
                         )}
+                        <LeesStatus bon={e} />
                         <Bijlage bon={e} />
                         {e.rejectReason && (
                           <div className="kosten-reden">Reden: {e.rejectReason}</div>
@@ -354,6 +355,7 @@ function BonDetail({
         <>
           <div className="row" style={{ gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
             <Bijlage bon={bon} />
+            <LeesStatus bon={bon} />
             <span className="spacer" />
             {magLezen && heeftIetsTeLezen(bon) && (
               <button className="btn primary sm" disabled={bezig} onClick={() => void lees()}>
@@ -392,6 +394,35 @@ function BonDetail({
       )}
     </Modal>
   )
+}
+
+/* ----------------------- De lokale lezer -------------------------- */
+
+/**
+ * Waar een bon staat bij de lokale lezer (0049).
+ *
+ * Alleen iets laten zien als het veld gezet is: een bon die Claude las, of
+ * die iemand met de hand invulde, heeft geen leesStatus en hoort hier stil te
+ * blijven. 'klaar' toont ook niets -- dan staat er al "Voorgelezen". Wat er
+ * misging staat niet hier maar in de twijfel van de lezing; de server zet het
+ * daar neer, zodat het op dezelfde plek staat als bij Claude.
+ */
+function LeesStatus({ bon }: { bon: Expense }) {
+  if (bon.leesStatus === 'wacht' || bon.leesStatus === 'bezig') {
+    return (
+      <div style={{ marginTop: 3 }}>
+        <Badge tone="info"><Clock size={11} /> wacht op de lokale lezer</Badge>
+      </div>
+    )
+  }
+  if (bon.leesStatus === 'mislukt') {
+    return (
+      <div style={{ marginTop: 3 }}>
+        <Badge tone="danger"><AlertTriangle size={11} /> lezen mislukt</Badge>
+      </div>
+    )
+  }
+  return null
 }
 
 /* -------------------------- De historie --------------------------- */

@@ -174,6 +174,8 @@ await run(db, '0040_bijwerken_is_geen_aanmaken_op_alle_tabellen.sql draait', sql
 await run(db, '0041_trucky_praat_met_bezoekers.sql draait', sqlFile('supabase/migrations/0041_trucky_praat_met_bezoekers.sql'))
 await run(db, '0042_trucky_kent_de_antwoorden_zelf.sql draait', sqlFile('supabase/migrations/0042_trucky_kent_de_antwoorden_zelf.sql'))
 await run(db, '0043_de_app_en_de_database_oneens_over_kanalen.sql draait', sqlFile('supabase/migrations/0043_de_app_en_de_database_oneens_over_kanalen.sql'))
+await run(db, '0044_facturen_boeken_zichzelf.sql draait', sqlFile('supabase/migrations/0044_facturen_boeken_zichzelf.sql'))
+await run(db, '0045_een_kassa_ziet_wie_er_mag_werken.sql draait', sqlFile('supabase/migrations/0045_een_kassa_ziet_wie_er_mag_werken.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -219,6 +221,7 @@ await run(db, '0040 nogmaals', sqlFile('supabase/migrations/0040_bijwerken_is_ge
 await run(db, '0041 nogmaals', sqlFile('supabase/migrations/0041_trucky_praat_met_bezoekers.sql'))
 await run(db, '0042 nogmaals', sqlFile('supabase/migrations/0042_trucky_kent_de_antwoorden_zelf.sql'))
 await run(db, '0043 nogmaals', sqlFile('supabase/migrations/0043_de_app_en_de_database_oneens_over_kanalen.sql'))
+await run(db, '0044 nogmaals', sqlFile('supabase/migrations/0044_facturen_boeken_zichzelf.sql'))
 
 
 
@@ -3141,6 +3144,30 @@ check('en die uitweg wijst naar de eigen tabel',
     ? verkeerdeTabel.map((r) => r.tablename).join(', ')
     : undefined)
 
+/*
+ * En hij moet naar de sleutelkolom kijken.
+ *
+ * rij_bestaat() doet letterlijk "where id = $1". Geef je er een andere kolom
+ * aan mee -- code, naam, leverancier -- dan zoekt hij een rij met id = '4031'
+ * terwijl die id gb_4031 heet. Dat is geen foutmelding maar een uitweg die
+ * altijd dichtzit, en dus weer "new row violates row-level security policy"
+ * op een gewone wijziging.
+ *
+ * Dit stond in 0044 op code en naam. Het viel niet op omdat op die twee
+ * tabellen alleen management schrijft, en die heeft de uitweg niet nodig --
+ * precies het soort fout dat pas opvalt als je hem een keer nodig hebt.
+ */
+const verkeerdeKolom = metUitweg.filter((r) => {
+  const m = String(r.with_check).match(/rij_bestaat\([^)]*?,\s*([a-z_]+)\s*\)/)
+  return m && m[1] !== 'id'
+})
+
+check('en naar de sleutelkolom id',
+  verkeerdeKolom.length === 0,
+  verkeerdeKolom.length
+    ? verkeerdeKolom.map((r) => `${r.tablename} kijkt naar iets anders dan id`).join(', ')
+    : undefined)
+
 /* ===========================================================================
  *  Een verwijdering meldt zichzelf (0038)
  *
@@ -3565,6 +3592,302 @@ check('een kassa zet zijn eigen bonprinter met een update',
 check('maar maakt geen kassa aan',
   !(await magSchrijven(apparaatU, `insert into public.pos_registers
      (id, location_id, code, name) values ('reg_zelf', 'loc_utr', 'KAS-ZELF', 'Eigen')`)))
+
+
+console.log('\n30. Een factuur deelt zichzelf in')
+
+/*
+ * Het geheugen is het hele punt van 0044, en daar hoort dus een test bij die
+ * verder gaat dan "de migratie draait". Wat hieronder wordt nagerekend:
+ *
+ *   - raden op trefwoorden werkt, en zegt eerlijk dat het geraden is
+ *   - het geheugen wint van het raden
+ *   - onthouden telt op in plaats van een tweede regel te maken
+ *   - de sleutels heten id, want daar rekent de synchronisatie op
+ */
+
+const indeel = async (leverancier, omschrijving = '') => (await db.query(
+  'select * from public.factuur_indelen($1, $2)', [leverancier, omschrijving])).rows[0]
+
+/* ---- eerst de zaaigegevens ---- */
+
+check('het grootboek is gevuld',
+  (await db.query('select count(*)::int as n from public.grootboek')).rows[0].n >= 12)
+
+check('en de sleutel heet id',
+  (await db.query(`select id from public.grootboek where code = '4031'`)).rows[0]?.id === 'gb_4031')
+
+check('bij de tags ook',
+  (await db.query(`select id from public.kosten_tags where naam = 'osmose'`)).rows[0]?.id === 'tag_osmose')
+
+/* ---- raden ---- */
+
+const enexis = await indeel('Enexis Netbeheer B.V.', 'jaarafrekening elektra')
+check('een onbekende leverancier wordt op trefwoorden geraden',
+  enexis?.grootboek_code === '4010', String(enexis?.grootboek_code))
+check('en dat wordt eerlijk gemeld als gok', enexis?.bron === 'geraden', String(enexis?.bron))
+check('met de tag erbij', (enexis?.tags ?? []).includes('elektra'),
+  JSON.stringify(enexis?.tags))
+
+const onbekend = await indeel('Firma Zonder Kenmerken', 'levering')
+check('wat nergens op lijkt krijgt geen rekening opgedrongen',
+  !onbekend?.grootboek_code || onbekend.grootboek_code === '4090',
+  String(onbekend?.grootboek_code))
+
+/* ---- het geheugen ---- */
+
+await db.query('select public.boeking_onthouden($1, $2, $3)',
+  ['Enexis Netbeheer B.V.', '4090', ['finance']])
+
+const naOnthouden = await indeel('Enexis Netbeheer B.V.', 'jaarafrekening elektra')
+check('het geheugen wint van het raden',
+  naOnthouden?.grootboek_code === '4090', String(naOnthouden?.grootboek_code))
+check('en zegt dat het uit het geheugen komt',
+  naOnthouden?.bron === 'geheugen', String(naOnthouden?.bron))
+
+/*
+ * Dezelfde leverancier met andere hoofdletters en spaties. Een factuur schrijft
+ * de naam niet twee keer hetzelfde, en een geheugen dat daarop struikelt
+ * onthoudt niets.
+ */
+const anders = await indeel('  ENEXIS NETBEHEER B.V.  ')
+check('hoofdletters en spaties maken geen tweede leverancier',
+  anders?.grootboek_code === '4090', String(anders?.grootboek_code))
+
+await db.query('select public.boeking_onthouden($1, $2, $3)',
+  ['Enexis Netbeheer B.V.', '4090', ['finance']])
+
+const geheugen = await db.query(
+  `select keren from public.leverancier_boeking where leverancier = lower('Enexis Netbeheer B.V.')`)
+check('twee keer boeken maakt een gewoonte, geen tweede regel',
+  geheugen.rows.length === 1 && Number(geheugen.rows[0].keren) === 2,
+  `${geheugen.rows.length} regels, keren=${geheugen.rows[0]?.keren}`)
+
+/* ---- de kostenpost kan het kwijt ---- */
+
+const kostKolommen = await db.query(`
+  select column_name from information_schema.columns
+   where table_schema = 'public' and table_name = 'expenses'`)
+const kostNamen = kostKolommen.rows.map((r) => r.column_name)
+for (const c of ['tags', 'grootboek_code', 'factuurnummer', 'vervaldatum',
+                 'btw_bedrag', 'indeling_bron']) {
+  check(`expenses.${c} bestaat`, kostNamen.includes(c))
+}
+
+/*
+ * Niet via run(): die meldt zelf een mislukking zodra de SQL klapt, en hier is
+ * klappen juist de bedoeling.
+ */
+let bronGeweigerd = false
+try {
+  await db.exec(`insert into public.expenses (id, expense_date, indeling_bron)
+                 values ('exp_fout', 1, 'verzonnen')`)
+} catch {
+  bronGeweigerd = true
+}
+check('indeling_bron laat geen verzonnen waarde toe', bronGeweigerd)
+
+let bronToegestaan = true
+try {
+  await db.exec(`insert into public.expenses (id, expense_date, indeling_bron)
+                 values ('exp_goed', 1, 'geraden')`)
+} catch (e) {
+  bronToegestaan = false
+  console.log('       ' + String(e.message ?? e).split('\n')[0])
+}
+check('maar geraden mag er gewoon in', bronToegestaan)
+
+/* ---- de instellingen voor de inkoopadressen ---- */
+
+const inkoop = await db.query(
+  `select sleutel, waarde from public.instellingen where sleutel like 'inkoop%' or sleutel = 'factuur_automatisch'`)
+const perSleutel = Object.fromEntries(inkoop.rows.map((r) => [r.sleutel, r.waarde]))
+check('het inkoopdomein staat als instelling', !!perSleutel.inkoop_domein, JSON.stringify(perSleutel))
+check('het voorvoegsel ook', perSleutel.inkoop_voorvoegsel === 'inkoop', String(perSleutel.inkoop_voorvoegsel))
+check('en automatisch boeken staat aan', perSleutel.factuur_automatisch === 'ja',
+  String(perSleutel.factuur_automatisch))
+
+/* ---- de upsert-val, nu ook op deze twee tabellen ----
+ *
+ * De app werkt bij met een upsert, en PostgREST toetst dan óók de
+ * INSERT-regel -- ook als de rij allang bestaat. rij_bestaat() is de uitweg,
+ * en die kijkt hard naar "where id = $1". Hier stond per tabel een andere
+ * kolom in die aanroep, en dan slaat de vlucht altijd mis.
+ *
+ * Dit is dezelfde fout als 0022, 0031 en 0040. Vandaar een test.
+ */
+
+/*
+ * Eerst het dossier, dan het account.
+ *
+ * Andersom gaat mis: bij een nieuw auth-account maakt een trigger zelf een
+ * dossier aan (zie hoofdstuk 5), en dan botst het dossier dat we daarna
+ * invoegen op hetzelfde e-mailadres.
+ */
+await db.exec(`
+  insert into public.profiles (id, email, name, roles, active)
+  values ('u_boekhoud', 'boekhoud@truckwash1group.nl', 'Bea Boekhoud',
+          array['administratie']::text[], true)
+  on conflict (id) do update set roles = excluded.roles, active = true;
+  insert into public.profiles (id, email, name, roles, active)
+  values ('u_monteur', 'monteur@truckwash1group.nl', 'Mo Monteur',
+          array['employee']::text[], true)
+  on conflict (id) do update set roles = excluded.roles, active = true;
+
+  insert into auth.users (id, email)
+  values ('facc0000-0000-0000-0000-000000000001', 'boekhoud@truckwash1group.nl'),
+         ('facc0000-0000-0000-0000-000000000002', 'monteur@truckwash1group.nl')
+  on conflict (id) do nothing;`)
+
+const boekhoud = 'facc0000-0000-0000-0000-000000000001'
+const monteur = 'facc0000-0000-0000-0000-000000000002'
+
+/* admin.desk hoort deze tabellen te mogen beheren. */
+await db.exec(`update public.profiles set grants = array['admin.desk']::text[]
+                where id = 'u_boekhoud'`)
+
+await db.exec('alter table public.grootboek force row level security;')
+await db.exec('alter table public.kosten_tags force row level security;')
+
+/*
+ * Dit bewijst dat de administratie mag schrijven, niet dat de uitweg werkt --
+ * management en admin.desk komen er sowieso langs. Of de uitweg deugt staat
+ * hierboven, bij de controle over alle tabellen tegelijk.
+ */
+check('de administratie werkt een rekening bij met een upsert',
+  await magSchrijven(boekhoud, `
+    insert into public.grootboek (id, code, naam, trefwoorden, btw_pct)
+    values ('gb_4031', '4031', 'Contributies en heffingen', array['kvk'], 0)
+    on conflict (id) do update set naam = excluded.naam`))
+
+check('en een tag ook',
+  await magSchrijven(boekhoud, `
+    insert into public.kosten_tags (id, naam, trefwoorden)
+    values ('tag_afval', 'afval', array['afval'])
+    on conflict (id) do update set trefwoorden = excluded.trefwoorden`))
+
+check('een monteur maakt geen grootboekrekening aan',
+  !(await magSchrijven(monteur, `
+    insert into public.grootboek (id, code, naam) values ('gb_9999', '9999', 'Eigen potje')`)))
+
+/* ---- het geheugen staat niet open voor iedereen ---- */
+
+await db.exec(`delete from public.leverancier_boeking where leverancier = 'testpartij bv'`)
+
+await asUser(db, monteur)
+await db.exec('set role authenticated;')
+await db.query('select public.boeking_onthouden($1, $2, $3)',
+  ['Testpartij BV', '4090', ['finance']])
+await db.exec('reset role;')
+await asServer(db)
+
+check('een monteur leert het geheugen niets',
+  (await db.query(
+    `select count(*)::int as n from public.leverancier_boeking
+      where leverancier = 'testpartij bv'`)).rows[0].n === 0)
+
+await asUser(db, boekhoud)
+await db.exec('set role authenticated;')
+await db.query('select public.boeking_onthouden($1, $2, $3)',
+  ['Testpartij BV', '4090', ['finance']])
+await db.exec('reset role;')
+await asServer(db)
+
+check('de administratie wel',
+  (await db.query(
+    `select grootboek_code from public.leverancier_boeking
+      where leverancier = 'testpartij bv'`)).rows[0]?.grootboek_code === '4090')
+
+await db.exec('alter table public.grootboek no force row level security;')
+await db.exec('alter table public.kosten_tags no force row level security;')
+
+
+
+console.log('\n30. Een kassa ziet wie er bij hem mag werken')
+
+/*
+ * De kassa gaat afdwingen dat iemand alleen aanmeldt op zijn eigen vestiging.
+ * Dat tweede deel -- wie overal mag werken, mag elke kassa -- werkte niet, en
+ * niet door de kassa maar door profiles_select: sees_all_locations() gaat over
+ * wie kijkt, niet over wie bekeken wordt. Een kassa in Rotterdam zag iemand van
+ * het kantoor met all_locations dus niet, en dan staat zijn nummer niet in de
+ * cache en krijgt hij "niet bekend op deze vestiging".
+ *
+ * Met één vestiging viel dat niet op. Met achttien wel.
+ */
+
+await asServer(db)
+
+await db.exec(`
+  insert into auth.users (id, email, raw_user_meta_data)
+  values ('dddddddd-0000-0000-0000-000000000001',
+          'kassa.kas-rtm-9@apparaat.truckwash1group.nl',
+          '{"kassa":"KAS-RTM-9","apparaat":true}'::jsonb)
+  on conflict (id) do nothing;
+
+  -- Een kassa in Rotterdam.
+  insert into public.profiles
+    (id, auth_id, email, name, roles, active, location_id, is_device)
+  values ('dev_rtm', 'dddddddd-0000-0000-0000-000000000001',
+          'kassa.kas-rtm-9@apparaat.truckwash1group.nl', 'Kassa KAS-RTM-9',
+          array['employee'], true, 'loc_rtm', true)
+  on conflict (id) do nothing;
+
+  -- Drie mensen, alledrie NIET op Rotterdam.
+  insert into public.profiles
+    (id, email, name, roles, active, location_id, personnel_number, all_locations, manages)
+  values
+    ('u_overal', 'overal@truckwash1group.nl', 'Wendy Overal',
+     array['employee'], true, 'loc_utr', 'TW-901', true, null),
+    ('u_baas_rtm', 'baasrtm@truckwash1group.nl', 'Bas Leiding',
+     array['supervisor'], true, 'loc_utr', 'TW-902', false, array['loc_rtm']),
+    ('u_alleen_utr', 'alleenutr@truckwash1group.nl', 'Ali Utrecht',
+     array['employee'], true, 'loc_utr', 'TW-903', false, null)
+  on conflict (id) do nothing;
+
+  alter table public.profiles force row level security;
+`)
+
+const kassaRtm = 'dddddddd-0000-0000-0000-000000000001'
+await asUser(db, kassaRtm)
+console.log('    DEBUG apparaat:', JSON.stringify((await db.query(
+  "select public.is_apparaataccount(auth.uid()) as app, public.my_locations() as mijne, public.my_id() as wie")).rows))
+console.log('    DEBUG regel:', JSON.stringify((await db.query(
+  "select qual from pg_policies where tablename='profiles' and policyname='profiles_select'")).rows).slice(0, 400))
+await asServer(db)
+
+const zietKassa = async (wie) => (await countAs(kassaRtm,
+  `select count(*)::int as n from public.profiles where id = '${wie}'`)) === 1
+
+check('de kassa ziet iemand die overal mag werken', await zietKassa('u_overal'))
+check('en iemand die leiding heeft over zijn vestiging', await zietKassa('u_baas_rtm'))
+check('maar niet iemand die alleen op een andere vestiging staat',
+  !(await zietKassa('u_alleen_utr')))
+
+/*
+ * En dit is de prijs die deze regel níet betaalt: hij geldt alleen voor een
+ * kassa. Zou hij voor iedereen gelden, dan zag elke werknemer op elke
+ * vestiging het dossier -- met telefoonnummer en uurloon -- van iedereen die
+ * overal mag werken.
+ */
+check('een gewone werknemer ziet die mensen nog steeds niet',
+  (await countAs(wasser,
+    `select count(*)::int as n from public.profiles
+      where id in ('u_overal', 'u_baas_rtm', 'u_alleen_utr')`)) === 0)
+
+check('en een klant ziet er al helemaal niets van',
+  (await countAs(klant,
+    "select count(*)::int as n from public.profiles where id = 'u_overal'")) === 0)
+
+/*
+ * De kassa mag ze zien, niet wijzigen. Anders zou een tablet achter de balie
+ * het dossier van het kantoor kunnen omzetten.
+ */
+await magSchrijven(kassaRtm,
+  "update public.profiles set name = 'Omgezet' where id = 'u_overal'")
+check('en wijzigen mag de kassa ze niet',
+  (await db.query(
+    "select name from public.profiles where id = 'u_overal'")).rows[0].name === 'Wendy Overal')
 
 
 await db.close()

@@ -13,7 +13,7 @@ import type {
 AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   CourseProgress, EmailLog, Expense, Fault, InventoryItem, Location, LogEvent,
   AgendaItem, DossierWijziging, Instelling, MailBericht, MaintenancePlan, OutboxRecord,
-  TruckyContact, TruckyVraag,
+  TruckyContact, TruckyVraag, Grootboek, KostenTag,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel,
   PersonnelDocument, PersonnelPrivate,
   Shift, Signup, StockMovement, Ticket,
@@ -54,6 +54,8 @@ class TruckwashDB extends Dexie {
   posSafeMoves!: Table<PosSafeMove, string>
   locationPhotos!: Table<LocationPhoto, string>
   truckyVragen!: Table<TruckyVraag, string>
+  grootboek!: Table<Grootboek, string>
+  kostenTags!: Table<KostenTag, string>
   truckyContact!: Table<TruckyContact, string>
   instellingen!: Table<Instelling, string>
   media!: Table<Media, string>
@@ -201,6 +203,16 @@ class TruckwashDB extends Dexie {
       truckyVragen: 'id, actief, updatedAt',
       truckyContact: 'id, status, createdAt, updatedAt',
       instellingen: 'id, sleutel, updatedAt',
+    })
+
+    /* Het grootboek en de etiketten waarmee een factuur zichzelf indeelt.
+
+       Beide zijn klein en veranderen zelden, en ze staan hier omdat de
+       kostenposten anders een rekeningnummer laten zien zonder naam -- 4031
+       zegt niemand iets, "Contributies en heffingen" wel. */
+    this.version(19).stores({
+      grootboek: 'code, actief, updatedAt',
+      kostenTags: 'id, naam, updatedAt',
     })
   }
 }

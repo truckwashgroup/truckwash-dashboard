@@ -122,6 +122,8 @@ const TABLES: Record<EntityName, string> = {
   posSafeMoves: 'pos_safe_moves',
   locationPhotos: 'location_photos',
   truckyVragen: 'trucky_vragen',
+  grootboek: 'grootboek',
+  kostenTags: 'kosten_tags',
   truckyContact: 'trucky_contact',
   instellingen: 'instellingen',
   signups: 'signups',

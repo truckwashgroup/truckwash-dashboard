@@ -3,16 +3,21 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   AlertTriangle, Check, CheckCheck, Clock, Euro, Loader2, Mail, Paperclip,
-  Receipt, RotateCcw, ScanText, Sparkles, X,
+  Receipt, RotateCcw, ScanText, Sparkles, Wallet, X,
 } from 'lucide-react'
 import { db } from '../../lib/db'
 import { expenses as expRepo } from '../../lib/repo'
-import type { Expense, FactuurLezing, MailBericht } from '../../lib/types'
+import type {
+  Expense, FactuurLezing, Grootboek, KostenTag, MailBericht,
+} from '../../lib/types'
 import {
   bedragExcl, btwPercentage, heeftIetsTeLezen, leesFactuur, regelsKloppen,
   voorstellen, type Voorstel,
 } from '../../lib/facturen'
 import { dateShort, money } from '../../lib/format'
+import {
+  BRON_TEKST, onthoudBoeking, rekeningNaam, vraagtAandacht, zetBoeking,
+} from '../../lib/boeking'
 import { Badge, Card, Empty, Field, Modal, Stat } from '../../components/ui'
 import { magOpenen, postbus } from '../../lib/postbus'
 import Bekijker from '../../components/Bekijker'
@@ -81,6 +86,20 @@ export default function Kostenposten() {
   async function keurGoed(ids: string[]) {
     for (const id of ids) {
       await expRepo.decide(id, 'goedgekeurd', { id: user.id, name: user.name })
+
+      /*
+       * En onthouden hoe deze leverancier geboekt is.
+       *
+       * Dit is het moment waarop het raden ophoudt: iemand heeft ernaar
+       * gekeken en gezegd dat het klopt. De volgende factuur van dezelfde
+       * partij staat daarmee meteen goed.
+       *
+       * Achter de goedkeuring langs, en zonder erop te wachten: het bijwerken
+       * van het geheugen mag het goedkeuren niet ophouden en al helemaal niet
+       * laten mislukken.
+       */
+      const bon = alle.find((r) => r.id === id)
+      if (bon) void onthoudBoeking(bon)
     }
     setSelected(new Set())
     toast.ok(ids.length === 1 ? 'Kostenpost goedgekeurd' : `${ids.length} kostenposten goedgekeurd`)
@@ -352,6 +371,8 @@ function BonDetail({
 
           {fout && <p className="waarschuwing">{fout}</p>}
 
+          <Boeking bon={bon} />
+
           <AnimatePresence mode="wait">
             {bon.gelezen && (
               <motion.div
@@ -368,6 +389,137 @@ function BonDetail({
         </>
       )}
     </Modal>
+  )
+}
+
+/* --------------------------- De boeking --------------------------- */
+
+/**
+ * Waar deze bon op geboekt staat, en de mogelijkheid dat te corrigeren.
+ *
+ * Staat boven de lezing en niet erin, want dit is iets anders. De lezing is
+ * wat er op het papier staat; dit is waar het in de boekhouding terechtkomt.
+ * Dat tweede is de vraag die de accountant stelt.
+ */
+function Boeking({ bon }: { bon: Expense }) {
+  const rekeningen = useLiveQuery(
+    () => db.grootboek.toArray(), [], [] as Grootboek[])
+  const tags = useLiveQuery(() => db.kostenTags.toArray(), [], [] as KostenTag[])
+
+  const [bezig, setBezig] = useState(false)
+
+  const bruikbaar = useMemo(
+    () => rekeningen
+      /*
+       * Uitgezette rekeningen zijn niet te kiezen, maar de rekening die er nu
+       * op staat wél -- ook als hij uit is. Anders springt een oude boeking
+       * bij het openen naar leeg, en dan verander je hem per ongeluk door
+       * alleen te kijken.
+       */
+      .filter((g) => g.actief || g.code === bon.grootboekCode)
+      .sort((a, b) => a.code.localeCompare(b.code)),
+    [rekeningen, bon.grootboekCode])
+
+  const beschikbaar = useMemo(
+    () => [...new Set([...tags.map((t) => t.naam), ...(bon.tags ?? [])])].sort(),
+    [tags, bon.tags])
+
+  async function kiesRekening(code: string) {
+    setBezig(true)
+    try {
+      await zetBoeking(bon, { grootboekCode: code || undefined })
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  async function wisselTag(naam: string) {
+    const huidig = bon.tags ?? []
+    const nieuw = huidig.includes(naam)
+      ? huidig.filter((t) => t !== naam)
+      : [...huidig, naam]
+    setBezig(true)
+    try {
+      await zetBoeking(bon, { tags: nieuw })
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  return (
+    <Card title="Boeking" hint="Waar deze kosten terechtkomen" className="mb">
+      {vraagtAandacht(bon) && (
+        <p className="waarschuwing">
+          <AlertTriangle size={14} style={{ verticalAlign: -2 }} />{' '}
+          {bon.grootboekCode
+            ? 'Deze rekening is geraden op trefwoorden omdat deze leverancier nog '
+              + 'niet bekend was. Klopt hij, dan onthoudt het systeem hem zodra je '
+              + 'goedkeurt.'
+            : 'Deze bon is nog niet ingedeeld. Kies een rekening; die wordt dan '
+              + 'onthouden voor de volgende factuur van deze leverancier.'}
+        </p>
+      )}
+
+      <div className="grid cols-2 mb">
+        <Field
+          label="Grootboekrekening"
+          help={bon.indelingBron ? BRON_TEKST[bon.indelingBron] : undefined}
+        >
+          <select
+            className="select"
+            value={bon.grootboekCode ?? ''}
+            disabled={bezig}
+            onChange={(e) => void kiesRekening(e.target.value)}
+          >
+            <option value="">— nog niet ingedeeld —</option>
+            {bruikbaar.map((g) => (
+              <option key={g.id} value={g.code}>
+                {g.code} · {g.naam}{g.actief ? '' : ' (uit)'}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <div>
+          <Veld label="Factuurnummer" waarde={bon.factuurnummer} mono />
+          <Veld
+            label="Vervaldatum"
+            waarde={bon.vervaldatum ? dateShort(bon.vervaldatum) : undefined}
+          />
+          <Veld
+            label="Btw volgens de factuur"
+            waarde={bon.btwBedrag != null ? money(bon.btwBedrag) : undefined}
+          />
+        </div>
+      </div>
+
+      {beschikbaar.length > 0 && (
+        <Field label="Tags" help="Waar je later op filtert; los van de rekening.">
+          <div className="row">
+            {beschikbaar.map((naam) => {
+              const aan = (bon.tags ?? []).includes(naam)
+              return (
+                <button
+                  key={naam}
+                  className={aan ? 'btn sm ok' : 'btn ghost sm'}
+                  disabled={bezig}
+                  onClick={() => void wisselTag(naam)}
+                >
+                  {aan && <Check size={12} />} {naam}
+                </button>
+              )
+            })}
+          </div>
+        </Field>
+      )}
+
+      {bruikbaar.length === 0 && (
+        <p className="hint">
+          <Wallet size={14} style={{ verticalAlign: -2 }} /> Er staan nog geen
+          grootboekrekeningen klaar. Die stel je in bij Ontwikkeling → Inkoop.
+        </p>
+      )}
+    </Card>
   )
 }
 

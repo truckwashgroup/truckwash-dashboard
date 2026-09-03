@@ -363,6 +363,66 @@ export interface Expense {
    */
   gelezen?: FactuurLezing
 
+  /**
+   * De boeking.
+   *
+   * Anders dan gelezen staan deze velden wél naast de gewone velden en niet
+   * eronder, want dit is geen voorstel meer maar wat er is ingevuld -- door
+   * de post of door een mens. Waardoor, dat staat in indelingBron.
+   */
+  factuurnummer?: string
+  /** Wanneer de rekening betaald moet zijn, epoch ms */
+  vervaldatum?: number
+  /**
+   * Het btw-bedrag zoals het op de factuur staat.
+   *
+   * Uitrekenen uit amountExcl en vatPct kan bijna altijd, en juist die "bijna"
+   * is het probleem: bij een factuur met twee tarieven klopt het niet, en dan
+   * gaat er iets naar de Belastingdienst dat niemand heeft nagerekend.
+   */
+  btwBedrag?: number
+  /** Code van de grootboekrekening, bijvoorbeeld 4031 */
+  grootboekCode?: string
+  /** Losse etiketten om op te filteren: afval, elektra, osmose */
+  tags?: string[]
+  /**
+   * Waar de indeling vandaan komt.
+   *
+   *   geheugen   deze leverancier is eerder zo geboekt
+   *   geraden    op trefwoorden gevonden, dus nakijken
+   *   handmatig  een mens heeft het gezet en dat is leidend
+   */
+  indelingBron?: 'geheugen' | 'geraden' | 'handmatig'
+
+  updatedAt: number
+}
+
+/**
+ * Een rekening uit het grootboekschema.
+ *
+ * De sleutel heet id en niet code, ook al is de code net zo uniek. De
+ * synchronisatie vergelijkt elke binnengehaalde rij met de wachtrij op rij.id
+ * -- voor alle tabellen -- en een tabel die daarvan afwijkt levert daar
+ * stilletjes niets op.
+ */
+export interface Grootboek {
+  id: string
+  code: string
+  naam: string
+  /** Woorden die op een factuur naar deze rekening wijzen */
+  trefwoorden: string[]
+  btwPct?: number
+  actief: boolean
+  updatedAt: number
+}
+
+/** Een etiket waar kosten op te filteren zijn. */
+export interface KostenTag {
+  id: string
+  naam: string
+  /** Woorden die deze tag opleveren bij het indelen */
+  trefwoorden?: string[]
+  actief?: boolean
   updatedAt: number
 }
 
@@ -401,6 +461,15 @@ export interface FactuurLezing {
   btwBedrag?: number
   totaalIncl?: number
   valuta?: string
+
+  /**
+   * Waar deze factuur over gaat, kort: "elektra maart", "osmosefilters".
+   *
+   * Niet de bedrijfsnaam en niet het factuurnummer -- juist de omschrijving
+   * waarop het indelen zoekt. Het onderwerp van de mail is daar te vaak een
+   * slechte vervanger voor ("Uw factuur", "Automatisch bericht").
+   */
+  kenmerk?: string
 
   /** Waar het model zelf niet uit kwam. Leesbare zinnen, geen codes. */
   twijfel?: string[]
@@ -1757,6 +1826,7 @@ export type EntityName =
   | 'posRegisters' | 'posDevices' | 'posPairings' | 'posSafes' | 'posSafeMoves'
   | 'locationPhotos'
   | 'truckyVragen' | 'truckyContact' | 'instellingen'
+  | 'grootboek' | 'kostenTags'
 
 export type SyncOp = 'put' | 'delete'
 

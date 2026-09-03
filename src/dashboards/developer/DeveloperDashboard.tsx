@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   ArrowLeft, Bug, Check, Code2, Copy, Inbox, ListChecks, Lock, Mail,
   MessageSquare, Radio, ScrollText, Search, Send, Server, Trash2,
-  TriangleAlert, Wand2,
+  TriangleAlert, Wallet, Wand2,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db, alleMensen } from '../../lib/db'
@@ -29,6 +29,7 @@ import Post from './Post'
 import Meekijken from './Meekijken'
 import Postbus from '../../components/Postbus'
 import Plannen from './Plannen'
+import Inkoop from './Inkoop'
 import { gesprekUit, planVan, plannen as plannenRepo } from '../../lib/devplan'
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
@@ -40,6 +41,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
   postbus: { title: 'Postbus', subtitle: 'Post die binnenkomt, en zelf mailen' },
   plannen: { title: 'Plannen', subtitle: 'Wat er uit een melding komt, en wat ervan gebouwd wordt' },
+  inkoop: { title: 'Inkoop', subtitle: 'Waar facturen binnenkomen, en hoe ze zichzelf indelen' },
 }
 
 export default function DeveloperDashboard() {
@@ -68,6 +70,7 @@ export default function DeveloperDashboard() {
       ? [{ key: 'meekijken', label: 'Meekijken', icon: Radio }]
       : []),
     { key: 'systeem', label: 'Systeem', icon: Server },
+    { key: 'inkoop', label: 'Inkoop', icon: Wallet },
     { key: 'post', label: 'Post', icon: Mail },
     ...(perms.can('mail.read')
       ? [{ key: 'postbus', label: 'Postbus', icon: Inbox }]
@@ -78,7 +81,7 @@ export default function DeveloperDashboard() {
   ]
 
   useNavTarget(
-  ['tickets', 'plannen', 'logboek', 'meekijken', 'systeem', 'post', 'postbus', 'overleg'],
+  ['tickets', 'plannen', 'logboek', 'meekijken', 'systeem', 'inkoop', 'post', 'postbus', 'overleg'],
   (p) => setPage(p))
 
   const meta = TITLES[page] ?? TITLES.tickets
@@ -97,6 +100,7 @@ export default function DeveloperDashboard() {
       {page === 'logboek' && <Logboek logs={logs} />}
       {page === 'systeem' && <Systeem tickets={alleTickets} logs={logs} />}
       {page === 'meekijken' && <Meekijken />}
+      {page === 'inkoop' && <Inkoop />}
       {page === 'post' && <Post />}
       {page === 'postbus' && <Postbus />}
       {page === 'overleg' && <Overleg />}

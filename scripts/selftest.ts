@@ -4039,11 +4039,39 @@ console.log('\n— wat een factuur verdacht maakt —')
 
   /* --- en de AI leest ook wat is tegengehouden --- */
 
-  const lezer = readFileSync('supabase/functions/factuur-lezen/index.ts', 'utf8')
+  /*
+   * Het lezen zelf staat in _gedeeld/factuurlezer.ts en niet meer in de
+   * functie factuur-lezen. Dat moest wel: de post leest een binnengekomen
+   * factuur nu uit zichzelf, en die kan geen ingelogde gebruiker meesturen
+   * -- precies wat factuur-lezen als eerste eist.
+   */
+  const lezer = readFileSync('supabase/functions/_gedeeld/factuurlezer.ts', 'utf8')
   check('de lezer slaat een tegengehouden bijlage niet meer over',
     !lezer.includes("if (b.controle && b.controle !== 'schoon') continue"))
   check('maar geeft wel door dat hij was tegengehouden',
     lezer.includes('gemarkeerd'))
+
+  /*
+   * En beide kanten gebruiken diezelfde lezer. Een tweede kopie van de
+   * aanwijzingen aan het model zou binnen een maand uit elkaar lopen, en dan
+   * leest een bon anders uit als hij per mail binnenkomt dan als je erop
+   * klikt.
+   */
+  for (const wie of ['factuur-lezen', 'ontvang-mail']) {
+    const bron = readFileSync(`supabase/functions/${wie}/index.ts`, 'utf8')
+    check(`${wie} gebruikt de gedeelde factuurlezer`,
+      bron.includes("from '../_gedeeld/factuurlezer.ts'"))
+  }
+
+  /*
+   * De post roept factuur-lezen niet over HTTP aan. Dat lijkt de nette weg en
+   * is het niet: die functie staat achter verify_jwt en wil daarna nog een
+   * ingelogde gebruiker zien. Een webhook van Resend is allebei niet, en dan
+   * krijg je een 401 die nergens zichtbaar wordt.
+   */
+  const post = readFileSync('supabase/functions/ontvang-mail/index.ts', 'utf8')
+  check('en de post belt de leesfunctie niet over het netwerk',
+    !/functions\/v1\/factuur-lezen/.test(post))
 }
 
 /* ==================================================================== *

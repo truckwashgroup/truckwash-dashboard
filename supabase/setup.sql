@@ -6238,122 +6238,6 @@ end;
 $$;
 
 -- ===========================================================================
---  Een kassa mag klokken
---
---  Wat er gebeurde: iemand klokte in op de kassa, zag "is ingeklokt", stond
---  onder "Nu aan het werk" -- en de urenregel kwam nooit in de administratie.
---  De database weigerde hem, en de kassa gooide hem na acht pogingen weg.
---
---  Dat weggooien is in de kassa rechtgezet (versie 0.10.0: zo'n weigering
---  verbruikt geen pogingen meer en er komt een melding aan de balie). Dit is
---  de andere helft: de weigering zelf.
---
---  Waarom hij geweigerd werd
---  -------------------------
---
---  Sinds 0018 gaat klokken via de kassa, en de regel daar is:
---
---      insert on time_entries: is_management() or heeft_recht('hours.clock')
---
---  heeft_recht() kijkt in profiles.grants. Een gekoppelde kassa krijgt sinds
---  0025 zijn eigen inlogaccount met een dossier erbij -- rol employee, een
---  vestiging, en verder niets. Geen grants dus, en dus geen hours.clock.
---
---  De rechten van de kassa en de rechten van de medewerker zijn twee
---  verschillende dingen, en dat is precies waar dit misging. In de app wordt
---  gekeken of degene die er staat mag klokken; de database kijkt naar het
---  apparaat dat het verzoek stuurt. Beide horen te kloppen, en van die tweede
---  was niemand zich bewust.
---
---  Waarom juist dit recht, en niet meer
---  ------------------------------------
---
---  Klokken is het enige wat een kassa doet en wat niet elders kan: mensen
---  klokken in bij het apparaat waar ze langslopen. Alles wat de kassa verder
---  wegschrijft -- bonnen, kasmutaties, kluisboekingen, wasopdrachten, voorraad
---  -- komt al langs op is_staff() plus de eigen vestiging, en dat heeft dit
---  dossier.
---
---  pos.manage krijgt hij níet. Dat zou betekenen dat de inloggegevens van een
---  tablet achter de balie genoeg zijn om prijzen te wijzigen. Wat daar nog wél
---  aan vastzit staat onderaan dit bestand.
--- ===========================================================================
-
--- ---------------------------------------------------------------------------
---  De kassa's die er al staan
--- ---------------------------------------------------------------------------
-
-update public.profiles
-   set grants = (
-     select array_agg(distinct g)
-       from unnest(coalesce(grants, array[]::text[]) || array['hours.clock']) as g
-   )
- where is_device
-   and not ('hours.clock' = any(coalesce(grants, array[]::text[])));
-
--- ---------------------------------------------------------------------------
---  En de kassa's die er nog bij komen
---
---  De serverfunctie kassa-koppelen zet dit recht ook zelf op het dossier. Deze
---  trigger is de rem eronder: hij vult het aan als het er niet op staat.
---
---  Twee plekken voor hetzelfde is meestal een fout, hier niet. De functie is de
---  gewone weg; deze trigger vangt de gevallen die daar niet langskomen -- een
---  dossier dat met de hand op is_device wordt gezet, of een kassa die gekoppeld
---  is met een oudere versie van de functie. Een kassa waarvan de uren stil
---  wegvallen is te duur om van één plek af te laten hangen.
--- ---------------------------------------------------------------------------
-
-create or replace function public.apparaat_mag_klokken()
-returns trigger language plpgsql as $$
-begin
-  if new.is_device
-     and not ('hours.clock' = any(coalesce(new.grants, array[]::text[])))
-  then
-    new.grants := coalesce(new.grants, array[]::text[]) || array['hours.clock'];
-  end if;
-  return new;
-end;
-$$;
-
-/*
- * Vóór profiles_apparaat, want die controleert wat er op het dossier staat en
- * deze vult het aan. Triggers met dezelfde tijd lopen op alfabet, en
- * "profiles_apparaat_klokken" komt na "profiles_apparaat" -- dus krijgt hij een
- * naam die eerder komt. Dat is lelijk en het staat er daarom bij.
- */
-drop trigger if exists profiles_a_klokken on public.profiles;
-create trigger profiles_a_klokken before insert or update on public.profiles
-  for each row execute function public.apparaat_mag_klokken();
-
--- ---------------------------------------------------------------------------
---  Wat de kassa hierna nog steeds niet mag, en waarom dat een keuze is
---
---  Twee schermen in de kassa schrijven naar tabellen die mag_kassa_beheren()
---  vragen, en dat heeft een apparaataccount niet:
---
---    Beheer -> Artikelen        pos_products
---    Beheer -> Nummers, badges  pos_pins
---
---  Die blijven dus weigeren. Dat is geen vergissing maar het is ook niet af:
---  een scherm dat invoer aanneemt en het daarna niet kan opslaan, is dezelfde
---  soort fout als de inklokking die verdween -- alleen valt hij nu wél op,
---  want de kassa laat sinds 0.10.0 zien wat er in de wachtrij vastzit.
---
---  Er zijn twee eerlijke uitkomsten, en het is een keuze welke:
---
---    1. Prijzen en badges horen bij het kantoor, zoals vestigingen, kassa's en
---       kluizen. Dan gaan die twee schermen uit de kassa en komen ze in het
---       dashboard.
---    2. De kassa mag het. Dan krijgt het apparaataccount pos.manage, en zijn de
---       inloggegevens van een tablet achter de balie genoeg om prijzen te
---       wijzigen.
---
---  Zolang die keuze niet gemaakt is, doet deze migratie het minste van de twee:
---  klokken werkt, en prijzen blijven waar ze zijn.
--- ---------------------------------------------------------------------------
-
--- ===========================================================================
 --  Gewone facturen stonden als verdacht in de postbus
 --
 --  De bijlagecontrole hield een PDF tegen zodra er /OpenAction, /AA,
@@ -7169,3 +7053,1546 @@ revoke execute on function public.website_aantal_medewerkers() from public, anon
 
 grant execute on function public.website_vestigingen()        to service_role;
 grant execute on function public.website_aantal_medewerkers() to service_role;
+
+-- ===========================================================================
+--  Utrecht bleef op "kasweg 2112" staan
+--
+--  0035 zou achttien vestigingen invoeren en heeft er zeventien gedaan.
+--  Utrecht ontbreekt, en de proefinvoer met het adres "kasweg 2112" staat er
+--  nog. Gemeten na afloop: 19 rijen, 17 met punten, en de rij met code TW-UTR
+--  heeft geen website_slug.
+--
+--  Waarom het misging
+--  ------------------
+--
+--  0035 voegt in met "on conflict (code) do nothing". Dat is met opzet -- een
+--  importmigratie mag bij een tweede keer draaien niets overschrijven. Maar de
+--  code TW-UTR was al bezet door de proefinvoer, dus de echte Utrecht werd
+--  overgeslagen en de rij loc_utrecht is nooit ontstaan.
+--
+--  En precies die rij had de reparatie eronder als bron nodig:
+--
+--    update ... from public.locations echt where echt.id = 'loc_utrecht'
+--
+--  Geen bronrij, geen update. Geen foutmelding ook: nul rijen bijwerken is
+--  voor Postgres een geldig antwoord. De migratie meldde succes en deed de
+--  helft.
+--
+--  Waarom de test het niet ving
+--  ----------------------------
+--
+--  Die botsing bestond in de test ook -- een fixture maakte een vestiging aan
+--  met de code TW-UTR. Toen 0035 daarop stukliep is de fixture hernoemd naar
+--  TST-UTR. Daarmee verdween de botsing uit de test, en dus ook het enige
+--  geval waarvoor de reparatie geschreven was. De test werd groen door het
+--  probleem weg te halen in plaats van het na te rekenen.
+--
+--  In scripts/sqltest.mjs wordt de situatie nu nagebouwd zoals hij op de
+--  echte database was, en pas daarna wordt dit bestand gedraaid.
+--
+--  Wat deze migratie doet
+--  ----------------------
+--
+--  De bestaande rij bijwerken, niet vervangen. Aan die rij kunnen uren,
+--  wasbeurten, roosters en een kluis hangen, en die verwijzen naar zijn id.
+--  Weggooien en opnieuw invoeren zou dat meenemen.
+--
+--  Het aantal wasstraten blijft staan zoals het staat. De site zegt "2
+--  moderne wasstraten" in de introtekst, maar in de app staat 3 -- met de hand
+--  ingevuld, en dat is vermoedelijk de werkelijkheid. Een migratie hoort geen
+--  getal te overschrijven dat iemand zelf heeft nagekeken.
+-- ===========================================================================
+
+update public.locations
+   set name          = 'Truckwash Utrecht',
+       address       = 'Reactorweg 27',
+       postcode      = '3542 AD',
+       city          = 'Utrecht',
+       phone         = '0307740744',
+       email         = 'utrecht@truckwash1group.nl',
+       lat           = 52.10574,
+       lon           = 5.0633264,
+       opening_hours = '{"ma":{"van":"08:00","tot":"18:00"},'
+                       '"di":{"van":"08:00","tot":"18:00"},'
+                       '"wo":{"van":"08:00","tot":"18:00"},'
+                       '"do":{"van":"08:00","tot":"18:00"},'
+                       '"vr":{"van":"08:00","tot":"21:00"},'
+                       '"za":{"van":"08:00","tot":"13:00"}}'::jsonb,
+       website_slug  = 'utrecht',
+       intro         = 'Je vindt Truckwash 1 Utrecht op het bedrijventerrein '
+                       'Lage Weide aan de Reactorweg 27. Lage Weide is het best '
+                       'te bereiken vanaf de A2 afslag 7. (In het pand van Van '
+                       'Leeuwen Trucks & vans). Truckwash Utrecht beschikt over '
+                       '2 moderne wasstraten.',
+       bereikbaar    = 'Door de twee straten en het efficiënt reinigen van je '
+                       'voertuigen verlagen we de wachttijden tot een minimum. '
+                       'Moet je even wachten? Dan kun je gebruik maken van de '
+                       'stofzuiger om je cabine schoon te maken. Je kunt ook een '
+                       'bezoek brengen aan onze shop of natuurlijk een kop '
+                       'koffie nuttigen.',
+       diensten      = array[
+                         'alcoa-velgen-reinigen',
+                         'haal-en-brengservice',
+                         'haccp-certificaat-en-behandeling',
+                         'nao-wasplaats'
+                       ]::text[],
+       punten        = array[
+                         'Alcoa / Dura Bright behandeling',
+                         'Handwash met spons',
+                         'Het reinigen van alle aluminium onderdelen',
+                         'Het inwendig reinigen van je laadruimtes (HACCP & NAO):',
+                         'Ontsmetten en/of desinfecteren',
+                         'Haal en brengservice (informeer contactpersoon)',
+                         'Wassen op afspraak (informeer contactpersoon)',
+                         'Alcoa reiniging'
+                       ]::text[],
+       op_website    = true,
+       updated_at    = public.now_ms()
+ where code = 'TW-UTR'
+   -- Eenmalig, en daarmee opnieuw te draaien: zodra het adres klopt, of zodra
+   -- iemand er in de app iets aan heeft veranderd, gebeurt hier niets meer.
+   and lower(trim(coalesce(address, ''))) = 'kasweg 2112';
+
+/*
+ * Het gat dat 0035 openliet.
+ *
+ * Was er nooit een proefinvoer geweest, dan had 0035 Utrecht gewoon ingevoerd
+ * en doet de update hierboven niets. Deze regel vangt dat geval af, zodat dit
+ * bestand op elke database hetzelfde eindresultaat geeft: precies een Utrecht,
+ * op de website, met een slug.
+ *
+ * De insert vindt geen bestaande rij met deze code, want die zou hierboven al
+ * zijn bijgewerkt en dan is aan de where-voorwaarde voldaan.
+ */
+insert into public.locations (
+  id, code, name, address, postcode, city, phone, email, lat, lon,
+  website_slug, kind, active, op_website
+)
+select
+  'loc_utrecht', 'TW-UTR', 'Truckwash Utrecht', 'Reactorweg 27', '3542 AD',
+  'Utrecht', '0307740744', 'utrecht@truckwash1group.nl', 52.10574, 5.0633264,
+  'utrecht', 'vestiging', true, true
+where not exists (
+  select 1 from public.locations where website_slug = 'utrecht'
+);
+
+-- ===========================================================================
+--  Een kassa mag klokken
+--
+--  Wat er gebeurde: iemand klokte in op de kassa, zag "is ingeklokt", stond
+--  onder "Nu aan het werk" -- en de urenregel kwam nooit in de administratie.
+--  De database weigerde hem, en de kassa gooide hem na acht pogingen weg.
+--
+--  Dat weggooien is in de kassa rechtgezet (versie 0.10.0: zo'n weigering
+--  verbruikt geen pogingen meer en er komt een melding aan de balie). Dit is
+--  de andere helft: de weigering zelf.
+--
+--  Waarom hij geweigerd werd
+--  -------------------------
+--
+--  Sinds 0018 gaat klokken via de kassa, en de regel daar is:
+--
+--      insert on time_entries: is_management() or heeft_recht('hours.clock')
+--
+--  heeft_recht() kijkt in profiles.grants. Een gekoppelde kassa krijgt sinds
+--  0025 zijn eigen inlogaccount met een dossier erbij -- rol employee, een
+--  vestiging, en verder niets. Geen grants dus, en dus geen hours.clock.
+--
+--  De rechten van de kassa en de rechten van de medewerker zijn twee
+--  verschillende dingen, en dat is precies waar dit misging. In de app wordt
+--  gekeken of degene die er staat mag klokken; de database kijkt naar het
+--  apparaat dat het verzoek stuurt. Beide horen te kloppen, en van die tweede
+--  was niemand zich bewust.
+--
+--  Waarom juist dit recht, en niet meer
+--  ------------------------------------
+--
+--  Klokken is het enige wat een kassa doet en wat niet elders kan: mensen
+--  klokken in bij het apparaat waar ze langslopen. Alles wat de kassa verder
+--  wegschrijft -- bonnen, kasmutaties, kluisboekingen, wasopdrachten, voorraad
+--  -- komt al langs op is_staff() plus de eigen vestiging, en dat heeft dit
+--  dossier.
+--
+--  pos.manage krijgt hij níet. Dat zou betekenen dat de inloggegevens van een
+--  tablet achter de balie genoeg zijn om prijzen te wijzigen. Wat daar nog wél
+--  aan vastzit staat onderaan dit bestand.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  De kassa's die er al staan
+-- ---------------------------------------------------------------------------
+
+update public.profiles
+   set grants = (
+     select array_agg(distinct g)
+       from unnest(coalesce(grants, array[]::text[]) || array['hours.clock']) as g
+   )
+ where is_device
+   and not ('hours.clock' = any(coalesce(grants, array[]::text[])));
+
+-- ---------------------------------------------------------------------------
+--  En de kassa's die er nog bij komen
+--
+--  De serverfunctie kassa-koppelen zet dit recht ook zelf op het dossier. Deze
+--  trigger is de rem eronder: hij vult het aan als het er niet op staat.
+--
+--  Twee plekken voor hetzelfde is meestal een fout, hier niet. De functie is de
+--  gewone weg; deze trigger vangt de gevallen die daar niet langskomen -- een
+--  dossier dat met de hand op is_device wordt gezet, of een kassa die gekoppeld
+--  is met een oudere versie van de functie. Een kassa waarvan de uren stil
+--  wegvallen is te duur om van één plek af te laten hangen.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.apparaat_mag_klokken()
+returns trigger language plpgsql as $$
+begin
+  if new.is_device
+     and not ('hours.clock' = any(coalesce(new.grants, array[]::text[])))
+  then
+    new.grants := coalesce(new.grants, array[]::text[]) || array['hours.clock'];
+  end if;
+  return new;
+end;
+$$;
+
+/*
+ * Vóór profiles_apparaat, want die controleert wat er op het dossier staat en
+ * deze vult het aan. Triggers met dezelfde tijd lopen op alfabet, en
+ * "profiles_apparaat_klokken" komt na "profiles_apparaat" -- dus krijgt hij een
+ * naam die eerder komt. Dat is lelijk en het staat er daarom bij.
+ */
+drop trigger if exists profiles_a_klokken on public.profiles;
+create trigger profiles_a_klokken before insert or update on public.profiles
+  for each row execute function public.apparaat_mag_klokken();
+
+-- ---------------------------------------------------------------------------
+--  Wat de kassa hierna nog steeds niet mag, en waarom dat een keuze is
+--
+--  Twee schermen in de kassa schrijven naar tabellen die mag_kassa_beheren()
+--  vragen, en dat heeft een apparaataccount niet:
+--
+--    Beheer -> Artikelen        pos_products
+--    Beheer -> Nummers, badges  pos_pins
+--
+--  Die blijven dus weigeren. Dat is geen vergissing maar het is ook niet af:
+--  een scherm dat invoer aanneemt en het daarna niet kan opslaan, is dezelfde
+--  soort fout als de inklokking die verdween -- alleen valt hij nu wél op,
+--  want de kassa laat sinds 0.10.0 zien wat er in de wachtrij vastzit.
+--
+--  Er zijn twee eerlijke uitkomsten, en het is een keuze welke:
+--
+--    1. Prijzen en badges horen bij het kantoor, zoals vestigingen, kassa's en
+--       kluizen. Dan gaan die twee schermen uit de kassa en komen ze in het
+--       dashboard.
+--    2. De kassa mag het. Dan krijgt het apparaataccount pos.manage, en zijn de
+--       inloggegevens van een tablet achter de balie genoeg om prijzen te
+--       wijzigen.
+--
+--  Zolang die keuze niet gemaakt is, doet deze migratie het minste van de twee:
+--  klokken werkt, en prijzen blijven waar ze zijn.
+-- ---------------------------------------------------------------------------
+
+-- ===========================================================================
+--  Een verwijdering moet zichzelf melden
+--
+--  Wat er gebeurde
+--  ---------------
+--
+--  Op een werkplek stonden twee meldingen eeuwig in de wachtrij:
+--
+--    notifications  nt_sg_6fef2842...  111 pogingen
+--    notifications  nt_sg_c2606e6b...  111 pogingen
+--    "new row violates row-level security policy for table notifications"
+--
+--  Die twee waren gemaakt door de edge function kassa-koppelen bij een
+--  aanmelding van een kassa, en door diezelfde functie weer weggehaald zodra
+--  de kassa gekoppeld was (kassa-koppelen/index.ts, regel 425):
+--
+--    await admin.from('notifications').delete().eq('id', `nt_sg_${...}`)
+--
+--  Op de server klopte dat. Alleen: het ophalen vraagt om alles wat sinds de
+--  vorige keer is veranderd, en een rij die er niet meer is verandert nooit
+--  meer. De werkplek hield dus twee meldingen die nergens anders bestonden.
+--
+--  Daarna ging het pas mis. Zodra iemand ze als gelezen aanvinkte, ging er een
+--  wijziging de wachtrij in. PostgREST maakt van een wijziging op een
+--  verdwenen rij een nieuwe rij, en dan geldt de insert-regel:
+--
+--    bericht_bestaat(id) or (from_user_id = my_id() and ...)
+--
+--  Het origineel bestond niet meer, dus die eerste helft was onwaar. En de
+--  afzender was de edge function en niet degene die zat te klikken, dus de
+--  tweede ook. Terecht geweigerd -- en daarmee een regel die nooit meer weg
+--  zou gaan.
+--
+--  De oorzaak, en waar hij zit
+--  ---------------------------
+--
+--  0032 heeft hiervoor de verwijderlijst gemaakt: schrijf bij een verwijdering
+--  op wélke rij van wélke tabel weg is, dan kan het ophalen dat doorgeven. Die
+--  lijst werd alleen met de hand gevuld, op de plekken waar toen aan gedacht
+--  is -- bij het wissen van een medewerker. Elke andere verwijdering, waar dan
+--  ook vandaan, bleef stil.
+--
+--  Dus niet kassa-koppelen aanpassen. Dat repareert dit ene geval en laat de
+--  volgende open. Een trigger op de tabel vangt élke verwijdering: uit een
+--  edge function, uit de SQL-editor, uit een andere app, of uit een migratie.
+--
+--  Opnieuw draaien mag.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  De trigger
+--
+--  security definer, want wie de rij mag verwijderen hoeft daarmee nog geen
+--  schrijfrecht op de verwijderlijst te hebben. Zonder dat zou een verwijdering
+--  die wél is toegestaan alsnog stukbreken op het opschrijven ervan.
+--
+--  Hij mag nooit de verwijdering zelf tegenhouden. Vandaar de exception-vanger:
+--  een rij die niet in de lijst komt is vervelend, een rij die niet weg kan is
+--  erger.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.meld_verwijdering()
+returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  begin
+    insert into public.deletion_log (id, soort, tabel, record_id, naam, reden)
+    values (
+      'dl_' || replace(gen_random_uuid()::text, '-', ''),
+      tg_table_name,
+      tg_table_name,
+      old.id,
+      -- Een naam als de tabel er een heeft, anders het id. De lijst wordt ook
+      -- door mensen gelezen.
+      coalesce(
+        case when to_jsonb(old) ? 'name'  then to_jsonb(old)->>'name'
+             when to_jsonb(old) ? 'title' then to_jsonb(old)->>'title'
+             when to_jsonb(old) ? 'naam'  then to_jsonb(old)->>'naam'
+        end,
+        old.id),
+      'verwijderd');
+  exception when others then
+    -- Nooit de verwijdering blokkeren om het logboek.
+    null;
+  end;
+  return old;
+end;
+$$;
+
+comment on function public.meld_verwijdering() is
+  'Schrijft elke verwijdering in deletion_log, zodat het ophalen hem kan '
+  'doorgeven. Zonder dit houdt elk apparaat een rij die nergens meer bestaat, '
+  'en probeert die bij de eerste wijziging terug te schrijven.';
+
+-- ---------------------------------------------------------------------------
+--  Waar hij op staat
+--
+--  De tabellen waar de server rijen weghaalt achter de app om, en waar de app
+--  een eigen kopie van bewaart. notifications is de gemeten aanleiding;
+--  signups gaat langs dezelfde weg -- kassa-koppelen raakt ze allebei aan.
+--
+--  Niet op alles gezet. Een trigger op elke tabel klinkt grondig, maar dan
+--  loopt de verwijderlijst vol met rijen waar geen apparaat een kopie van
+--  heeft, en wordt het ophalen duurder zonder dat iemand er iets aan heeft.
+-- ---------------------------------------------------------------------------
+
+drop trigger if exists notifications_verwijderd on public.notifications;
+create trigger notifications_verwijderd
+  after delete on public.notifications
+  for each row execute function public.meld_verwijdering();
+
+drop trigger if exists signups_verwijderd on public.signups;
+create trigger signups_verwijderd
+  after delete on public.signups
+  for each row execute function public.meld_verwijdering();
+
+-- ---------------------------------------------------------------------------
+--  De twee die er al stonden
+--
+--  Ze zijn weggehaald voordat deze trigger bestond, dus staan ze in geen
+--  enkele verwijderlijst. Voor de apparaten die ze nog hebben is dat het
+--  verschil tussen "gaat vanzelf over" en "blijft eeuwig hangen".
+--
+--  Alleen die twee met de hand toevoegen zou dit ene geval oplossen. Beter is
+--  de hele klasse: elke melding die met nt_sg_ begint hoort bij een
+--  kassa-aanmelding en wordt door kassa-koppelen weggehaald zodra de kassa
+--  gekoppeld is. Voor elke kassa die al gekoppeld is, staat die melding dus
+--  nergens meer -- terwijl een werkplek hem nog kan hebben.
+--
+--  We weten niet welke ids dat waren; die rijen zijn weg. Maar we weten wel
+--  welke aanmeldingen er zijn geweest, en het id was daaruit af te leiden:
+--  'nt_sg_' plus het aanmeld-id zonder streepjes.
+-- ---------------------------------------------------------------------------
+
+insert into public.deletion_log (id, soort, tabel, record_id, naam, reden)
+select
+  'dl_sg_' || replace(s.id, '-', ''),
+  'notifications',
+  'notifications',
+  'nt_sg_' || replace(s.id, '-', ''),
+  'Aanmelding ' || coalesce(s.name, s.id),
+  'de kassa is gekoppeld; de melding is toen weggehaald'
+from public.signups s
+where not exists (
+        select 1 from public.notifications n
+         where n.id = 'nt_sg_' || replace(s.id, '-', ''))
+  and not exists (
+        select 1 from public.deletion_log d
+         where d.tabel = 'notifications'
+           and d.record_id = 'nt_sg_' || replace(s.id, '-', ''))
+on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
+--  En de twee die niemand meer kan afleiden
+--
+--  De regel hierboven leidt het meldings-id af uit de aanmelding. Dat werkt
+--  alleen zolang die aanmelding er nog staat -- en bij deze twee is ook die
+--  weg. Ze zijn afgelezen van een werkplek waar ze vastzaten:
+--
+--    notifications  nt_sg_6fef28421615442aa565a91e03cdc657  111 pogingen
+--    notifications  nt_sg_c2606e6bf5b54f1380dce4748bcb90a6  111 pogingen
+--
+--  Twee ids met de hand in een migratie is lelijk, en dat is het eerlijke
+--  woord ervoor. Het alternatief is een werkplek die blijft klagen over twee
+--  meldingen die nergens meer bestaan, en dat is erger. Voor elk apparaat dat
+--  ze niet heeft is dit een regel die niets doet.
+-- ---------------------------------------------------------------------------
+
+insert into public.deletion_log (id, soort, tabel, record_id, naam, reden)
+values
+  ('dl_nt_6fef28421615442aa565a91e03cdc657', 'notifications', 'notifications',
+   'nt_sg_6fef28421615442aa565a91e03cdc657', 'Aanmelding van een kassa',
+   'weggehaald bij het koppelen, voordat verwijderingen werden gemeld'),
+  ('dl_nt_c2606e6bf5b54f1380dce4748bcb90a6', 'notifications', 'notifications',
+   'nt_sg_c2606e6bf5b54f1380dce4748bcb90a6', 'Aanmelding van een kassa',
+   'weggehaald bij het koppelen, voordat verwijderingen werden gemeld')
+on conflict (id) do nothing;
+
+-- ===========================================================================
+--  Verdwaalde regeleindes in de vestigingsteksten
+--
+--  Bij het naderhand vergelijken van de site met de nulmeting bleken vier van
+--  de vijfenveertig pagina's te verschillen. De inhoud was gelijk; het enige
+--  verschil was een onzichtbaar teken:
+--
+--    ...naast de Q8.^M
+--
+--  Dat is een carriage return (chr(13)), het regeleindeteken van Windows. Hij
+--  staat in de tekst zelf, niet aan het eind van de regel in het bestand.
+--
+--  Waar hij vandaan komt
+--  ---------------------
+--
+--  De achttien vestigingen zijn met 0035 ingevoerd uit site.json. Die migratie
+--  is op een Windows-machine geschreven, en git zet .sql-bestanden daar om naar
+--  CRLF -- de waarschuwing "LF will be replaced by CRLF" kwam bij elke commit
+--  langs. In een tekst die over meerdere regels is samengesteld belandt dat
+--  teken binnen de waarde in plaats van erbuiten.
+--
+--  Gemeten: 1 intro en 2 bereikbaar-teksten, van de achttien.
+--
+--  Waarom het opruimen hoort
+--  -------------------------
+--
+--  Het valt niemand op. Het is geen zichtbaar teken, de pagina ziet er goed
+--  uit, en HTML vouwt witruimte toch samen. Maar zolang het er staat is elke
+--  vergelijking tussen de site en de database vals: er verschijnen verschillen
+--  die geen verschillen zijn, en dan leer je die vergelijking negeren -- en
+--  precies dan glipt er een keer een echt verschil doorheen.
+--
+--  Ook de andere kant is nu afgedekt: bouw/omzet.cjs in het siteproject haalt
+--  regeleindes eruit voordat er HTML van wordt gemaakt. Dit repareert wat er
+--  staat, dat voorkomt dat het langs een andere weg terugkomt.
+--
+--  Opnieuw draaien mag; de tweede keer valt er niets meer op te ruimen.
+-- ===========================================================================
+
+update public.locations
+   set intro      = nullif(replace(coalesce(intro, ''),      chr(13), ''), ''),
+       bereikbaar = nullif(replace(coalesce(bereikbaar, ''), chr(13), ''), ''),
+       bijzonder  = nullif(replace(coalesce(bijzonder, ''),  chr(13), ''), ''),
+       punten     = (
+         select coalesce(array_agg(replace(p, chr(13), '') order by nr), '{}')
+           from unnest(punten) with ordinality as t(p, nr)
+       ),
+       updated_at = public.now_ms()
+ where intro      like '%' || chr(13) || '%'
+    or bereikbaar like '%' || chr(13) || '%'
+    or bijzonder  like '%' || chr(13) || '%'
+    or exists (select 1 from unnest(punten) p where p like '%' || chr(13) || '%');
+
+-- ===========================================================================
+--  Bijwerken is nog steeds geen aanmaken -- nu op alle tabellen
+--
+--  "De database weigert dit voor X: new row violates row-level security
+--  policy" is in dit project inmiddels vijf keer gemeld, elke keer op een
+--  andere tabel: log_events, tickets, notifications, en nu channels. Steeds
+--  dezelfde oorzaak, steeds één tabel tegelijk gerepareerd. Dat is vier keer
+--  het symptoom behandelen.
+--
+--  Wat er aan de hand is
+--  ---------------------
+--
+--  De app stuurt wijzigingen als een upsert: "zet deze rij neer, en bestaat
+--  hij al, werk hem dan bij". PostgREST beoordeelt zo'n verzoek altijd óók
+--  tegen de insert-regel -- ook als het feitelijk een bijwerking is.
+--
+--  Het gevolg: je mag een rij wijzigen, je mag hem niet aanmaken, en dus
+--  wordt je wijziging geweigerd. De foutmelding zegt "new row", terwijl er
+--  geen nieuwe rij is.
+--
+--  In de praktijk gebeurt dat zo. Iemand haalt een overlegkanaal op, leest het
+--  laatste bericht, en de app schrijft terug wanneer hij het gelezen heeft. Op
+--  dat moment is hij geen beheerder van dat kanaal -- hij hoeft het ook niet
+--  aan te maken, het bestaat al -- maar de insert-regel kijkt daar niet naar.
+--
+--  De oplossing die er al was
+--  --------------------------
+--
+--  0031 heeft daarvoor rij_bestaat() gemaakt: bestaat de rij al, dan mag het
+--  verzoek door, en beslist de update-regel wat er werkelijk gewijzigd mag
+--  worden. Dat geeft dus niets weg -- wie niets mag wijzigen, wijzigt nog
+--  steeds niets. Het haalt alleen de verkeerde vraag weg.
+--
+--  Die reparatie is toen op zes tabellen gezet. Gemeten vandaag: dertien
+--  tabellen hebben hem nog steeds niet.
+--
+--    dev_plans   documents   faults   mailbox   profiles   signups
+--    stock_movements   time_entries   wash_jobs
+--    pos_safe_moves   pos_sales   pos_subscriptions   pos_subscription_uses
+--
+--  Hier krijgen ze hem alle dertien. De oorspronkelijke regel blijft er
+--  woordelijk in staan -- er komt alleen een uitweg vóór, voor het geval de
+--  rij er al is.
+--
+--  log_events staat er niet bij: die laat invoegen al onvoorwaardelijk toe.
+--
+--  Over de pos_-tabellen
+--  ---------------------
+--
+--  Die horen bij de kassa. Dit raakt geen enkele regel over wie wat mag: de
+--  toegevoegde tak staat alleen toe wat de update-regel van diezelfde tabel al
+--  toestond. Ze staan er wel bij, want een klasse half repareren is precies
+--  hoe dit vier keer eerder is teruggekomen.
+--
+--  Vanaf nu bewaakt scripts/sqltest.mjs dit: komt er een tabel bij zonder de
+--  uitweg, dan valt de bouw om in plaats van dat iemand er over een half jaar
+--  tegenaan loopt.
+--
+--  Opnieuw draaien mag.
+-- ===========================================================================
+
+drop policy if exists dev_plans_insert on public.dev_plans;
+create policy dev_plans_insert on public.dev_plans for insert to authenticated
+  with check (
+    public.rij_bestaat('public.dev_plans'::regclass, id::text)
+    or (public.mag_plannen())
+  );
+
+drop policy if exists documents_insert on public.documents;
+create policy documents_insert on public.documents for insert to authenticated
+  with check (
+    public.rij_bestaat('public.documents'::regclass, id::text)
+    or (public.is_management())
+  );
+
+drop policy if exists faults_insert on public.faults;
+create policy faults_insert on public.faults for insert to authenticated
+  with check (
+    public.rij_bestaat('public.faults'::regclass, id::text)
+    or (public.is_staff() and public.in_my_locations(location_id))
+  );
+
+drop policy if exists mailbox_insert on public.mailbox;
+create policy mailbox_insert on public.mailbox for insert to authenticated
+  with check (
+    public.rij_bestaat('public.mailbox'::regclass, id::text)
+    or (public.is_management() or public.is_developer())
+  );
+
+drop policy if exists pos_safe_moves_insert on public.pos_safe_moves;
+create policy pos_safe_moves_insert on public.pos_safe_moves for insert to authenticated
+  with check (
+    public.rij_bestaat('public.pos_safe_moves'::regclass, id::text)
+    or (public.is_staff() and public.in_my_locations(location_id))
+  );
+
+drop policy if exists pos_sales_insert on public.pos_sales;
+create policy pos_sales_insert on public.pos_sales for insert to authenticated
+  with check (
+    public.rij_bestaat('public.pos_sales'::regclass, id::text)
+    or (public.is_staff() and public.in_my_locations(location_id))
+  );
+
+drop policy if exists pos_subscription_uses_insert on public.pos_subscription_uses;
+create policy pos_subscription_uses_insert on public.pos_subscription_uses for insert to authenticated
+  with check (
+    public.rij_bestaat('public.pos_subscription_uses'::regclass, id::text)
+    or (public.is_staff())
+  );
+
+drop policy if exists pos_subscriptions_insert on public.pos_subscriptions;
+create policy pos_subscriptions_insert on public.pos_subscriptions for insert to authenticated
+  with check (
+    public.rij_bestaat('public.pos_subscriptions'::regclass, id::text)
+    or (public.is_staff() and public.in_my_locations(location_id))
+  );
+
+drop policy if exists profiles_insert on public.profiles;
+create policy profiles_insert on public.profiles for insert to authenticated
+  with check (
+    public.rij_bestaat('public.profiles'::regclass, id::text)
+    or (public.is_management())
+  );
+
+drop policy if exists signups_insert on public.signups;
+create policy signups_insert on public.signups for insert to authenticated
+  with check (
+    public.rij_bestaat('public.signups'::regclass, id::text)
+    or (public.is_management())
+  );
+
+drop policy if exists stock_insert on public.stock_movements;
+create policy stock_insert on public.stock_movements for insert to authenticated
+  with check (
+    public.rij_bestaat('public.stock_movements'::regclass, id::text)
+    or (public.is_staff())
+  );
+
+drop policy if exists time_insert on public.time_entries;
+create policy time_insert on public.time_entries for insert to authenticated
+  with check (
+    public.rij_bestaat('public.time_entries'::regclass, id::text)
+    or (public.is_management() or public.heeft_recht('hours.clock'))
+  );
+
+drop policy if exists wash_jobs_insert on public.wash_jobs;
+create policy wash_jobs_insert on public.wash_jobs for insert to authenticated
+  with check (
+    public.rij_bestaat('public.wash_jobs'::regclass, id::text)
+    or (public.is_staff() or company_id = public.my_company())
+  );
+
+-- ===========================================================================
+--  Trucky praat met bezoekers
+--
+--  Een chatbot op de website, met Claude erachter. Deze tabel bestaat om één
+--  reden: de kosten begrenzen.
+--
+--  Waarom dat hier moet en niet in de browser
+--  ------------------------------------------
+--
+--  Het adres van de chatfunctie staat open -- dat moet ook, anders kan een
+--  bezoeker zonder inlog er niet bij. Alles wat de browser meestuurt is dus
+--  door diezelfde bezoeker te veranderen: het gespreks-id, het aantal vragen
+--  dat hij al gesteld heeft, alles. Een teller in JavaScript houdt niemand
+--  tegen die de ontwikkelaarsconsole weet te vinden.
+--
+--  De teller staat daarom hier, en de functie leest en schrijft hem met de
+--  servicesleutel. Wat er in de browser gebeurt is dan hoogstens een
+--  vriendelijke waarschuwing vooraf.
+--
+--  Drie grenzen, en waarom drie
+--  ----------------------------
+--
+--    per gesprek    een bezoeker die doorvraagt is prima; een bezoeker die
+--                   honderd keer doorvraagt is geen bezoeker meer.
+--    per dag        beschermt tegen het geval dat iemand tienduizend
+--                   gesprekken begint. Zonder deze grens is de eerste twee
+--                   waardeloos: nieuwe gesprekken zijn gratis te maken.
+--    tokens per dag de echte rekening. Vragen tellen zegt weinig -- iemand
+--                   die een lap tekst plakt kost meer dan honderd korte
+--                   vragen.
+--
+--  De grenzen zelf staan in de functie en niet hier, zodat bijstellen geen
+--  migratie kost.
+-- ===========================================================================
+
+create table if not exists public.trucky_gesprekken (
+  id              text primary key,
+  begonnen_at     bigint not null default public.now_ms(),
+  laatst_at       bigint not null default public.now_ms(),
+  aantal_vragen   integer not null default 0,
+  invoer_tokens   integer not null default 0,
+  uitvoer_tokens  integer not null default 0,
+  /* Alleen gevuld als de bezoeker om een verslag heeft gevraagd. Zolang dat
+     niet gebeurt weten we niet wie er heeft zitten typen, en dat hoort ook zo:
+     een chauffeur die vraagt hoe laat Venlo opengaat laat geen adres achter. */
+  email           text,
+  verslag_at      bigint,
+  updated_at      bigint not null default public.now_ms()
+);
+
+comment on table public.trucky_gesprekken is
+  'Eén rij per chatgesprek op de website. Bestaat om de kosten te begrenzen: '
+  'de tellers moeten op de server staan, want het chatadres is openbaar en '
+  'alles wat de browser meestuurt is door de bezoeker te veranderen.';
+
+create index if not exists trucky_gesprekken_dag_idx
+  on public.trucky_gesprekken (begonnen_at);
+
+-- ---------------------------------------------------------------------------
+--  Niemand mag hierbij
+--
+--  Ook niet wie is ingelogd. Hier staan vragen van bezoekers in, en die zijn
+--  van niemand in de organisatie. De functie leest en schrijft met de
+--  servicesleutel; die gaat langs de regels heen en heeft er dus geen nodig.
+--
+--  Row level security AAN met nul regels betekent: dicht voor iedereen.
+-- ---------------------------------------------------------------------------
+
+alter table public.trucky_gesprekken enable row level security;
+alter table public.trucky_gesprekken force row level security;
+
+revoke all on public.trucky_gesprekken from anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+--  Wat er vandaag al is verstookt
+--
+--  Eén vraag in plaats van drie, en de functie hoeft niet te weten hoe de
+--  tabel eruitziet. security definer omdat de tabel voor iedereen dicht staat.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.trucky_verbruik_vandaag()
+returns table (gesprekken integer, tokens integer)
+language sql stable security definer set search_path = public as $$
+  select
+    count(*)::integer,
+    coalesce(sum(invoer_tokens + uitvoer_tokens), 0)::integer
+  from public.trucky_gesprekken
+  where begonnen_at > (extract(epoch from now()) * 1000)::bigint - 86400000;
+$$;
+
+/*
+ * Rechten. Zie 0033 en 0034: Postgres geeft het uitvoerrecht op een nieuwe
+ * functie aan PUBLIC, en Supabase geeft er anon en authenticated bovenop. Bij
+ * een security definer-functie is dat een open deur, dus allebei eraf.
+ */
+revoke execute on function public.trucky_verbruik_vandaag() from public, anon, authenticated;
+grant  execute on function public.trucky_verbruik_vandaag() to service_role;
+
+-- ===========================================================================
+--  Trucky kent de antwoorden zelf
+--
+--  Tot nu toe ging elke vraag naar het model. Dat is duur voor vragen die
+--  iedereen stelt -- "hoe laat zijn jullie open", "kan ik zonder afspraak
+--  terecht", "wat kost een buitenwas" -- en het antwoord kan per keer nét
+--  anders uitvallen, terwijl je bij zulke vragen juist wilt dat er altijd
+--  hetzelfde staat.
+--
+--  Vanaf hier staan de vragen en antwoorden in de database. De volgorde is:
+--
+--    1. zoeken in deze tabel. Gevonden? Dan dat antwoord, woordelijk, gratis.
+--    2. niets gevonden? Dan het model -- maar met de dichtstbijzijnde
+--       antwoorden erbij, zodat het niet gaat verzinnen wat hier al staat.
+--    3. mag of kan het model het niet? Dan een contactformulier.
+--
+--  Zoeken dat tegen een typefout kan
+--  ---------------------------------
+--
+--  Een chauffeur op een telefoon in een wasstraat typt "opeingstijden". Zoeken
+--  op exacte woorden vindt dan niets, en dan gaat er een dure vraag naar het
+--  model voor iets wat hier gewoon staat.
+--
+--  Vandaar twee manieren naast elkaar, en de beste van de twee telt:
+--
+--    woorden      Postgres' eigen tekstzoeken in het Nederlands. Vangt
+--                 verbuigingen: "openingstijd" vindt "openingstijden".
+--    letters      trigram-gelijkenis. Vangt tikfouten: "opeingstijden" lijkt
+--                 voor 80% op "openingstijden", ook al is geen woord gelijk.
+--
+--  Alleen woorden is te streng, alleen letters is te dom -- die vindt
+--  "wasstraat" ook in "waspoeder".
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  De twee uitbreidingen, en waarom er een terugval onder staat
+--
+--  pg_trgm en unaccent zitten in Supabase. In de testdatabase (PGlite, waar
+--  scripts/sqltest.mjs op draait) niet -- die kent geen uitbreidingen. Zonder
+--  terugval kan dit bestand daar niet eens laden, en dan is er van deze hele
+--  migratie niets te controleren.
+--
+--  De terugval hieronder wordt daarom alleen aangemaakt als de echte functie
+--  ontbreekt. Op Supabase gebeurt dat nooit. Het is een stut voor de test, en
+--  hij zegt dat ook van zichzelf.
+-- ---------------------------------------------------------------------------
+
+do $$
+begin
+  create extension if not exists pg_trgm;
+exception when others then
+  raise notice 'pg_trgm niet beschikbaar -- terugval wordt gebruikt';
+end $$;
+
+do $$
+begin
+  create extension if not exists unaccent;
+exception when others then
+  raise notice 'unaccent niet beschikbaar -- terugval wordt gebruikt';
+end $$;
+
+do $$
+begin
+  if to_regprocedure('unaccent(text)') is null then
+    execute $f$
+      create function public.unaccent(t text) returns text
+      language sql immutable as 'select t';
+    $f$;
+  end if;
+
+  if to_regprocedure('similarity(text,text)') is null then
+    /*
+     * Grove vervanger: hoeveel van de woorden komen in allebei voor. Vangt
+     * geen tikfouten -- dat is nou juist wat trigrammen wél doen -- maar is
+     * genoeg om de rest van dit bestand te laten laden en te controleren.
+     * Draait alleen waar pg_trgm ontbreekt, dus nooit op Supabase.
+     */
+    execute $f$
+      create function public.similarity(a text, b text) returns real
+      language sql immutable as $s$
+        select case
+          when coalesce(a,'') = '' or coalesce(b,'') = '' then 0::real
+          else (
+            select count(*)::real / greatest(1, array_length(
+              string_to_array(lower(b), ' '), 1))
+              from unnest(string_to_array(lower(a), ' ')) w
+             where w <> '' and lower(b) like '%' || w || '%'
+          )::real
+        end;
+      $s$;
+    $f$;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
+--  De vragen en antwoorden
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.trucky_vragen (
+  id          text primary key,
+  vraag       text not null,
+  antwoord    text not null,
+  /* Andere manieren waarop mensen ernaar vragen. "wanneer open", "hoe laat",
+     "openingstijden" horen bij dezelfde vraag, en dit is goedkoper dan er drie
+     rijen van maken die je alle drie moet bijwerken. */
+  trefwoorden text[] not null default '{}',
+  /* Waar de bezoeker verder kan lezen. Wordt een knop onder het antwoord. */
+  pagina      text,
+  actief      boolean not null default true,
+  /* Hoe vaak dit antwoord is gegeven zonder dat het model eraan te pas kwam.
+     Zegt welke vragen echt leven -- en dus welke het waard zijn om scherp te
+     houden. */
+  gebruikt    integer not null default 0,
+  updated_at  bigint not null default public.now_ms()
+);
+
+comment on table public.trucky_vragen is
+  'Vaste vragen en antwoorden voor de chatbot op de website. Wordt eerst '
+  'doorzocht; pas als er niets past komt het model eraan te pas.';
+
+/*
+ * De index hoort bij pg_trgm en kan er dus alleen zijn waar die uitbreiding is.
+ * Bij een handvol vragen maakt hij nog niets uit; hij staat er voor als de
+ * lijst groeit.
+ */
+do $$
+begin
+  create index if not exists trucky_vragen_vraag_trgm
+    on public.trucky_vragen using gin (vraag gin_trgm_ops);
+exception when others then
+  raise notice 'trigram-index overgeslagen -- pg_trgm ontbreekt';
+end $$;
+
+-- ---------------------------------------------------------------------------
+--  Wat een bezoeker achterlaat als niemand het kon beantwoorden
+--
+--  Hier staan naam, adres en telefoonnummer van mensen buiten het bedrijf in.
+--  Dat is de reden dat deze tabel strenger dicht zit dan de vragenlijst.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.trucky_contact (
+  id            text primary key,
+  naam          text not null,
+  email         text not null,
+  telefoon      text,
+  bedrijf       text,
+  vraag         text not null,
+  /* Het gesprek waar dit uit voortkwam, zodat je ziet wat eraan voorafging. */
+  gesprek       text,
+  /* Wat er in de chat is gezegd. Zonder dat is de vraag vaak niet te plaatsen:
+     "ja graag, om 9 uur" zegt weinig zonder de vraag ervoor. */
+  verloop       text,
+  status        text not null default 'nieuw'
+                check (status in ('nieuw', 'opgepakt', 'beantwoord')),
+  antwoord      text,
+  behandeld_door      text,
+  behandeld_door_naam text,
+  behandeld_at  bigint,
+  created_at    bigint not null default public.now_ms(),
+  updated_at    bigint not null default public.now_ms()
+);
+
+comment on table public.trucky_contact is
+  'Vragen die de chatbot niet kon of mocht beantwoorden. Komen in het '
+  'dashboard bij administratie en management terecht.';
+
+create index if not exists trucky_contact_status_idx
+  on public.trucky_contact (status, created_at desc);
+
+-- ---------------------------------------------------------------------------
+--  Instellingen die het management zelf zet
+--
+--  Begonnen om één reden -- naar welk adres een contactverzoek gaat -- maar
+--  bewust als lijst en niet als losse kolom ergens. Er komt altijd een tweede.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.instellingen (
+  /* id én sleutel: de synchronisatie van de app gaat overal uit van een kolom
+     id, en daar een uitzondering voor maken kost meer dan deze kolom. sleutel
+     is wat je in de code opzoekt en blijft uniek. */
+  id          text primary key,
+  sleutel     text not null unique,
+  waarde      text not null default '',
+  omschrijving text not null default '',
+  updated_at  bigint not null default public.now_ms()
+);
+
+insert into public.instellingen (id, sleutel, waarde, omschrijving)
+values (
+  'in_contact_mail',
+  'contact_mail',
+  'casper@truckwash1group.nl',
+  'Naar welk adres een contactverzoek van de website gaat. Meerdere adressen '
+  'mag, gescheiden door een komma.'
+)
+on conflict (sleutel) do nothing;
+
+-- ---------------------------------------------------------------------------
+--  Wie mag wat
+--
+--  De vragenlijst: iedereen die hier werkt mag hem lezen -- hij staat toch op
+--  de website. Wijzigen is management, want dit is wat het bedrijf naar buiten
+--  zegt.
+--
+--  De contactverzoeken: administratie en management. Daar staan gegevens van
+--  buitenstaanders in, en dat hoeft de wasstraat niet te zien.
+--
+--  Overal de uitweg voor de upsert-val erbij; zie 0040 voor waarom.
+-- ---------------------------------------------------------------------------
+
+alter table public.trucky_vragen  enable row level security;
+alter table public.trucky_contact enable row level security;
+alter table public.instellingen   enable row level security;
+
+drop policy if exists trucky_vragen_select on public.trucky_vragen;
+create policy trucky_vragen_select on public.trucky_vragen for select to authenticated
+  using (public.is_staff() or 'technician' = any(public.my_roles())
+         or 'developer' = any(public.my_roles()));
+
+drop policy if exists trucky_vragen_insert on public.trucky_vragen;
+create policy trucky_vragen_insert on public.trucky_vragen for insert to authenticated
+  with check (public.rij_bestaat('public.trucky_vragen'::regclass, id) or public.is_management());
+
+drop policy if exists trucky_vragen_update on public.trucky_vragen;
+create policy trucky_vragen_update on public.trucky_vragen for update to authenticated
+  using (public.is_management()) with check (public.is_management());
+
+drop policy if exists trucky_vragen_delete on public.trucky_vragen;
+create policy trucky_vragen_delete on public.trucky_vragen for delete to authenticated
+  using (public.is_management());
+
+/* Administratie of management. heeft_recht() kijkt naar de losse rechten op
+   het dossier; is_management() vangt de rol af. */
+drop policy if exists trucky_contact_select on public.trucky_contact;
+create policy trucky_contact_select on public.trucky_contact for select to authenticated
+  using (public.is_management() or public.heeft_recht('admin.desk'));
+
+drop policy if exists trucky_contact_insert on public.trucky_contact;
+create policy trucky_contact_insert on public.trucky_contact for insert to authenticated
+  with check (public.rij_bestaat('public.trucky_contact'::regclass, id)
+              or public.is_management() or public.heeft_recht('admin.desk'));
+
+drop policy if exists trucky_contact_update on public.trucky_contact;
+create policy trucky_contact_update on public.trucky_contact for update to authenticated
+  using (public.is_management() or public.heeft_recht('admin.desk'))
+  with check (public.is_management() or public.heeft_recht('admin.desk'));
+
+drop policy if exists instellingen_select on public.instellingen;
+create policy instellingen_select on public.instellingen for select to authenticated
+  using (public.is_management() or public.heeft_recht('admin.desk'));
+
+drop policy if exists instellingen_insert on public.instellingen;
+create policy instellingen_insert on public.instellingen for insert to authenticated
+  with check (public.rij_bestaat('public.instellingen'::regclass, id)
+              or public.is_management());
+
+drop policy if exists instellingen_update on public.instellingen;
+create policy instellingen_update on public.instellingen for update to authenticated
+  using (public.is_management()) with check (public.is_management());
+
+-- ---------------------------------------------------------------------------
+--  Zoeken
+--
+--  Geeft de beste treffers terug met een cijfer tussen 0 en 1. De functie
+--  bepaalt niet wat "goed genoeg" is -- dat staat in de edge function, zodat
+--  bijstellen geen migratie kost.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.trucky_zoek(vraag_in text, hoeveel integer default 3)
+returns table (id text, vraag text, antwoord text, pagina text, score real)
+language sql stable security definer set search_path = public as $$
+  with schoon as (
+    select lower(unaccent(coalesce(vraag_in, ''))) as q
+  )
+  select
+    v.id, v.vraag, v.antwoord, v.pagina,
+    greatest(
+      -- op letters: vangt tikfouten
+      similarity(s.q, lower(unaccent(v.vraag))),
+      -- op letters, tegen de trefwoorden
+      coalesce((
+        select max(similarity(s.q, lower(unaccent(t))))
+          from unnest(v.trefwoorden) t
+      ), 0),
+      -- op woorden: vangt verbuigingen. ts_rank geeft kleine getallen, dus
+      -- opgetrokken naar dezelfde schaal als de rest.
+      least(1.0, ts_rank(
+        to_tsvector('dutch',
+          v.vraag || ' ' || coalesce(array_to_string(v.trefwoorden, ' '), '')),
+        plainto_tsquery('dutch', s.q)
+      ) * 8)
+    )::real as score
+  from public.trucky_vragen v, schoon s
+  where v.actief
+    and length(s.q) > 2
+  order by score desc
+  limit greatest(1, least(hoeveel, 10));
+$$;
+
+/* Zie 0033/0034: nieuwe functies krijgen anon er gratis bij. Dit is een
+   security definer-functie, dus die deur gaat dicht. De edge function draait
+   met de servicesleutel. */
+revoke execute on function public.trucky_zoek(text, integer) from public, anon, authenticated;
+grant  execute on function public.trucky_zoek(text, integer) to service_role;
+
+/*
+ * De teller ophogen.
+ *
+ * Een eigen functie omdat PostgREST geen "gebruikt = gebruikt + 1" kent -- via
+ * de REST-laag zou het lezen-en-terugschrijven worden, en dan telt bij twee
+ * bezoekers tegelijk één van de twee niet mee.
+ */
+create or replace function public.trucky_vraag_gebruikt(vraag_id text)
+returns void
+language sql security definer set search_path = public as $$
+  update public.trucky_vragen
+     set gebruikt = gebruikt + 1, updated_at = public.now_ms()
+   where id = vraag_id;
+$$;
+
+revoke execute on function public.trucky_vraag_gebruikt(text) from public, anon, authenticated;
+grant  execute on function public.trucky_vraag_gebruikt(text) to service_role;
+
+-- ---------------------------------------------------------------------------
+--  Een startlijst
+--
+--  Twaalf vragen die op elke wasstraat langskomen. Bedoeld om meteen iets te
+--  hebben; het management kan ze in de app wijzigen en aanvullen.
+--
+--  De antwoorden zijn met opzet kort en zonder cijfers die verouderen -- voor
+--  prijzen en tijden verwijzen ze naar de pagina waar het echte getal staat.
+-- ---------------------------------------------------------------------------
+
+insert into public.trucky_vragen (id, vraag, antwoord, trefwoorden, pagina) values
+  ('tv_afspraak', 'Moet ik een afspraak maken?',
+   'Nee, je kunt zonder afspraak langskomen bij al onze vestigingen. Even bellen mag natuurlijk altijd als je zeker wilt weten dat het rustig is.',
+   array['afspraak','reserveren','zonder afspraak','moet ik bellen'], '/locaties/'),
+
+  ('tv_open', 'Hoe laat zijn jullie open?',
+   'Dat verschilt per vestiging. Op de locatiepagina staan de openingstijden van elke vestiging, en je kunt daar ook op postcode zoeken welke het dichtst bij je is.',
+   array['openingstijden','hoe laat open','wanneer open','tijden','geopend'], '/locaties/'),
+
+  ('tv_prijs', 'Wat kost een wasbeurt?',
+   'Alle tarieven staan op de prijzenpagina, inclusief de toeslagen. De prijzen zijn exclusief 21% btw.',
+   array['prijs','kosten','tarief','wat kost','hoeveel kost'], '/prijzen/'),
+
+  ('tv_waar', 'Waar zitten jullie?',
+   'We hebben achttien vestigingen door heel Nederland. Op de locatiepagina vind je ze allemaal op de kaart, en kun je op postcode zoeken welke het dichtst bij je is.',
+   array['vestigingen','locaties','waar zitten jullie','adres','dichtstbijzijnde'], '/locaties/'),
+
+  ('tv_betalen', 'Hoe kan ik betalen?',
+   'Pinnen kan bij elke vestiging. Rijd je vaker bij ons binnen, dan is een account op rekening vaak handiger -- bel daarvoor 088 - 0600 100.',
+   array['betalen','pinnen','pin','contant','op rekening','factuur'], '/contact/'),
+
+  ('tv_haccp', 'Reinigen jullie ook laadruimtes?',
+   'Ja, we reinigen laadruimtes inwendig, HACCP- en NAO-gecertificeerd. Ontsmetten en desinfecteren kan ook.',
+   array['haccp','nao','laadruimte','inwendig','ontsmetten','desinfecteren','tank'],
+   '/diensten/haccp-certificaat-en-behandeling/'),
+
+  ('tv_alcoa', 'Poetsen jullie ook velgen?',
+   'Ja, we doen Alcoa- en Dura Bright-behandelingen en reinigen alle aluminium onderdelen.',
+   array['velgen','alcoa','dura bright','aluminium','polijsten'],
+   '/diensten/alcoa-velgen-reinigen/'),
+
+  ('tv_camper', 'Wassen jullie ook campers en bussen?',
+   'Ja, campers en bussen kunnen bij ons terecht. Kijk even op de dienstenpagina welke vestiging bij jouw voertuig past.',
+   array['camper','bus','bussen','touringcar','bestelbus'], '/diensten/'),
+
+  ('tv_vacature', 'Hebben jullie vacatures?',
+   'Ja, we zoeken regelmatig mensen. Je hebt er geen diploma voor nodig, wel de wil om te leren. Op de vacaturepagina staan de openstaande functies en kun je meteen solliciteren.',
+   array['vacature','werken','baan','solliciteren','werk','personeel gezocht'],
+   '/werken-bij/'),
+
+  ('tv_wachttijd', 'Hoe lang duurt een wasbeurt?',
+   'Een buitenwas duurt ongeveer een half uur. Bij drukte kan het wat langer zijn; op de meeste vestigingen kun je ondertussen wachten met een kop koffie.',
+   array['hoe lang','wachttijd','duur','snel klaar'], '/locaties/'),
+
+  ('tv_truckparking', 'Kan ik bij jullie parkeren of overnachten?',
+   'Op een aantal vestigingen is truckparking. Op de dienstenpagina zie je waar dat kan.',
+   array['parkeren','truckparking','overnachten','slapen','parking'],
+   '/diensten/truckparking/'),
+
+  ('tv_contact', 'Hoe kan ik contact opnemen?',
+   'Bel 088 - 0600 100 of mail info@truckwash1group.nl. Elke vestiging heeft ook een eigen nummer; dat staat op de locatiepagina.',
+   array['contact','bellen','telefoonnummer','mailen','e-mail'], '/contact/')
+on conflict (id) do nothing;
+
+-- ===========================================================================
+--  De app en de database waren het oneens over wie een kanaal mag maken
+--
+--  Gemeld: drieëntwintig overlegkanalen, honderd pogingen elk, allemaal
+--  geweigerd met "new row violates row-level security policy for table
+--  channels". De kanalen deugden, de regel deugde, en toch kwam er niets door.
+--
+--  Wat er aan de hand was
+--  ----------------------
+--
+--  Twee plekken beslissen of je een kanaal mag aanmaken, en ze kijken naar
+--  verschillende dingen.
+--
+--    de app         perms.can('chat.manage')  -- een RECHT
+--    de database    is_management() or is_supervisor()  -- een ROL
+--
+--  Zolang die twee samenvallen merkt niemand het. Maar het recht chat.manage
+--  is ook los toe te kennen aan iemand zonder die rollen, en dan zegt de app
+--  ja en de database nee.
+--
+--  Het gevolg is erger dan een geweigerde knop. Het overlegscherm zet bij het
+--  eerste bezoek de vaste kanalen klaar -- vijf algemene plus een per
+--  vestiging. Sinds er achttien vestigingen in staan zijn dat er drieëntwintig
+--  in één keer. Allemaal lokaal aangemaakt, allemaal de wachtrij in, en
+--  allemaal voor altijd geweigerd.
+--
+--  Nagemeten in de testdatabase, met dezelfde regels en dezelfde rijen:
+--
+--    management     mag
+--    leidinggevende mag
+--    medewerker     new row violates row-level security policy
+--
+--  Woordelijk de melding uit productie.
+--
+--  Wat hier verandert
+--  ------------------
+--
+--  De database gaat naar hetzelfde kijken als de app: het recht. De rollen
+--  blijven staan -- management en een leidinggevende hebben chat.manage toch
+--  al, dus voor hen verandert er niets, en zonder die takken zou een verkeerd
+--  gezette instelling het hele overleg op slot zetten.
+--
+--  heeft_recht() is precies waarvoor dit soort gevallen bestaat; het wordt in
+--  dit schema al gebruikt voor hours.clock en admin.desk.
+--
+--  Waarom niet andersom -- de app strenger maken
+--  ---------------------------------------------
+--
+--  Dan zou een los toegekend recht in de app zichtbaar zijn en niet werken, en
+--  dat is precies het soort stilte waar dit probleem uit voortkwam. Eén plek
+--  hoort te beslissen, en dat is de database.
+--
+--  Opnieuw draaien mag.
+-- ===========================================================================
+
+drop policy if exists channels_insert on public.channels;
+create policy channels_insert on public.channels for insert to authenticated
+  with check (
+    -- De uitweg voor de upsert-val; zie 0031 en 0040.
+    public.rij_bestaat('public.channels'::regclass, id)
+    or (
+      public.is_staff()
+      and (
+        public.is_management()
+        or public.is_supervisor()
+        or public.heeft_recht('chat.manage')
+        -- Een gesprek mag je aanmaken als je er zelf in zit. Dat is geen
+        -- beheer maar iemand aanspreken, en daar is geen recht voor nodig.
+        or (kind = 'gesprek' and public.my_id() = any(member_ids))
+      )
+    )
+  );
+
+/*
+ * En bijwerken op dezelfde voet.
+ *
+ * Zou dat achterblijven, dan kun je een kanaal aanmaken en daarna de naam niet
+ * meer wijzigen -- en dat is precies het soort halve toestemming waar niemand
+ * iets aan heeft.
+ */
+drop policy if exists channels_update on public.channels;
+create policy channels_update on public.channels for update to authenticated
+  using (
+    public.is_management()
+    or public.is_supervisor()
+    or public.heeft_recht('chat.manage')
+    or (kind = 'gesprek' and public.my_id() = any(member_ids))
+  )
+  with check (
+    public.is_management()
+    or public.is_supervisor()
+    or public.heeft_recht('chat.manage')
+    or (kind = 'gesprek' and public.my_id() = any(member_ids))
+  );
+
+-- ===========================================================================
+--  Facturen boeken zichzelf
+--
+--  Wat er nu gebeurt: er komt een factuur binnen per mail, ontvang-mail zet er
+--  een kostenpost van met bedrag 0, en daar blijft het. Het uitlezen gebeurt
+--  pas als iemand in de app op "laat de factuur voorlezen" drukt. Dat is
+--  precies het handwerk dat weg moest.
+--
+--  Wat hier bijkomt is wat er nodig is om dat automatisch te doen: een
+--  grootboek om op te boeken, tags om op te sorteren, en een geheugen dat
+--  onthoudt hoe een leverancier de vorige keer is geboekt.
+--
+--  Het geheugen is het belangrijkste stuk
+--  --------------------------------------
+--
+--  Raden op trefwoorden werkt één keer. Daarna weet je iets beters: hoe die
+--  leverancier de vorige keer is geboekt, door een mens die ernaar keek. Dat
+--  is een veel sterker signaal dan welk trefwoord ook.
+--
+--  Dus twee lagen. Kent het geheugen deze leverancier, dan die boeking. Zo
+--  niet, dan trefwoorden als eerste gok, duidelijk gemarkeerd als gok. En elke
+--  keer dat iemand een kostenpost goedkeurt, leert het geheugen bij.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  Het grootboek
+--
+--  Alleen de rekeningen die hier werkelijk gebruikt worden. Een compleet
+--  rekeningschema overtypen levert een lijst op waar niemand doorheen komt.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.grootboek (
+  /* De sleutel heet id en niet code, en dat is geen smaakkwestie.
+     De synchronisatie in de app vergelijkt elke binnengehaalde rij met wat er
+     nog in de wachtrij staat, en doet dat op rij.id -- voor alle tabellen,
+     zonder uitzondering. Een tabel met een andere sleutelnaam levert daar
+     stilletjes "undefined" op, en dan overschrijft binnenkomende post een
+     wijziging die nog niet verstuurd was. Eén afwijkende tabel is die klasse
+     fouten niet waard. */
+  id          text primary key,
+  code        text not null unique,
+  naam        text not null,
+  /* Waar deze rekening op te herkennen is, als het geheugen nog niets weet. */
+  trefwoorden text[] not null default '{}',
+  /* Het gebruikelijke btw-percentage. Wat op de factuur staat gaat altijd
+     voor -- dit is alleen een vangnet voor een onleesbare bon. */
+  btw_pct     integer not null default 21,
+  actief      boolean not null default true,
+  updated_at  bigint not null default public.now_ms()
+);
+
+comment on table public.grootboek is
+  'De grootboekrekeningen waarop kosten worden geboekt. Klein gehouden: '
+  'alleen wat hier echt gebruikt wordt.';
+
+-- ---------------------------------------------------------------------------
+--  De tags
+--
+--  Losse etiketten om op te filteren, naast de grootboekrekening. Een factuur
+--  van Enexis is "elektra" en boekt op energie; die twee zijn niet hetzelfde
+--  en het een vervangt het ander niet.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.kosten_tags (
+  -- Zelfde reden als bij grootboek hierboven: de sleutel heet id.
+  id          text primary key,
+  naam        text not null unique,
+  trefwoorden text[] not null default '{}',
+  actief      boolean not null default true,
+  updated_at  bigint not null default public.now_ms()
+);
+
+-- ---------------------------------------------------------------------------
+--  Het geheugen
+--
+--  Eén regel per leverancier: zo is hij de vorige keer geboekt. Wordt bij elke
+--  goedkeuring bijgewerkt, zodat de tweede factuur van dezelfde partij vanzelf
+--  goed staat.
+--
+--  De sleutel is de leveranciersnaam in kleine letters. Niet het btw-nummer:
+--  dat staat lang niet op elke bon, en dan zou het geheugen juist bij de
+--  slordige leveranciers niets onthouden.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.leverancier_boeking (
+  leverancier    text primary key,
+  grootboek_code text references public.grootboek(code) on delete set null,
+  tags           text[] not null default '{}',
+  /* Hoe vaak het zo is geboekt. Eén keer is een aanwijzing, tien keer is een
+     gewoonte -- en dat verschil wil je kunnen zien voordat je erop vertrouwt. */
+  keren          integer not null default 1,
+  laatst_at      bigint not null default public.now_ms(),
+  updated_at     bigint not null default public.now_ms()
+);
+
+-- ---------------------------------------------------------------------------
+--  Wat er op de kostenpost bijkomt
+-- ---------------------------------------------------------------------------
+
+alter table public.expenses add column if not exists tags           text[] not null default '{}';
+alter table public.expenses add column if not exists grootboek_code text;
+alter table public.expenses add column if not exists factuurnummer  text;
+alter table public.expenses add column if not exists vervaldatum    bigint;
+alter table public.expenses add column if not exists btw_bedrag     numeric(12,2);
+/* Waar de indeling vandaan komt: uit het geheugen, geraden, of met de hand
+   gezet. Zonder dit weet niemand of dat rekeningnummer een gok is. */
+alter table public.expenses add column if not exists indeling_bron  text
+  check (indeling_bron in ('geheugen', 'geraden', 'handmatig'));
+
+comment on column public.expenses.indeling_bron is
+  'Waar grootboek_code en tags vandaan komen. "geraden" betekent: op '
+  'trefwoorden gegokt omdat deze leverancier nog niet bekend was -- daar hoort '
+  'iemand naar te kijken.';
+
+-- ---------------------------------------------------------------------------
+--  Voorstellen
+--
+--  Geeft terug hoe deze factuur waarschijnlijk geboekt moet worden. Beslist
+--  niets: de aanroeper zet het op de kostenpost en een mens keurt goed.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.factuur_indelen(
+  leverancier_in text,
+  omschrijving_in text default ''
+)
+returns table (grootboek_code text, tags text[], bron text)
+language sql stable security definer set search_path = public as $$
+  with zoek as (
+    select
+      lower(trim(coalesce(leverancier_in, ''))) as lev,
+      lower(coalesce(leverancier_in, '') || ' ' || coalesce(omschrijving_in, '')) as alles
+  ),
+  -- 1. Kennen we deze leverancier?
+  uit_geheugen as (
+    select b.grootboek_code, b.tags, 'geheugen'::text as bron
+      from public.leverancier_boeking b, zoek z
+     where b.leverancier = z.lev
+       and b.grootboek_code is not null
+  ),
+  -- 2. Zo niet: raden op trefwoorden.
+  geraden_rekening as (
+    select g.code
+      from public.grootboek g, zoek z
+     where g.actief
+       and exists (select 1 from unnest(g.trefwoorden) t
+                    where t <> '' and z.alles like '%' || lower(t) || '%')
+     order by g.code
+     limit 1
+  ),
+  geraden_tags as (
+    select coalesce(array_agg(k.naam order by k.naam), '{}') as tags
+      from public.kosten_tags k, zoek z
+     where k.actief
+       and exists (select 1 from unnest(k.trefwoorden) t
+                    where t <> '' and z.alles like '%' || lower(t) || '%')
+  )
+  select * from uit_geheugen
+  union all
+  select (select code from geraden_rekening),
+         (select tags from geraden_tags),
+         'geraden'
+   where not exists (select 1 from uit_geheugen)
+  limit 1;
+$$;
+
+/*
+ * Leren van een goedkeuring.
+ *
+ * Wordt aangeroepen als iemand een kostenpost akkoord geeft. Vanaf dat moment
+ * staat de volgende factuur van diezelfde partij meteen goed.
+ */
+create or replace function public.boeking_onthouden(
+  leverancier_in text,
+  grootboek_in text,
+  tags_in text[]
+)
+returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  sleutel text := lower(trim(coalesce(leverancier_in, '')));
+begin
+  /*
+   * Wie hier niets te zoeken heeft, leert het geheugen ook niets.
+   *
+   * Deze functie is security definer en stond open voor iedere ingelogde
+   * gebruiker. Een monteur ziet geen enkele kostenpost, maar kon wel bepalen
+   * op welke rekening de facturen van een leverancier voortaan landen -- en
+   * dat zou niemand merken, want het is precies wat de functie hoort te doen.
+   *
+   * Stil weglopen en niet klagen: dit wordt aangeroepen naast een
+   * goedkeuring, en die mag niet stuklopen op een recht dat er toch al voor
+   * zorgt dat je hier niet komt.
+   */
+  if not (public.is_management() or public.heeft_recht('admin.desk')) then
+    return;
+  end if;
+
+  if sleutel = '' or grootboek_in is null then return; end if;
+
+  insert into public.leverancier_boeking
+    (leverancier, grootboek_code, tags, keren, laatst_at, updated_at)
+  values (sleutel, grootboek_in, coalesce(tags_in, '{}'), 1,
+          public.now_ms(), public.now_ms())
+  on conflict (leverancier) do update
+    set grootboek_code = excluded.grootboek_code,
+        tags           = excluded.tags,
+        -- Doortellen, niet resetten: het aantal keren is het vertrouwen.
+        keren          = public.leverancier_boeking.keren + 1,
+        laatst_at      = public.now_ms(),
+        updated_at     = public.now_ms();
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+--  Wie mag wat
+--
+--  Het grootboek en de tags mag iedereen die kosten ziet ook lezen -- anders
+--  staat er een code op een bon waar niemand de naam bij weet. Wijzigen is
+--  administratie of management.
+-- ---------------------------------------------------------------------------
+
+alter table public.grootboek           enable row level security;
+alter table public.kosten_tags         enable row level security;
+alter table public.leverancier_boeking enable row level security;
+
+do $$
+declare t text;
+begin
+  /* leverancier_boeking staat hier niet bij: die tabel heeft geen id-kolom
+     en wordt ook nooit rechtstreeks geschreven -- dat gaat via
+     boeking_onthouden(). Lezen mag wel, en dat staat hieronder los. */
+  foreach t in array array['grootboek', 'kosten_tags'] loop
+    execute format('drop policy if exists %I_select on public.%I', t, t);
+    execute format(
+      'create policy %I_select on public.%I for select to authenticated using (public.is_staff())',
+      t, t);
+
+    execute format('drop policy if exists %I_insert on public.%I', t, t);
+    execute format(
+      /* De sleutelkolom heet id, en dat moet ook: rij_bestaat kijkt hard
+         naar "where id = $1". Hier stond per tabel een andere kolom (code,
+         naam, leverancier), en dan zoekt hij een rij met id = '4031' terwijl
+         die id gb_4031 heet. Die vlucht slaat dan altijd mis, en dan is dit
+         weer een tabel die "new row violates row-level security" geeft zodra
+         de app een bestaande rij bijwerkt met een upsert. */
+      'create policy %I_insert on public.%I for insert to authenticated '
+      'with check (public.rij_bestaat(''public.%I''::regclass, id) '
+      '            or public.is_management() or public.heeft_recht(''admin.desk''))',
+      t, t, t);
+
+    execute format('drop policy if exists %I_update on public.%I', t, t);
+    execute format(
+      'create policy %I_update on public.%I for update to authenticated '
+      'using (public.is_management() or public.heeft_recht(''admin.desk'')) '
+      'with check (public.is_management() or public.heeft_recht(''admin.desk''))',
+      t, t);
+  end loop;
+end $$;
+
+revoke execute on function public.factuur_indelen(text, text) from public, anon, authenticated;
+grant  execute on function public.factuur_indelen(text, text) to service_role, authenticated;
+revoke execute on function public.boeking_onthouden(text, text, text[]) from public, anon;
+grant  execute on function public.boeking_onthouden(text, text, text[]) to service_role, authenticated;
+
+-- ---------------------------------------------------------------------------
+--  Een begin
+--
+--  De rekeningen en tags die in de huidige administratie voorkomen. Bedoeld om
+--  meteen iets te hebben; aanvullen gaat in de app.
+-- ---------------------------------------------------------------------------
+
+insert into public.grootboek (id, code, naam, trefwoorden, btw_pct)
+select 'gb_' || v.code, v.code, v.naam, v.trefwoorden, v.btw_pct
+from (values
+  ('4000', 'Inkoop wasmiddelen en chemie',
+   array['wasmiddel','chemie','shampoo','ontvetter','zeep','wairtec','cemex'], 21),
+  ('4010', 'Energie',
+   array['enexis','eneco','vattenfall','essent','elektra','stroom','gas','energie'], 21),
+  ('4015', 'Water en osmose',
+   array['water','osmose','vitens','brabant water','evides'], 9),
+  ('4020', 'Afval en milieu',
+   array['afval','prezero','renewi','container','milieu','suez'], 21),
+  ('4025', 'Onderhoud en reparatie',
+   array['onderhoud','reparatie','installatie','monteur','service','storing'], 21),
+  ('4031', 'Contributies en heffingen',
+   array['contributie','lidmaatschap','heffing','mkb','kamer van koophandel','kvk'], 0),
+  ('4040', 'Huur en huisvesting',
+   array['huur','pacht','huisvesting','erfpacht'], 21),
+  ('4050', 'Verzekeringen',
+   array['verzekering','polis','assurantie','premie'], 0),
+  ('4060', 'Kantoor en administratie',
+   array['kantoor','administratie','accountant','boekhoud','tork','papier'], 21),
+  ('4070', 'Telefoon en internet',
+   array['telefoon','internet','kpn','vodafone','ziggo','t-mobile','odido'], 21),
+  ('4080', 'Vervoer en brandstof',
+   array['brandstof','diesel','tankpas','shell','bp','total','leasing','lease'], 21),
+  ('4090', 'Overige bedrijfskosten', array[]::text[], 21)
+) as v(code, naam, trefwoorden, btw_pct)
+on conflict (code) do nothing;
+
+insert into public.kosten_tags (id, naam, trefwoorden)
+select 'tag_' || v.naam, v.naam, v.trefwoorden
+from (values
+  ('afval',    array['afval','container','prezero','renewi','suez']),
+  ('cemex',    array['cemex']),
+  ('elektra',  array['elektra','stroom','enexis','eneco','vattenfall','essent']),
+  ('enexis',   array['enexis']),
+  ('finance',  array['bank','rente','financiering','lease','verzekering']),
+  ('gas',      array['gas','aardgas']),
+  ('osmose',   array['osmose','waterontharding','omgekeerde osmose']),
+  ('prezero',  array['prezero']),
+  ('tork',     array['tork']),
+  ('wairtec',  array['wairtec'])
+) as v(naam, trefwoorden)
+on conflict (naam) do nothing;
+
+-- ---------------------------------------------------------------------------
+--  Waar facturen binnenkomen
+--
+--  Per vestiging een eigen adres: inkoop.<vestiging>@<domein>. Dan hoeft
+--  niemand achteraf uit te zoeken bij welke vestiging een bon hoort -- dat
+--  staat al in het adres waar hij op binnenkwam.
+--
+--  Het domein is een instelling en geen vaste waarde in de code. Nu is dat het
+--  huidige adres; gaat er later een eigen domein komen, dan is dat één regel
+--  wijzigen in plaats van een nieuwe versie uitbrengen.
+-- ---------------------------------------------------------------------------
+
+insert into public.instellingen (id, sleutel, waarde, omschrijving) values
+  ('in_inkoop_domein', 'inkoop_domein', 'preview.truckwash.cloud',
+   'Het domein waarop facturen binnenkomen. Het adres per vestiging wordt '
+   'inkoop.<vestiging>@<domein>, bijvoorbeeld inkoop.venlo@preview.truckwash.cloud. '
+   'Let op: een nieuw domein moet eerst bij Resend zijn ingesteld voordat er '
+   'post op binnenkomt.'),
+  ('in_inkoop_voorvoegsel', 'inkoop_voorvoegsel', 'inkoop',
+   'Het deel vóór de punt in het factuuradres. Standaard "inkoop", dus '
+   'inkoop.venlo@... Wijzig dit alleen als de mailroutering meeverandert.'),
+  ('in_factuur_automatisch', 'factuur_automatisch', 'ja',
+   'Of een binnengekomen factuur meteen wordt uitgelezen en ingedeeld. Op '
+   '"nee" blijft hij staan tot iemand in de app op voorlezen drukt.')
+on conflict (id) do nothing;

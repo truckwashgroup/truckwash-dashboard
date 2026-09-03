@@ -22,6 +22,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
 import { controleerBijlage, lijktEchtOp } from './controle.ts'
+import { leesFactuur } from '../_gedeeld/factuurlezer.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -400,6 +401,214 @@ function veiligeNaam(naam: string): string {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Bij welke vestiging hoort deze post?
+ *
+ *  Elke vestiging heeft een eigen inkoopadres:
+ *
+ *    inkoop.oss@preview.truckwash.cloud   ->  de vestiging met slug "oss"
+ *    inkoop@preview.truckwash.cloud       ->  geen vestiging, hoofdkantoor
+ *
+ *  Het voorvoegsel en het domein staan in de instellingen en zijn in het
+ *  ontwikkelaarsscherm aan te passen -- want het domein hierboven is een
+ *  voorlopige, en een vast ingebakken domein betekent dat de hele
+ *  factuurstroom stilvalt zodra dat verhuist.
+ *
+ *  Herkent hij het adres niet, dan komt de bon gewoon zonder vestiging
+ *  binnen. Post weggooien omdat het adres net anders is dan verwacht is het
+ *  ergste wat een postbus kan doen.
+ * ------------------------------------------------------------------ */
+
+async function welkeVestiging(aanAdres: string): Promise<string | null> {
+  const bak = (aanAdres ?? '').trim().toLowerCase()
+  if (!bak.includes('@')) return null
+
+  const [postvak, domein] = bak.split('@')
+
+  const { data: rijen } = await admin
+    .from('instellingen')
+    .select('sleutel, waarde')
+    .in('sleutel', ['inkoop_domein', 'inkoop_voorvoegsel'])
+
+  const instelling = (sleutel: string, terugval: string) =>
+    String((rijen ?? []).find((r: Willekeurig) => r.sleutel === sleutel)?.waarde ?? terugval)
+      .trim().toLowerCase()
+
+  const verwachtDomein = instelling('inkoop_domein', '')
+  const voorvoegsel = instelling('inkoop_voorvoegsel', 'inkoop')
+
+  // Staat er een domein ingesteld, dan telt post van een ander domein niet
+  // mee. Anders zou inkoop.oss@ergensanders.nl ook een vestiging raken.
+  if (verwachtDomein && domein !== verwachtDomein) return null
+
+  if (!postvak.startsWith(voorvoegsel + '.')) return null
+
+  /*
+   * Wat er achter het voorvoegsel staat is de slug van de website. Die is
+   * bewust hergebruikt: hij is al uniek, al kleingeschreven, en al zichtbaar
+   * in truckwash1group.nl/vestigingen/oss. Een tweede lijstje met adressen
+   * naast dat ene zou onherroepelijk uit elkaar lopen.
+   *
+   * Een plusadres (inkoop.oss+scan@) telt als hetzelfde vak; sommige
+   * scanners plakken daar iets achter.
+   */
+  const slug = postvak.slice(voorvoegsel.length + 1).split('+')[0].trim()
+  if (!slug) return null
+
+  const { data: vestiging } = await admin
+    .from('locations')
+    .select('id')
+    .eq('website_slug', slug)
+    .maybeSingle()
+
+  if (vestiging?.id) return String(vestiging.id)
+
+  // Geen website-slug? Dan mag de code ook -- vestigingen hebben er altijd
+  // een, en die is korter in te typen.
+  const { data: opCode } = await admin
+    .from('locations')
+    .select('id')
+    .ilike('code', slug)
+    .maybeSingle()
+
+  return opCode?.id ? String(opCode.id) : null
+}
+
+/* ------------------------------------------------------------------ *
+ *  De factuur zichzelf laten boeken
+ *
+ *  Drie stappen, en elke stap mag los mislukken zonder de rest mee te nemen.
+ *  Wat er niet lukt blijft gewoon werk voor een mens -- dat was het tot nu toe
+ *  toch al.
+ *
+ *    1. uitlezen      de factuurlezer haalt bedrag, btw en leverancier eruit
+ *    2. indelen       factuur_indelen kiest grootboekrekening en tags
+ *    3. wegschrijven  alles op de kostenpost, met erbij waar het vandaan komt
+ *
+ *  Wat er NIET gebeurt is goedkeuren. De bon blijft op "open" staan en komt
+ *  gewoon in de rij bij de administratie. Het verschil is dat hij daar nu
+ *  ingevuld ligt in plaats van leeg -- nakijken in plaats van overtikken.
+ * ------------------------------------------------------------------ */
+
+async function boekAutomatisch(
+  expenseId: string,
+  pad: string,
+  vanNaam: string,
+  onderwerp: string,
+) {
+  /* Uit mag: dan blijft alles zoals het was, en dat is een werkende situatie. */
+  const { data: instelling } = await admin
+    .from('instellingen').select('waarde').eq('sleutel', 'factuur_automatisch').maybeSingle()
+  if (instelling && String(instelling.waarde).trim().toLowerCase() === 'nee') {
+    console.log('[ontvang-mail] automatisch boeken staat uit')
+    return
+  }
+
+  /* --- 1. uitlezen --- */
+
+  const uit = await leesFactuur({ admin, expenseId, pad, doorWie: 'de post' })
+  if (!uit.ok || !uit.lezing) {
+    console.warn('[ontvang-mail] niet gelezen: ' + (uit.reden ?? 'onbekend'))
+    return
+  }
+  const lezing = uit.lezing
+
+  /*
+   * Een pakbon is geen rekening.
+   *
+   * Er staan wel bedragen op, en die zou je zo kunnen overnemen -- en dan
+   * staat dezelfde levering twee keer in de kosten zodra de echte factuur
+   * een week later binnenkomt. De lezing blijft bewaard, het invullen niet.
+   */
+  if (lezing.soort === 'pakbon') {
+    console.log(`[ontvang-mail] ${expenseId} is een pakbon, niet ingevuld`)
+    return
+  }
+
+  /*
+   * De naam van de leverancier van de factuur zelf gaat voor die uit het
+   * mailadres. "facturatie@" of "noreply@" zegt niets; wat er op de bon staat
+   * wel. En de indeling hangt aan die naam, dus dit is niet cosmetisch.
+   */
+  const naam = lezing.leverancier ?? vanNaam
+
+  /* --- 2. indelen --- */
+
+  let indeling: { grootboek_code: string | null; tags: string[]; bron: string } | null = null
+  try {
+    const { data, error } = await admin.rpc('factuur_indelen', {
+      leverancier_in: naam,
+      omschrijving_in: [lezing.kenmerk, onderwerp].filter(Boolean).join(' '),
+    })
+    if (error) throw new Error(error.message)
+    const rij = Array.isArray(data) ? data[0] : data
+    if (rij) indeling = rij
+  } catch (e) {
+    console.warn('[ontvang-mail] indelen mislukte: ' + String(e))
+  }
+
+  /* --- 3. wegschrijven --- */
+
+  const bij: Willekeurig = { updated_at: nu() }
+
+  const bedrag = lezing.subtotaalExcl
+  /*
+   * Nul niet wegschrijven, en een negatief bedrag ook niet.
+   *
+   * Een leeg veld vraagt om invullen; een nul ziet eruit als een gelezen
+   * bedrag en gaat zo de boekhouding in. Dat is het verschil tussen "dit moet
+   * nog" en "dit klopt".
+   */
+  if (bedrag != null && bedrag > 0) bij.amount_excl = bedrag
+
+  if (lezing.btwBedrag != null && lezing.btwBedrag >= 0) bij.btw_bedrag = lezing.btwBedrag
+
+  /*
+   * Het percentage staat zelden apart op een factuur; het staat per regel.
+   * Uitrekenen uit btw gedeeld door subtotaal mag alleen als er één tarief
+   * in het spel is -- anders is 14% het antwoord, en dat bestaat niet.
+   */
+  const tarieven = new Set(
+    lezing.regels.map((r) => (r as { btwPct?: number }).btwPct)
+      .filter((p): p is number => typeof p === 'number'))
+  if (tarieven.size === 1) {
+    const enige = [...tarieven][0]
+    if (enige >= 0 && enige <= 30) bij.vat_pct = enige
+  } else if (bedrag != null && bedrag > 0 && lezing.btwBedrag != null) {
+    const afgeleid = Math.round((lezing.btwBedrag / bedrag) * 100)
+    if ([0, 9, 21].includes(afgeleid)) bij.vat_pct = afgeleid
+  }
+
+  if (lezing.leverancier) bij.supplier = lezing.leverancier
+  if (lezing.factuurnummer) bij.factuurnummer = lezing.factuurnummer
+  if (lezing.vervaldatum) bij.vervaldatum = lezing.vervaldatum
+  if (lezing.datum) bij.expense_date = lezing.datum
+  if (lezing.kenmerk) bij.description = `${lezing.kenmerk} -- ${onderwerp}`.slice(0, 300)
+  if (lezing.voorstelCategorie) bij.category = lezing.voorstelCategorie
+
+  if (indeling?.grootboek_code) {
+    bij.grootboek_code = indeling.grootboek_code
+    bij.tags = indeling.tags ?? []
+    bij.indeling_bron = indeling.bron
+  }
+
+  const { error } = await admin.from('expenses').update(bij).eq('id', expenseId)
+  if (error) {
+    console.error('[ontvang-mail] kostenpost bijwerken: ' + error.message)
+    return
+  }
+
+  console.log('[ontvang-mail] geboekt ' + JSON.stringify({
+    expenseId,
+    leverancier: naam,
+    bedrag: bij.amount_excl ?? null,
+    btw: bij.vat_pct ?? null,
+    rekening: bij.grootboek_code ?? null,
+    bron: bij.indeling_bron ?? null,
+    twijfel: lezing.twijfel.length,
+  }))
+}
+
+/* ------------------------------------------------------------------ *
  *  Het verzoek
  * ------------------------------------------------------------------ */
 
@@ -622,6 +831,8 @@ Deno.serve(async (req) => {
 
     expenseId = 'exp_mail_' + berichtId.slice(3, 15)
 
+    const vestiging = await welkeVestiging(aan.adres)
+
     const { error: kosten } = await admin.from('expenses').insert({
       id: expenseId,
       expense_date: nu(),
@@ -629,8 +840,8 @@ Deno.serve(async (req) => {
       supplier: van.naam ?? van.adres,
       description: onderwerp,
       // Bewust nul: het bedrag lezen uit een PDF is gokken, en een gok in
-      // de boekhouding is erger dan een leeg veld. Iemand vult hem in bij
-      // het goedkeuren.
+      // de boekhouding is erger dan een leeg veld. Even later vult de lezer
+      // hem in als hij het bedrag zonder twijfel op de bon zag staan.
       amount_excl: 0,
       vat_pct: 21,
       status: 'open',
@@ -638,6 +849,7 @@ Deno.serve(async (req) => {
       submitted_by_name: van.naam ?? van.adres,
       source: 'mail',
       mailbox_id: berichtId,
+      location_id: vestiging,
       attachment_path: bon.path,
       attachment_name: bon.naam,
     })
@@ -647,6 +859,32 @@ Deno.serve(async (req) => {
       expenseId = null
     } else {
       await admin.from('mailbox').update({ expense_id: expenseId }).eq('id', berichtId)
+
+      /*
+       * En meteen laten uitlezen en indelen.
+       *
+       * Hier stond dit niet, en dat was precies het handwerk dat weg moest: de
+       * kostenpost verscheen met bedrag 0 en bleef zo staan tot iemand in de
+       * app op "laat de factuur voorlezen" drukte. Wie de app een week niet
+       * opent, heeft een week lang een lege bon.
+       *
+       * Twee dingen aan de vorm hiervan zijn met opzet zo.
+       *
+       * Het staat na de controle op kosten. Eerst stond het ervoor, en dan
+       * ging de lezer aan de slag met een kostenpost die zojuist niet was
+       * aangemaakt -- werk voor niets, en een foutmelding die nergens over
+       * ging.
+       *
+       * En er wordt niet op gewacht. Resend staat aan de andere kant van deze
+       * webhook te wachten op een antwoord en geeft het op voordat een PDF is
+       * gelezen; dan biedt hij dezelfde mail nog eens aan. Mislukt het lezen,
+       * dan blijft de kostenpost staan zoals hij nu ook zou staan en werkt de
+       * knop in de app nog steeds.
+       */
+      const bonPad = bon.path
+      const vanNaam = van.naam ?? van.adres
+      void boekAutomatisch(expenseId, bonPad, vanNaam, onderwerp)
+        .catch((e) => console.error('[ontvang-mail] automatisch boeken: ' + String(e)))
     }
   }
 

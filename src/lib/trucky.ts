@@ -1,6 +1,7 @@
 import { db, uid } from './db'
 import { enqueue } from './sync'
 import { supabase, supabaseUrl } from './api/supabaseApi'
+import { zetInstelling } from './instellingen'
 import type { Instelling, TruckyContact, TruckyVraag, User } from './types'
 
 /* ------------------------------------------------------------------ *
@@ -120,24 +121,13 @@ export const trucky = {
     })
   },
 
-  /** Een instelling zetten. Maakt hem aan als hij nog niet bestaat. */
-  async zetInstelling(sleutel: string, waarde: string): Promise<Instelling> {
-    const bestaand = (await db.instellingen.toArray())
-      .find((i) => i.sleutel === sleutel)
-
-    const rij: Instelling = {
-      ...(bestaand ?? {
-        id: 'in_' + sleutel,
-        sleutel,
-        omschrijving: '',
-      }),
-      waarde: waarde.trim(),
-      updatedAt: Date.now(),
-    }
-
-    const stamped = { ...rij, updatedAt: Date.now() }
-    await db.instellingen.put(stamped)
-    await enqueue('instellingen', 'put', rij.id, stamped)
-    return stamped
-  },
+  /*
+   * Een instelling zetten.
+   *
+   * Het echte werk staat in instellingen.ts. Het stond hier, en dat werd
+   * ongemakkelijk zodra de ontwikkelaar er het inkoopdomein mee zette: dan
+   * loopt een factuurinstelling via het chatbotbestand. Deze regel blijft
+   * staan zodat de schermen die hem al aanroepen niets merken.
+   */
+  zetInstelling,
 }

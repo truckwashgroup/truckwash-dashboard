@@ -316,6 +316,7 @@ export const PUSH_ORDER: EntityName[] = [
   'signups', 'emailLog', 'documents', 'mailbox', 'changeRequests',
   'agendaItems', 'employerLinks', 'employerRules',
   'truckyVragen', 'truckyContact', 'instellingen',
+  'grootboek', 'kostenTags',
 ]
 
 const RANG = new Map(PUSH_ORDER.map((e, i) => [e, i]))
@@ -456,6 +457,8 @@ async function pushPerStuk(batch: OutboxRecord[]): Promise<Error | null> {
 const TABLE_OF: Record<EntityName, () => any> = {
   locations: () => db.locations,
   truckyVragen: () => db.truckyVragen,
+  grootboek: () => db.grootboek,
+  kostenTags: () => db.kostenTags,
   truckyContact: () => db.truckyContact,
   instellingen: () => db.instellingen,
   users: () => db.users,

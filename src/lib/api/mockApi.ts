@@ -47,6 +47,9 @@ class MockServerDB extends Dexie {
   posSafes!: Table<PosSafe, string>
   posSafeMoves!: Table<PosSafeMove, string>
   locationPhotos!: Table<LocationPhoto, string>
+  truckyVragen!: Table<any, string>
+  truckyContact!: Table<any, string>
+  instellingen!: Table<any, string>
   signups!: Table<Signup, string>
   channels!: Table<Channel, string>
   chatMessages!: Table<ChatMessage, string>
@@ -92,6 +95,9 @@ class MockServerDB extends Dexie {
       posSafes: 'id, updatedAt',
       posSafeMoves: 'id, updatedAt',
       locationPhotos: 'id, locationId, updatedAt',
+      truckyVragen: 'id, updatedAt',
+      truckyContact: 'id, status, updatedAt',
+      instellingen: 'id, sleutel, updatedAt',
       signups: 'id, updatedAt',
       channels: 'id, updatedAt',
       chatMessages: 'id, channelId, updatedAt',
@@ -140,6 +146,9 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   posSafes: () => server.posSafes,
   posSafeMoves: () => server.posSafeMoves,
   locationPhotos: () => server.locationPhotos,
+  truckyVragen: () => server.truckyVragen,
+  truckyContact: () => server.truckyContact,
+  instellingen: () => server.instellingen,
   signups: () => server.signups,
   channels: () => server.channels,
   chatMessages: () => server.chatMessages,

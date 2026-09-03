@@ -4390,3 +4390,36 @@ table.data.matrix th { vertical-align: bottom; }
   .lezing-overnemen li { flex-wrap: wrap; }
   .lezing-overnemen li .l { width: 100%; }
 }
+
+/* ------------------------------- Trucky --------------------------- *
+ *
+ *  De vraag van een bezoeker en het verloop van het chatgesprek. Bewust een
+ *  blok en geen invoerveld: hier valt niets aan te wijzigen, en het moet
+ *  leesbaar blijven met de regeleinden die de bezoeker zelf typte.
+ * ------------------------------------------------------------------ */
+
+.trucky-blok {
+  padding: 11px 13px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2, var(--surface));
+  font-size: .87rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* Het gesprek ervoor is naslag, geen hoofdzaak: kleiner, en met een grens
+   zodat een lang gesprek de knop niet uit beeld duwt. */
+.trucky-verloop {
+  max-height: 190px;
+  overflow-y: auto;
+  font-size: .8rem;
+  color: var(--text-2);
+}
+
+/* Een lange vraag in een tabelcel op één regel houden. */
+.afgekapt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -1756,8 +1756,69 @@ export type EntityName =
   | 'agendaItems' | 'employers' | 'employerLinks' | 'employerRules'
   | 'posRegisters' | 'posDevices' | 'posPairings' | 'posSafes' | 'posSafeMoves'
   | 'locationPhotos'
+  | 'truckyVragen' | 'truckyContact' | 'instellingen'
 
 export type SyncOp = 'put' | 'delete'
+
+/* ------------------------------------------------------------------ *
+ *  Trucky -- de chatbot op de website
+ *
+ *  De vragenlijst is wat het bedrijf naar buiten zegt op de vragen die
+ *  iedereen stelt. Staat er een antwoord, dan geeft de chatbot dat woordelijk
+ *  en komt het model er niet aan te pas -- goedkoper, en er staat altijd
+ *  hetzelfde.
+ * ------------------------------------------------------------------ */
+
+export interface TruckyVraag {
+  id: string
+  vraag: string
+  antwoord: string
+  /** Andere manieren waarop mensen ernaar vragen. Vangt de halve treffers. */
+  trefwoorden: string[]
+  /** Waar de bezoeker verder kan lezen; wordt een knop onder het antwoord. */
+  pagina?: string
+  actief: boolean
+  /** Hoe vaak dit antwoord het werk deed zonder het model. */
+  gebruikt: number
+  updatedAt: number
+}
+
+export type ContactStatus = 'nieuw' | 'opgepakt' | 'beantwoord'
+
+/**
+ * Een vraag die de chatbot niet kon of mocht beantwoorden.
+ *
+ * Hier staan gegevens van mensen buiten het bedrijf in. Vandaar dat alleen
+ * administratie en management erbij kunnen.
+ */
+export interface TruckyContact {
+  id: string
+  naam: string
+  email: string
+  telefoon?: string
+  bedrijf?: string
+  vraag: string
+  /** Het gesprek waar dit uit voortkwam. */
+  gesprek?: string
+  /** Wat er in de chat aan voorafging -- zonder dat is de vraag vaak los zand. */
+  verloop?: string
+  status: ContactStatus
+  antwoord?: string
+  behandeldDoor?: string
+  behandeldDoorNaam?: string
+  behandeldAt?: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** Een instelling die het management zelf zet. */
+export interface Instelling {
+  id: string
+  sleutel: string
+  waarde: string
+  omschrijving: string
+  updatedAt: number
+}
 
 export interface OutboxRecord {
   id?: number

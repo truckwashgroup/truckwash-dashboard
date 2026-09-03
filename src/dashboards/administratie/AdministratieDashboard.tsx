@@ -1,13 +1,16 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  ClipboardCheck, Clock, MessageSquare, Receipt, UserPlus, Users,
+  Bot, ClipboardCheck, Clock, MessageSquare, Receipt, UserPlus, Users,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { Start, type Tegel } from '../../components/Tegels'
 import { db } from '../../lib/db'
-import type { DossierWijziging, Expense, HourRequest, Signup } from '../../lib/types'
+import type {
+  DossierWijziging, Expense, HourRequest, Signup, TruckyContact,
+} from '../../lib/types'
 import Kostenposten from './Kostenposten'
+import TruckyScherm from './Trucky'
 import Urenverzoeken from '../../components/Urenverzoeken'
 import { OpenWijzigingen } from '../../components/Wijzigingen'
 import Aanmeldingen from '../management/Aanmeldingen'
@@ -31,6 +34,7 @@ import { useNavTarget, usePerms } from '../../store/useNav'
 const TITELS: Record<string, { title: string; subtitle: string }> = {
   start: { title: 'Te doen', subtitle: 'Alles wat op een beslissing wacht' },
   kosten: { title: 'Kostenposten', subtitle: 'Bonnen en facturen beoordelen' },
+  trucky: { title: 'Trucky', subtitle: 'Vragen via de website, en wat de chatbot zelf beantwoordt' },
   uren: { title: 'Urenwijzigingen', subtitle: 'Correcties op wat er is geklokt' },
   dossiers: { title: 'Dossierwijzigingen', subtitle: 'Wat medewerkers zelf willen aanpassen' },
   aanmeldingen: { title: 'Aanmeldingen', subtitle: 'Wie zich via de app heeft gemeld' },
@@ -47,6 +51,8 @@ export default function AdministratieDashboard() {
   const wijzigingen = useLiveQuery(
     () => db.changeRequests.toArray(), [], [] as DossierWijziging[])
   const aanmeldingen = useLiveQuery(() => db.signups.toArray(), [], [] as Signup[])
+  const viaWebsite = useLiveQuery(
+    () => db.truckyContact.toArray(), [], [] as TruckyContact[])
 
   const wacht = useMemo(() => ({
     kosten: bonnen.filter((e) => e.status === 'open').length,
@@ -56,7 +62,8 @@ export default function AdministratieDashboard() {
     uren: uren.filter((u) => u.status === 'nieuw').length,
     dossiers: wijzigingen.filter((w) => w.status === 'open').length,
     aanmeldingen: aanmeldingen.filter((s) => s.status === 'nieuw').length,
-  }), [bonnen, uren, wijzigingen, aanmeldingen])
+    trucky: viaWebsite.filter((c) => c.status === 'nieuw').length,
+  }), [bonnen, uren, wijzigingen, aanmeldingen, viaWebsite])
 
   const totaal = wacht.kosten + wacht.uren + wacht.dossiers + wacht.aanmeldingen
 
@@ -75,6 +82,7 @@ export default function AdministratieDashboard() {
       ? [{ key: 'aanmeldingen', label: 'Aanmeldingen', icon: UserPlus,
            badge: wacht.aanmeldingen || undefined }]
       : []),
+    { key: 'trucky', label: 'Trucky', icon: Bot, badge: wacht.trucky || undefined },
     ...(perms.can('chat.use')
       ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
       : []),
@@ -159,6 +167,7 @@ export default function AdministratieDashboard() {
         <Start tegels={tegels} />
       )}
       {page === 'kosten' && <Kostenposten />}
+      {page === 'trucky' && <TruckyScherm />}
       {page === 'uren' && <Urenverzoeken />}
       {page === 'dossiers' && <OpenWijzigingen />}
       {page === 'aanmeldingen' && <Aanmeldingen />}

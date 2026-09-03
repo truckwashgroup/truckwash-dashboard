@@ -587,3 +587,11 @@ main{display:block}
   .trucky-venster{width:calc(100vw - 28px);height:min(70vh,520px)}
   .trucky-uitnodiging{width:calc(100vw - 28px);max-width:280px}
 }
+
+/* Het contactformulier in de chat. Meer velden dan het verslag, dus onder
+   elkaar in plaats van naast elkaar. */
+.trucky-contact form{flex-direction:column;gap:7px}
+.trucky-contact input,.trucky-contact textarea{width:100%;border:1px solid #d5dce8;border-radius:8px;padding:8px 11px;font:inherit;font-size:14px;color:var(--inkt)}
+.trucky-contact textarea{resize:vertical;min-height:64px}
+.trucky-contact button[type=submit]{width:100%;padding:10px}
+.trucky-fout{margin:8px 0 0;font-size:13px;color:#c02718}

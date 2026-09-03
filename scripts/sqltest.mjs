@@ -172,6 +172,7 @@ await run(db, '0038_een_verwijdering_moet_zichzelf_melden.sql draait', sqlFile('
 await run(db, '0039_verdwaalde_regeleindes_in_de_vestigingsteksten.sql draait', sqlFile('supabase/migrations/0039_verdwaalde_regeleindes_in_de_vestigingsteksten.sql'))
 await run(db, '0040_bijwerken_is_geen_aanmaken_op_alle_tabellen.sql draait', sqlFile('supabase/migrations/0040_bijwerken_is_geen_aanmaken_op_alle_tabellen.sql'))
 await run(db, '0041_trucky_praat_met_bezoekers.sql draait', sqlFile('supabase/migrations/0041_trucky_praat_met_bezoekers.sql'))
+await run(db, '0042_trucky_kent_de_antwoorden_zelf.sql draait', sqlFile('supabase/migrations/0042_trucky_kent_de_antwoorden_zelf.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -215,6 +216,7 @@ await run(db, '0038 nogmaals', sqlFile('supabase/migrations/0038_een_verwijderin
 await run(db, '0039 nogmaals', sqlFile('supabase/migrations/0039_verdwaalde_regeleindes_in_de_vestigingsteksten.sql'))
 await run(db, '0040 nogmaals', sqlFile('supabase/migrations/0040_bijwerken_is_geen_aanmaken_op_alle_tabellen.sql'))
 await run(db, '0041 nogmaals', sqlFile('supabase/migrations/0041_trucky_praat_met_bezoekers.sql'))
+await run(db, '0042 nogmaals', sqlFile('supabase/migrations/0042_trucky_kent_de_antwoorden_zelf.sql'))
 await run(db, '0029 nogmaals', sqlFile('supabase/migrations/0029_de_administratie.sql'))
 await run(db, '0030 nogmaals', sqlFile('supabase/migrations/0030_gewone_facturen_waren_verdacht.sql'))
 await run(db, '0031 nogmaals', sqlFile('supabase/migrations/0031_bijwerken_is_nog_steeds_geen_aanmaken.sql'))

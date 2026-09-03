@@ -23,6 +23,11 @@ const ENV: Record<string, string | undefined> =
   (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {}
 
 const URL = ENV.VITE_SUPABASE_URL
+
+/** Het adres van het project, voor wie zelf een edge function moet aanroepen. */
+export function supabaseUrl(): string {
+  return String(URL ?? '').replace(/\/+$/, '')
+}
 const ANON = ENV.VITE_SUPABASE_ANON_KEY
 
 /**
@@ -116,6 +121,9 @@ const TABLES: Record<EntityName, string> = {
   posSafes: 'pos_safes',
   posSafeMoves: 'pos_safe_moves',
   locationPhotos: 'location_photos',
+  truckyVragen: 'trucky_vragen',
+  truckyContact: 'trucky_contact',
+  instellingen: 'instellingen',
   signups: 'signups',
   channels: 'channels',
   chatMessages: 'chat_messages',

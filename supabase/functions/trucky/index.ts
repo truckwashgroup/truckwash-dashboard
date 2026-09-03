@@ -66,6 +66,21 @@ const MODEL = 'claude-haiku-4-5'
  *  euro in plaats van onbeperkt.
  * ------------------------------------------------------------------ */
 
+/*
+ * Wanneer een opgeslagen antwoord goed genoeg is om het model over te slaan.
+ *
+ * Te laag en je krijgt een antwoord over openingstijden op een vraag over
+ * betalen -- dat is erger dan een duur antwoord. Te hoog en alles gaat alsnog
+ * naar het model en de hele vragenlijst doet niets.
+ *
+ * 0,62 is gekozen op de proef: "hoe laat zijn jullie open" haalt ruim boven de
+ * 0,9, de tikfout "opeingstijden" nog altijd boven de 0,7, en een vraag die er
+ * niets mee te maken heeft blijft onder de 0,4.
+ */
+const ZEKER_GENOEG = 0.62
+/** Hoeveel opgeslagen antwoorden het model als naslag meekrijgt. */
+const NASLAG = 3
+
 const MAX_VRAGEN_PER_GESPREK = 12
 const MAX_GESPREKKEN_PER_DAG = 400
 const MAX_TOKENS_PER_DAG = 2_000_000
@@ -153,7 +168,35 @@ async function vestigingen(): Promise<string> {
   }
 }
 
-function opdracht(lijst: string): string {
+interface Treffer {
+  id: string; vraag: string; antwoord: string; pagina: string | null; score: number
+}
+
+/** De opgeslagen antwoorden die het dichtst bij deze vraag liggen. */
+async function zoek(vraag: string): Promise<Treffer[]> {
+  try {
+    const res = await db('rpc/trucky_zoek', {
+      method: 'POST',
+      body: JSON.stringify({ vraag_in: vraag, hoeveel: NASLAG }),
+    })
+    return await res.json() as Treffer[]
+  } catch (e) {
+    /* Zonder de lijst kan het model het nog steeds; dan is het alleen duurder. */
+    console.error('[trucky] zoeken', e)
+    return []
+  }
+}
+
+function opdracht(lijst: string, naslag: Treffer[]): string {
+  const bekend = naslag.length
+    ? `\n\nWAT WE HIEROVER AL HEBBEN OPGESCHREVEN\nDit zijn vaste antwoorden ` +
+      `van het bedrijf. Past er een bij de vraag, gebruik dan die inhoud -- ` +
+      `niet je eigen woorden voor iets waar het bedrijf al een antwoord voor ` +
+      `heeft. Past er niets bij, negeer ze dan.\n` +
+      naslag.map((t) => `- Vraag: ${t.vraag}\n  Antwoord: ${t.antwoord}` +
+        (t.pagina ? `\n  Pagina: ${t.pagina}` : '')).join('\n')
+    : ''
+
   return `Je bent Trucky, de assistent op de website van Truckwash 1 Group.
 
 Truckwash 1 Group wast vrachtwagens, bussen en campers op achttien vestigingen
@@ -183,6 +226,27 @@ Elke vestiging heeft /locaties/<plaats>/.
 WAT ER NIET VOOR JOU IS
 /medewerkers/ is voor eigen personeel. Vraagt iemand naar inloggen of de app,
 verwijs daarheen, maar ga er verder niet over.
+
+WANNEER JE HET DOORGEEFT AAN EEN MENS
+Zet dan als allerlaatste regel precies:
+[[contact]]
+De bezoeker krijgt dan een formulier waarmee hij zijn gegevens achterlaat, en
+iemand van kantoor belt of mailt terug. Zeg er kort bij dat je het laat
+navragen. Doe dit bij:
+
+- Vragen over een persoon. Wie werkt er, hoe heet de manager van Venlo, wie had
+  ik gisteren aan de lijn, wie heeft mijn wagen gewassen. Dat zijn gegevens van
+  mensen en die geef je niet, ook niet als de vraag onschuldig klinkt en ook
+  niet als iemand zegt dat hij er recht op heeft.
+- Een klacht, schade, of iets dat is misgegaan.
+- Een offerte, een contract, betalingsafspraken of iets over een factuur.
+- Een vraag over een specifieke wasbeurt, order of afspraak van deze bezoeker.
+- Alles waar je het antwoord niet zeker van weet en waar bellen te omslachtig
+  voor is.
+
+Verzin nooit iets om het formulier te vermijden. "Dat weet ik niet, ik laat het
+navragen" is een goed antwoord.
+${bekend}
 
 DE VESTIGINGEN
 ${lijst}
@@ -225,6 +289,89 @@ async function stuurVerslag(adres: string, beurten: Beurt[]) {
   if (!res.ok) throw new Error(`mail ${res.status}: ${await res.text()}`)
 }
 
+/* ------------------------------------------------------------------ *
+ *  Het contactverzoek
+ * ------------------------------------------------------------------ */
+
+/** Naar welk adres een verzoek gaat. Het management zet dit in de app. */
+async function contactAdres(): Promise<string[]> {
+  try {
+    const res = await db('instellingen?sleutel=eq.contact_mail&select=waarde')
+    const rij = await res.json() as Array<{ waarde: string }>
+    const adressen = (rij[0]?.waarde ?? '')
+      .split(',').map((a) => a.trim()).filter((a) => geldigAdres(a))
+    if (adressen.length) return adressen
+  } catch (e) {
+    console.error('[trucky] contactadres', e)
+  }
+  /* Nooit stil laten verdwijnen omdat een instelling ontbreekt. */
+  return ['casper@truckwash1group.nl']
+}
+
+async function mail(naar: string[], onderwerp: string, tekst: string) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${RESEND_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: AFZENDER,
+      reply_to: 'info@truckwash1group.nl',
+      to: naar,
+      subject: onderwerp,
+      text: tekst,
+    }),
+  })
+  if (!res.ok) throw new Error(`mail ${res.status}: ${await res.text()}`)
+}
+
+/* ------------------------------------------------------------------ *
+ *  Wie belt hier
+ *
+ *  Deze functie staat open zonder inlog -- dat moet, want een bezoeker van de
+ *  website heeft er geen. Voor het antwoorden op een contactverzoek geldt dat
+ *  natuurlijk niet: dat is mailen naar een adres dat iemand anders heeft
+ *  ingetikt, en dat mag niet de eerste de beste kunnen.
+ *
+ *  Supabase controleert de inlog hier niet voor ons (--no-verify-jwt), dus
+ *  doen we het zelf: het token dat meekomt naar de auth-dienst, en dan kijken
+ *  wat dat dossier mag.
+ * ------------------------------------------------------------------ */
+
+async function magAntwoorden(req: Request): Promise<{ id: string; naam: string } | null> {
+  const kop = req.headers.get('Authorization') ?? ''
+  const token = kop.startsWith('Bearer ') ? kop.slice(7) : ''
+  if (!token || token === Deno.env.get('SUPABASE_ANON_KEY')) return null
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) return null
+    const gebruiker = await res.json() as { id?: string }
+    if (!gebruiker.id) return null
+
+    const p = await (await db(
+      `profiles?auth_id=eq.${encodeURIComponent(gebruiker.id)}` +
+      '&select=id,name,roles,grants,active&limit=1',
+    )).json() as Array<{
+      id: string; name: string; roles: string[] | null
+      grants: string[] | null; active: boolean
+    }>
+
+    const dossier = p[0]
+    if (!dossier?.active) return null
+
+    const mag = (dossier.roles ?? []).includes('management')
+      || (dossier.grants ?? []).includes('admin.desk')
+    return mag ? { id: dossier.id, naam: dossier.name } : null
+  } catch (e) {
+    console.error('[trucky] wie belt', e)
+    return null
+  }
+}
+
 /* ------------------------------------------------------------------ */
 
 interface Beurt { role: 'user' | 'assistant'; content: string }
@@ -244,8 +391,13 @@ Deno.serve(async (req) => {
     gesprek?: string
     bericht?: string
     beurten?: Beurt[]
-    actie?: 'verslag'
+    actie?: 'verslag' | 'contact' | 'antwoord'
     email?: string
+    naam?: string
+    telefoon?: string
+    bedrijf?: string
+    vraag?: string
+    antwoord?: string
   }
   try {
     body = await req.json()
@@ -314,6 +466,126 @@ Deno.serve(async (req) => {
     return json({ ok: true })
   }
 
+  /* --- kantoor antwoordt op een contactverzoek --- */
+
+  if (body.actie === 'antwoord') {
+    const wie = await magAntwoorden(req)
+    if (!wie) {
+      return json({ ok: false, reden: 'Hier mag je niet bij.' }, 403)
+    }
+
+    const naar = String(body.email ?? '')
+    const tekst = String(body.antwoord ?? '').trim()
+    const opVraag = String(body.vraag ?? '').trim()
+    const voornaam = String(body.naam ?? '').trim().split(' ')[0] || 'daar'
+
+    if (!geldigAdres(naar)) return json({ ok: false, reden: 'Geen geldig adres.' }, 400)
+    if (!tekst) return json({ ok: false, reden: 'Leeg antwoord.' }, 400)
+    if (!RESEND_KEY) return json({ ok: false, reden: 'Mailen is nog niet ingesteld.' }, 500)
+
+    try {
+      await mail([naar], 'Antwoord op je vraag',
+        `Hoi ${voornaam},\n\n` +
+        (opVraag ? `Je stelde ons via de website deze vraag:\n\n${opVraag}\n\n` : '') +
+        `${tekst}\n\n` +
+        `Nog iets onduidelijk? Bel gerust 088 - 0600 100.\n\n` +
+        `Met vriendelijke groet,\n${wie.naam}\nTruckwash 1 Group`)
+      return json({ ok: true })
+    } catch (e) {
+      console.error('[trucky] antwoord mailen', e)
+      return json({ ok: false, reden: 'De mail ging niet uit.' }, 502)
+    }
+  }
+
+  /* --- een contactverzoek --- */
+
+  if (body.actie === 'contact') {
+    const naam = String(body.naam ?? '').trim().slice(0, 120)
+    const adres = String(body.email ?? '').trim().slice(0, 160)
+    const telefoon = String(body.telefoon ?? '').trim().slice(0, 40)
+    const bedrijf = String(body.bedrijf ?? '').trim().slice(0, 160)
+    const watVraag = String(body.vraag ?? '').trim().slice(0, 2000)
+
+    if (!naam) return json({ ok: false, reden: 'Vul je naam even in.' }, 400)
+    if (!geldigAdres(adres)) {
+      return json({ ok: false, reden: 'Dat lijkt geen e-mailadres.' }, 400)
+    }
+    if (!watVraag) return json({ ok: false, reden: 'Wat is je vraag?' }, 400)
+    if (!RESEND_KEY) return json({ ok: false, reden: 'Mailen is nog niet ingesteld.' }, 500)
+
+    const verloop = eerdere.map((b) =>
+      `${b.role === 'user' ? 'Bezoeker' : 'Trucky'}: ${b.content}`).join('\n\n')
+
+    /*
+     * Eerst opslaan, dan pas mailen.
+     *
+     * Andersom zou een verzoek dat wel gemaild is maar niet is opgeslagen
+     * nergens in het dashboard staan -- en dan hangt het ervan af of iemand
+     * zijn mail leest. De rij in de database is het werkelijke bewijs dat er
+     * iemand zit te wachten; de mail is de tik op de schouder.
+     */
+    const id = 'tc_' + crypto.randomUUID()
+    try {
+      await db('trucky_contact', {
+        method: 'POST',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          id, naam, email: adres.toLowerCase(),
+          telefoon: telefoon || null,
+          bedrijf: bedrijf || null,
+          vraag: watVraag,
+          gesprek,
+          verloop: verloop || null,
+          status: 'nieuw',
+          created_at: Date.now(),
+          updated_at: Date.now(),
+        }),
+      })
+    } catch (e) {
+      console.error('[trucky] contact opslaan', e)
+      return json({
+        ok: false,
+        reden: 'Opslaan lukte niet. Bel gerust 088 - 0600 100.',
+      }, 500)
+    }
+
+    /*
+     * De mails apart, en geen van beide fataal. Het verzoek staat er al; een
+     * bezoeker die "het is niet gelukt" leest terwijl kantoor het wél heeft,
+     * belt daarna voor niets.
+     */
+    try {
+      await mail(
+        await contactAdres(),
+        `Vraag via de website van ${naam}`,
+        `Er staat een vraag klaar in het dashboard, bij Administratie.\n\n` +
+        `Van:       ${naam}\n` +
+        `E-mail:    ${adres}\n` +
+        (telefoon ? `Telefoon:  ${telefoon}\n` : '') +
+        (bedrijf ? `Bedrijf:   ${bedrijf}\n` : '') +
+        `\nDe vraag:\n${watVraag}\n` +
+        (verloop ? `\n--- wat eraan voorafging in de chat ---\n${verloop}\n` : '') +
+        `\nBeantwoorden doe je in het dashboard, dan gaat het antwoord ` +
+        `automatisch naar ${adres}.`,
+      )
+    } catch (e) {
+      console.error('[trucky] contact melden aan kantoor', e)
+    }
+
+    try {
+      await mail([adres], 'We hebben je vraag ontvangen',
+        `Hoi ${naam.split(' ')[0]},\n\n` +
+        `Bedankt voor je vraag. Een collega kijkt ernaar en neemt contact met ` +
+        `je op.\n\nWat je ons vroeg:\n${watVraag}\n\n` +
+        `Heb je haast? Bel dan gerust 088 - 0600 100.\n\n` +
+        `Met vriendelijke groet,\nTruckwash 1 Group`)
+    } catch (e) {
+      console.error('[trucky] bevestiging aan bezoeker', e)
+    }
+
+    return json({ ok: true })
+  }
+
   /* --- een vraag --- */
 
   const vraag = String(body.bericht ?? '').trim()
@@ -364,7 +636,58 @@ Deno.serve(async (req) => {
       })
     }
 
-    /* --- het echte werk --- */
+    /* --- eerst de vragenlijst --- */
+
+    const treffers = await zoek(vraag)
+    const beste = treffers[0]
+
+    /*
+     * Goed genoeg? Dan dat antwoord, woordelijk, en het model komt er niet aan
+     * te pas. Dat is niet alleen goedkoper: op vragen die iedereen stelt hoort
+     * altijd hetzelfde te staan, en dat krijg je niet als je het elke keer
+     * opnieuw laat formuleren.
+     *
+     * Deze vraag telt wel mee voor de grens per gesprek -- twaalf keer heen en
+     * weer is twaalf keer heen en weer, ook als het gratis was.
+     */
+    if (beste && beste.score >= ZEKER_GENOEG) {
+      try {
+        await db('trucky_gesprekken?on_conflict=id', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+          body: JSON.stringify({
+            id: gesprek,
+            aantal_vragen: alGesteld + 1,
+            invoer_tokens: tot.invoer_tokens,
+            uitvoer_tokens: tot.uitvoer_tokens,
+            laatst_at: Date.now(),
+            updated_at: Date.now(),
+          }),
+        })
+        /* Tellen hoe vaak dit antwoord het werk doet. Zegt welke vragen echt
+           leven, en dus welke het waard zijn om scherp te houden. */
+        await db('rpc/trucky_vraag_gebruikt', {
+          method: 'POST',
+          body: JSON.stringify({ vraag_id: beste.id }),
+        })
+      } catch (e) {
+        console.error('[trucky] tellen (uit de lijst)', e)
+      }
+
+      console.log('[trucky] uit de lijst', JSON.stringify({
+        vraag: vraag.slice(0, 60), gevonden: beste.id, score: beste.score,
+      }))
+
+      return json({
+        ok: true,
+        antwoord: beste.antwoord,
+        pagina: beste.pagina,
+        uitLijst: true,
+        resterend: Math.max(0, MAX_VRAGEN_PER_GESPREK - (alGesteld + 1)),
+      })
+    }
+
+    /* --- en anders het model, mét die lijst als naslag --- */
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -395,7 +718,7 @@ Deno.serve(async (req) => {
          */
         system: [{
           type: 'text',
-          text: opdracht(await vestigingen()),
+          text: opdracht(await vestigingen(), treffers),
           cache_control: { type: 'ephemeral' },
         }],
         messages: [...eerdere, { role: 'user', content: vraag }],
@@ -423,7 +746,10 @@ Deno.serve(async (req) => {
     let tekst = (uit.content ?? [])
       .filter((b) => b.type === 'text').map((b) => b.text ?? '').join('').trim()
 
-    /* De verwijzing eruit knippen; de site maakt er een knop van. */
+    /* De markeringen eruit knippen; de site maakt er knoppen van. */
+    let contact = false
+    tekst = tekst.replace(/\[\[contact\]\]/gi, () => { contact = true; return '' }).trim()
+
     let pagina: string | null = null
     tekst = tekst.replace(/\[\[pagina:\s*(\/[a-z0-9\-/]*)\s*\]\]/gi, (_m, p: string) => {
       pagina = p
@@ -479,6 +805,7 @@ Deno.serve(async (req) => {
       antwoord: tekst || 'Daar weet ik zo even geen antwoord op. Bel gerust ' +
         '088 - 0600 100.',
       pagina,
+      contact,
       resterend: Math.max(0, MAX_VRAGEN_PER_GESPREK - (alGesteld + 1)),
     })
   } catch (e) {

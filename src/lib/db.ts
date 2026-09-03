@@ -12,7 +12,8 @@ import type {
     DevPlan,
 AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   CourseProgress, EmailLog, Expense, Fault, InventoryItem, Location, LogEvent,
-  AgendaItem, DossierWijziging, MailBericht, MaintenancePlan, OutboxRecord,
+  AgendaItem, DossierWijziging, Instelling, MailBericht, MaintenancePlan, OutboxRecord,
+  TruckyContact, TruckyVraag,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel,
   PersonnelDocument, PersonnelPrivate,
   Shift, Signup, StockMovement, Ticket,
@@ -52,6 +53,9 @@ class TruckwashDB extends Dexie {
   posSafes!: Table<PosSafe, string>
   posSafeMoves!: Table<PosSafeMove, string>
   locationPhotos!: Table<LocationPhoto, string>
+  truckyVragen!: Table<TruckyVraag, string>
+  truckyContact!: Table<TruckyContact, string>
+  instellingen!: Table<Instelling, string>
   media!: Table<Media, string>
   mailOutbox!: Table<WachtendeMail, number>
   signups!: Table<Signup, string>
@@ -189,6 +193,14 @@ class TruckwashDB extends Dexie {
     this.version(17).stores({
       locationPhotos: 'id, locationId, sort, updatedAt',
       media: 'pad, at',
+    })
+
+    /* Trucky: de vragenlijst voor de website, de contactverzoeken die daaruit
+       voortkomen, en de instellingen die het management zet. */
+    this.version(18).stores({
+      truckyVragen: 'id, actief, updatedAt',
+      truckyContact: 'id, status, createdAt, updatedAt',
+      instellingen: 'id, sleutel, updatedAt',
     })
   }
 }

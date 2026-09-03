@@ -160,6 +160,7 @@
         }
         bij("trucky-van-hem", a.antwoord, a.pagina);
         beurten.push({ role: "assistant", content: a.antwoord });
+        if (a.contact) contactformulier();
         if (a.op) { op = true; sluitAf(); }
         else if (a.resterend === 2) {
           bij("trucky-van-hem", "We kunnen er nog een paar. Daarna verwijs ik " +
@@ -179,6 +180,91 @@
     var t = veld.value.trim();
     if (t) vraag(t);
   });
+
+  /* ---------------- het contactformulier ----------------
+
+     Komt tevoorschijn als Trucky iets niet mag of kan beantwoorden -- een
+     vraag over een persoon, een klacht, een offerte. Dan gaat het naar een
+     mens in plaats van dat er iets wordt verzonnen. */
+
+  var formulierStaat = false;
+
+  function contactformulier() {
+    if (formulierStaat) return;
+    formulierStaat = true;
+
+    var blok = document.createElement("div");
+    blok.className = "trucky-verslag trucky-contact";
+    blok.innerHTML =
+      "<p><strong>Laat je gegevens achter</strong><br>" +
+      "Dan zoekt een collega het uit en neemt contact met je op.</p>" +
+      "<form>" +
+        '<input name="naam" type="text" placeholder="Je naam" autocomplete="name" required>' +
+        '<input name="email" type="email" placeholder="E-mailadres" autocomplete="email" required>' +
+        '<input name="telefoon" type="tel" placeholder="Telefoon (mag leeg)" autocomplete="tel">' +
+        '<input name="bedrijf" type="text" placeholder="Bedrijf (mag leeg)" autocomplete="organization">' +
+        '<textarea name="vraag" rows="3" placeholder="Waar gaat het over?" required></textarea>' +
+        "<button type='submit'>Versturen</button>" +
+      "</form>" +
+      '<button class="trucky-nee" type="button">Liever niet</button>';
+    loop.appendChild(blok);
+    loop.scrollTop = loop.scrollHeight;
+
+    /* De laatste vraag alvast invullen -- die heeft hij net getypt, en het
+       twee keer moeten opschrijven is precies waar mensen op afhaken. */
+    var laatste = null;
+    for (var i = beurten.length - 1; i >= 0; i--) {
+      if (beurten[i].role === "user") { laatste = beurten[i].content; break; }
+    }
+    if (laatste) blok.querySelector("[name=vraag]").value = laatste;
+
+    blok.querySelector(".trucky-nee").addEventListener("click", function () {
+      blok.remove();
+      formulierStaat = false;
+    });
+
+    blok.querySelector("form").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var f = e.target;
+      var kn = f.querySelector("button[type=submit]");
+      kn.disabled = true;
+      kn.textContent = "Versturen…";
+
+      fetch(ADRES, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gesprek: gesprekId,
+          actie: "contact",
+          naam: f.naam.value,
+          email: f.email.value,
+          telefoon: f.telefoon.value,
+          bedrijf: f.bedrijf.value,
+          vraag: f.vraag.value,
+          beurten: beurten,
+        }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (a) {
+          if (a && a.ok) {
+            blok.innerHTML = "<p><strong>Verstuurd.</strong><br>Je krijgt een " +
+              "bevestiging per mail, en een collega neemt contact met je op. " +
+              "Heb je haast? Bel 088 - 0600 100.</p>";
+          } else {
+            kn.disabled = false;
+            kn.textContent = "Versturen";
+            var m = blok.querySelector(".trucky-fout") || document.createElement("p");
+            m.className = "trucky-fout";
+            m.textContent = (a && a.reden) || "Versturen lukte niet.";
+            blok.appendChild(m);
+          }
+        })
+        .catch(function () {
+          kn.disabled = false;
+          kn.textContent = "Versturen";
+        });
+    });
+  }
 
   /* ---------------- het verslag ---------------- */
 

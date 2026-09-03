@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   CalendarRange, GraduationCap, Inbox, LayoutDashboard, LayoutGrid,
   Briefcase, Building2, CalendarDays, Mail, MessageSquare, Monitor, Package, Receipt,
-  Send, Settings, Users, Wrench,
+  Bot, Send, Settings, Users, Wrench,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db, alleMensen } from '../../lib/db'
@@ -19,6 +19,7 @@ import Aanmeldingen from './Aanmeldingen'
 import Werkgevers from './Werkgevers'
 import Kassas from './Kassas'
 import Vestigingen from './Vestigingen'
+import TruckyScherm from '../administratie/Trucky'
 import OpleidingOverzicht from '../../components/OpleidingOverzicht'
 import BerichtVersturen from '../../components/BerichtVersturen'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
@@ -28,7 +29,8 @@ import { Start, type Tegel, type TegelTint } from '../../components/Tegels'
 import { useNavTarget, usePerms } from '../../store/useNav'
 import { startOfDay } from '../../lib/analytics'
 import type {
-  Expense, Fault, InventoryItem, MailBericht, Signup, User, WashJob, Werkgever,
+  Expense, Fault, InventoryItem, MailBericht, Signup, TruckyContact, User, WashJob,
+  Werkgever,
 } from '../../lib/types'
 
 const DAY = 86_400_000
@@ -55,12 +57,13 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   werkgevers: { title: 'Werkgevers', subtitle: 'Bedrijven waarvan de chauffeurs hier wassen' },
   kassas: { title: "Kassa's", subtitle: 'Apparaten, koppelcodes en de kluis' },
   vestigingen: { title: 'Vestigingen', subtitle: "Adressen, foto's en openingstijden" },
+  trucky: { title: 'Trucky', subtitle: 'Vragen via de website, en wat de chatbot zelf beantwoordt' },
   beheer: { title: 'Beheer', subtitle: 'Instellingen, rechten en gegevens' },
 }
 
 const ZONDER_PERIODE = [
   'start', 'planning', 'beheer', 'opleiding', 'aanmeldingen', 'overleg', 'postbus',
-  'agenda', 'werkgevers', 'kassas', 'vestigingen',
+  'agenda', 'werkgevers', 'kassas', 'vestigingen', 'trucky',
 ]
 
 export default function ManagementDashboard() {
@@ -77,6 +80,8 @@ export default function ManagementDashboard() {
   const ongelezen = useOverlegTeller()
   const post = useLiveQuery(() => db.mailbox.toArray(), [], [] as MailBericht[])
   const werkgevers = useLiveQuery(() => db.employers.toArray(), [], [] as Werkgever[])
+  const viaWebsite = useLiveQuery(
+    () => db.truckyContact.toArray(), [], [] as TruckyContact[])
 
   const jobsVandaag = useLiveQuery(
     async () => {
@@ -104,6 +109,7 @@ export default function ManagementDashboard() {
 
     return {
       nieuwePost,
+      viaWebsite: viaWebsite.filter((c) => c.status === 'nieuw').length,
       nieuweWerkgevers,
       openKosten: openKosten.length,
       openBedrag: openKosten.reduce((a, b) => a + b.amountExcl, 0),
@@ -115,7 +121,8 @@ export default function ManagementDashboard() {
       gereed,
       vandaag: jobsVandaag.length,
     }
-  }, [bonnen, aanmeldingen, storingen, voorraad, mensen, jobsVandaag, post, werkgevers])
+  }, [bonnen, aanmeldingen, storingen, voorraad, mensen, jobsVandaag, post, werkgevers,
+      viaWebsite])
 
   const items: NavItem[] = [
     { key: 'start', label: 'Start', icon: LayoutGrid },
@@ -142,6 +149,7 @@ export default function ManagementDashboard() {
     ...(perms.can('pos.manage')
       ? [{ key: 'kassas', label: "Kassa's", icon: Monitor }]
       : []),
+    { key: 'trucky', label: 'Trucky', icon: Bot, badge: cijfers.viaWebsite || undefined },
     ...(perms.can('agenda.view')
       ? [{ key: 'agenda', label: 'Agenda', icon: CalendarDays }]
       : []),
@@ -396,6 +404,7 @@ export default function ManagementDashboard() {
       {page === 'werkgevers' && <Werkgevers />}
       {page === 'kassas' && <Kassas />}
       {page === 'vestigingen' && <Vestigingen />}
+      {page === 'trucky' && <TruckyScherm />}
       {page === 'beheer' && <Beheer />}
 
       <BerichtVersturen open={messaging} onClose={() => setMessaging(false)} />

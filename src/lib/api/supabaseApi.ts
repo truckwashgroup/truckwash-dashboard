@@ -236,6 +236,43 @@ function geenRechten(error: { code?: string } | null): boolean {
   return error?.code === 'PGRST301' || error?.code === '42501'
 }
 
+/**
+ * Is dit werkelijk een rechtenprobleem, of ben je gewoon uitgelogd?
+ *
+ * De database maakt dat onderscheid niet, en dat kostte een middag zoeken.
+ * Elke regel op de tabellen geldt voor de rol "authenticated". Verloopt je
+ * sessie, dan gaat het verzoek als anonieme bezoeker naar de server -- de
+ * publieke sleutel is immers nog steeds een geldige sleutel -- en dan is er
+ * voor die rol geen enkele regel die iets toestaat. De database antwoordt dan:
+ *
+ *   new row violates row-level security policy for table "channels"
+ *
+ * Precies dezelfde melding als wanneer een regel je iets niet gunt. Nagemeten
+ * met alleen de publieke sleutel: byte voor byte dezelfde tekst.
+ *
+ * Die melding wijst dus naar een tabel terwijl het probleem je inlog is. Er
+ * stonden drieëntwintig kanalen honderd pogingen lang vast op "geen rechten",
+ * terwijl er niets mis was met die kanalen en niets mis met de regels.
+ *
+ * Vandaar deze vraag erbij: is er nog een sessie? Zo niet, dan is dat het
+ * antwoord, en dat is een heel ander probleem met een heel andere oplossing.
+ */
+async function sessieVerlopen(): Promise<boolean> {
+  try {
+    const { data } = await supabase().auth.getSession()
+    return !data.session?.access_token
+  } catch {
+    /* Kunnen we het niet vaststellen, dan houden we het op wat de database
+       zei. Een verkeerde gok hier maakt het alleen maar verwarrender. */
+    return false
+  }
+}
+
+/** De juiste fout bij een weigering: uitgelogd, of werkelijk geen rechten. */
+async function weigering(table: string, bericht: string): Promise<Error> {
+  return (await sessieVerlopen()) ? new GeenSessie() : new GeenRechten(table, bericht)
+}
+
 /** Welke tabellen ontbraken bij de laatste ronde. */
 export const ontbrekendeTabellen = new Set<string>()
 
@@ -418,7 +455,7 @@ export const supabaseApi: ApiAdapter = {
         const { error } = await supabase().from(table).delete().in('id', deletes)
         if (error && tabelOntbreekt(error)) throw new OntbrekendeTabel(table)
         if (error && kolomOntbreekt(error)) throw new OntbrekendeKolom(table, error.message)
-        if (error && geenRechten(error)) throw new GeenRechten(table, error.message)
+        if (error && geenRechten(error)) throw await weigering(table, error.message)
         if (error) fail(`verwijderen in ${table}`, error)
       }
 
@@ -429,7 +466,7 @@ export const supabaseApi: ApiAdapter = {
         const { error } = await supabase().from(table).upsert(upserts, { onConflict: 'id' })
         if (error && tabelOntbreekt(error)) throw new OntbrekendeTabel(table)
         if (error && kolomOntbreekt(error)) throw new OntbrekendeKolom(table, error.message)
-        if (error && geenRechten(error)) throw new GeenRechten(table, error.message)
+        if (error && geenRechten(error)) throw await weigering(table, error.message)
         if (error) fail(`opslaan in ${table}`, error)
       }
     }

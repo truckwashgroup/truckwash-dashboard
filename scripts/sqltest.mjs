@@ -3465,6 +3465,108 @@ await asServer(db)
 await db.exec(`update public.profiles set grants = '{}'::text[]
                 where auth_id = '${wasser}'::uuid;`)
 
+
+console.log('\n29. Een kassa werkt zijn eigen regel bij, en maakt hem niet aan')
+
+/*
+ * Dit was de derde weigering op rij aan de balie: "new row violates row-level
+ * security policy for table pos_devices". Er was niets nieuws -- de kassa hield
+ * bij dat hij er nog was -- maar hij stuurde het als upsert, en dat is voor
+ * Postgres een INSERT met een uitweg. De INSERT-regel wordt eerst getoetst, en
+ * die bestaat voor een apparaat niet.
+ *
+ * De kassa stuurt sinds 0.10.1 een gewone update voor deze twee tabellen. Wat
+ * hier wordt vastgelegd is de afspraak waar dat op leunt: bijwerken mag,
+ * aanmaken niet. Zou iemand er ooit een INSERT-regel bij zetten om "het te
+ * laten werken", dan valt deze afdeling om -- en dat is de bedoeling, want dan
+ * kan een apparaat zich aan een andere kassa hangen.
+ */
+
+await asServer(db)
+
+await db.exec(`
+  insert into auth.users (id, email, raw_user_meta_data)
+  values ('cccccccc-0000-0000-0000-000000000001',
+          'kassa.kas-utr-8@apparaat.truckwash1group.nl',
+          '{"kassa":"KAS-UTR-8","apparaat":true}'::jsonb)
+  on conflict (id) do nothing;
+
+  insert into public.profiles
+    (id, auth_id, email, name, roles, active, location_id, is_device)
+  values ('dev_upsert', 'cccccccc-0000-0000-0000-000000000001',
+          'kassa.kas-utr-8@apparaat.truckwash1group.nl', 'Kassa KAS-UTR-8',
+          array['employee'], true, 'loc_utr', true)
+  on conflict (id) do nothing;
+
+  insert into public.pos_registers (id, location_id, code, name)
+  values ('reg_upsert', 'loc_utr', 'KAS-UTR-8', 'Achtste balie')
+  on conflict (id) do nothing;
+
+  insert into public.pos_devices
+    (id, register_id, location_id, device_key, name, auth_user_id, profile_id)
+  values ('app_upsert', 'reg_upsert', 'loc_utr', 'tablet-upsert', 'Tablet acht',
+          'cccccccc-0000-0000-0000-000000000001', 'dev_upsert')
+  on conflict (id) do nothing;
+
+  alter table public.pos_devices force row level security;
+`)
+
+const apparaatU = 'cccccccc-0000-0000-0000-000000000001'
+
+/* ---- bijwerken mag ---- */
+
+await magSchrijven(apparaatU,
+  "update public.pos_devices set last_seen_at = 4242 where id = 'app_upsert'")
+
+check('een kassa mag bijhouden dat hij er nog is',
+  Number((await db.query(
+    "select last_seen_at from public.pos_devices where id = 'app_upsert'"
+  )).rows[0].last_seen_at) === 4242)
+
+/* ---- aanmaken niet, ook niet vermomd als upsert ---- */
+
+check('maar hij zet geen nieuwe regel in de apparatenlijst',
+  !(await magSchrijven(apparaatU, `insert into public.pos_devices
+     (id, register_id, location_id, device_key, name, auth_user_id)
+     values ('app_zelf', 'reg_upsert', 'loc_utr', 'x', 'Zelf aangemaakt',
+             '${apparaatU}')`)))
+
+/*
+ * En dit is de vorm waar het echt op misging. Een upsert loopt op de
+ * INSERT-regel vast, óók als de rij al bestaat en er dus niets nieuws is.
+ * Daarom stuurt de kassa een update en geen upsert.
+ */
+check('en een upsert op zijn eigen regel loopt vast op de INSERT-regel',
+  !(await magSchrijven(apparaatU, `insert into public.pos_devices
+     (id, register_id, location_id, device_key, name, auth_user_id)
+     values ('app_upsert', 'reg_upsert', 'loc_utr', 'tablet-upsert', 'Tablet acht',
+             '${apparaatU}')
+     on conflict (id) do update set last_seen_at = 9999`)))
+
+check('en die regel is er niet door veranderd',
+  Number((await db.query(
+    "select last_seen_at from public.pos_devices where id = 'app_upsert'"
+  )).rows[0].last_seen_at) === 4242)
+
+/* ---- hetzelfde voor de kassa zelf ---- */
+
+await db.exec('alter table public.pos_registers force row level security;')
+
+await magSchrijven(apparaatU,
+  `update public.pos_registers
+      set printer = '{"kind":"netwerk","host":"192.168.1.77"}'::jsonb
+    where id = 'reg_upsert'`)
+
+check('een kassa zet zijn eigen bonprinter met een update',
+  (await db.query(
+    "select printer->>'host' as h from public.pos_registers where id = 'reg_upsert'"
+  )).rows[0].h === '192.168.1.77')
+
+check('maar maakt geen kassa aan',
+  !(await magSchrijven(apparaatU, `insert into public.pos_registers
+     (id, location_id, code, name) values ('reg_zelf', 'loc_utr', 'KAS-ZELF', 'Eigen')`)))
+
+
 await db.close()
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

@@ -173,6 +173,7 @@ await run(db, '0039_verdwaalde_regeleindes_in_de_vestigingsteksten.sql draait', 
 await run(db, '0040_bijwerken_is_geen_aanmaken_op_alle_tabellen.sql draait', sqlFile('supabase/migrations/0040_bijwerken_is_geen_aanmaken_op_alle_tabellen.sql'))
 await run(db, '0041_trucky_praat_met_bezoekers.sql draait', sqlFile('supabase/migrations/0041_trucky_praat_met_bezoekers.sql'))
 await run(db, '0042_trucky_kent_de_antwoorden_zelf.sql draait', sqlFile('supabase/migrations/0042_trucky_kent_de_antwoorden_zelf.sql'))
+await run(db, '0043_de_app_en_de_database_oneens_over_kanalen.sql draait', sqlFile('supabase/migrations/0043_de_app_en_de_database_oneens_over_kanalen.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -192,31 +193,18 @@ await run(db, '0013 nogmaals', sqlFile('supabase/migrations/0013_berichten_mogen
 await run(db, '0014 nogmaals', sqlFile('supabase/migrations/0014_wijzigingsverzoeken.sql'))
 await run(db, '0015 nogmaals', sqlFile('supabase/migrations/0015_agenda.sql'))
 await run(db, '0016 nogmaals', sqlFile('supabase/migrations/0016_werkgevers.sql'))
-
 await run(db, '0017 nogmaals', sqlFile('supabase/migrations/0017_berichten_over_de_grens.sql'))
-
 await run(db, '0018 nogmaals', sqlFile('supabase/migrations/0018_klokken_gaat_via_de_kassa.sql'))
-
 await run(db, '0019 nogmaals', sqlFile('supabase/migrations/0019_een_bericht_gelezen_melden.sql'))
-
 await run(db, '0020 nogmaals', sqlFile('supabase/migrations/0020_van_melding_naar_plan.sql'))
-
 await run(db, '0021 nogmaals', sqlFile('supabase/migrations/0021_je_eigen_dossier_en_de_rondleiding.sql'))
-
 await run(db, '0022 nogmaals', sqlFile('supabase/migrations/0022_bijwerken_is_geen_versturen.sql'))
-
 await run(db, '0023 nogmaals', sqlFile('supabase/migrations/0023_uitnodigen_en_uitschrijven.sql'))
-
 await run(db, '0024 nogmaals', sqlFile('supabase/migrations/0024_uren_en_kilometers.sql'))
 await run(db, '0025 nogmaals', sqlFile('supabase/migrations/0025_de_kluis_en_het_koppelen_van_een_kassa.sql'))
+await run(db, '0026 nogmaals', sqlFile('supabase/migrations/0026_de_vestigingen_beheren.sql'))
 await run(db, '0027 nogmaals', sqlFile('supabase/migrations/0027_een_foto_bij_het_artikel.sql'))
 await run(db, '0028 nogmaals', sqlFile('supabase/migrations/0028_een_kassa_is_geen_aanmelding.sql'))
-await run(db, '0037 nogmaals', sqlFile('supabase/migrations/0037_een_kassa_mag_klokken.sql'))
-await run(db, '0038 nogmaals', sqlFile('supabase/migrations/0038_een_verwijdering_moet_zichzelf_melden.sql'))
-await run(db, '0039 nogmaals', sqlFile('supabase/migrations/0039_verdwaalde_regeleindes_in_de_vestigingsteksten.sql'))
-await run(db, '0040 nogmaals', sqlFile('supabase/migrations/0040_bijwerken_is_geen_aanmaken_op_alle_tabellen.sql'))
-await run(db, '0041 nogmaals', sqlFile('supabase/migrations/0041_trucky_praat_met_bezoekers.sql'))
-await run(db, '0042 nogmaals', sqlFile('supabase/migrations/0042_trucky_kent_de_antwoorden_zelf.sql'))
 await run(db, '0029 nogmaals', sqlFile('supabase/migrations/0029_de_administratie.sql'))
 await run(db, '0030 nogmaals', sqlFile('supabase/migrations/0030_gewone_facturen_waren_verdacht.sql'))
 await run(db, '0031 nogmaals', sqlFile('supabase/migrations/0031_bijwerken_is_nog_steeds_geen_aanmaken.sql'))
@@ -224,7 +212,21 @@ await run(db, '0032 nogmaals', sqlFile('supabase/migrations/0032_wat_weg_is_moet
 await run(db, '0033 nogmaals', sqlFile('supabase/migrations/0033_de_vestiging_vult_de_website.sql'))
 await run(db, '0034 nogmaals', sqlFile('supabase/migrations/0034_anon_hoort_hier_niet_bij_te_kunnen.sql'))
 await run(db, '0035 nogmaals', sqlFile('supabase/migrations/0035_de_achttien_vestigingen_komen_naar_binnen.sql'))
-await run(db, '0026 nogmaals', sqlFile('supabase/migrations/0026_de_vestigingen_beheren.sql'))
+await run(db, '0037 nogmaals', sqlFile('supabase/migrations/0037_een_kassa_mag_klokken.sql'))
+await run(db, '0038 nogmaals', sqlFile('supabase/migrations/0038_een_verwijdering_moet_zichzelf_melden.sql'))
+await run(db, '0039 nogmaals', sqlFile('supabase/migrations/0039_verdwaalde_regeleindes_in_de_vestigingsteksten.sql'))
+await run(db, '0040 nogmaals', sqlFile('supabase/migrations/0040_bijwerken_is_geen_aanmaken_op_alle_tabellen.sql'))
+await run(db, '0041 nogmaals', sqlFile('supabase/migrations/0041_trucky_praat_met_bezoekers.sql'))
+await run(db, '0042 nogmaals', sqlFile('supabase/migrations/0042_trucky_kent_de_antwoorden_zelf.sql'))
+await run(db, '0043 nogmaals', sqlFile('supabase/migrations/0043_de_app_en_de_database_oneens_over_kanalen.sql'))
+
+
+
+
+
+
+
+
 await run(db, 'seed nogmaals', sqlFile('supabase/seed.sql'))
 
 const bedrijven = await db.query('select count(*)::int as n from public.companies')
@@ -3427,6 +3429,41 @@ check('een recht dat het kantoor er zelf op zette blijft staan',
     `select 'pos.manage' = any(grants) and 'hours.clock' = any(grants) as n
        from public.profiles where id = 'dev_klok'`)).rows[0].n === true)
 
+
+
+/* ===========================================================================
+ *  De app en de database moeten het eens zijn over kanalen (0043)
+ *
+ *  Drieëntwintig kanalen stonden honderd pogingen lang vast omdat de app naar
+ *  het recht chat.manage keek en de database naar de rol. Wie het recht los
+ *  toegekend krijgt, zag in de app een werkende knop en kreeg van de server
+ *  een weigering -- zonder dat ergens stond waarom.
+ * ======================================================================== */
+
+await asServer(db)
+
+async function maaktKanaal(uid, id) {
+  return magSchrijven(uid, `insert into public.channels
+    (id, slug, name, kind, topic, private, member_ids, created_at, archived)
+    values ('${id}', 'p-${id}', 'Proef', 'vestiging', 'Overleg', false, '{}', 1, false);`)
+}
+
+check('management maakt een vestigingskanaal', await maaktKanaal(baas, 'ch_t_baas'))
+check('een leidinggevende ook', await maaktKanaal(voorman, 'ch_t_voorman'))
+check('een gewone medewerker niet', !(await maaktKanaal(wasser, 'ch_t_wasser')))
+
+/* En de kern: wie het recht los krijgt, mag het ook echt. Dat was de fout. */
+await asServer(db)
+await db.exec(`update public.profiles
+                  set grants = array['chat.manage']::text[]
+                where auth_id = '${wasser}'::uuid;`)
+
+check('en wie chat.manage los toegekend krijgt, mag het wel',
+  await maaktKanaal(wasser, 'ch_t_wasser2'))
+
+await asServer(db)
+await db.exec(`update public.profiles set grants = '{}'::text[]
+                where auth_id = '${wasser}'::uuid;`)
 
 await db.close()
 

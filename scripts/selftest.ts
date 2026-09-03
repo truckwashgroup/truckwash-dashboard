@@ -4164,6 +4164,107 @@ console.log('\nX. De spookopruimer eet geen verse dossiers')
     oud.length === 2 && oud.includes('u_vers'))
 }
 
+/* ==================================================================== *
+ *  De historie bij een factuur
+ *
+ *  Een bon los beoordelen is lastiger dan het lijkt: is 1240 euro voor Enexis
+ *  veel? Dat weet je pas als je de vorige vier ziet. Dit stuk zoekt die reeks
+ *  bij elkaar en let op twee dingen die je met het blote oog mist: dezelfde
+ *  rekening die twee keer binnenkomt, en een bedrag dat uit de toon valt.
+ * ==================================================================== */
+
+console.log('\n28. De historie bij een factuur')
+
+{
+  const { historieVan, leveranciersleutel } =
+    await import('../src/lib/factuurhistorie')
+
+  /* ---- dezelfde partij, anders geschreven ---- */
+
+  check('B.V. telt niet mee bij het herkennen van een leverancier',
+    leveranciersleutel('Enexis Netbeheer B.V.') === leveranciersleutel('ENEXIS NETBEHEER BV'))
+  check('en twee verschillende partijen blijven verschillend',
+    leveranciersleutel('Enexis') !== leveranciersleutel('Eneco'))
+
+  let teller = 0
+  const bon = (over: Partial<Expense>): Expense => ({
+    id: 'exp_h' + (++teller),
+    locationId: 'loc_oss',
+    date: Date.parse('2026-06-01'),
+    category: 'energie',
+    supplier: 'Enexis Netbeheer B.V.',
+    description: 'elektra',
+    amountExcl: 400,
+    vatPct: 21,
+    status: 'goedgekeurd',
+    submittedBy: '',
+    submittedByName: 'de post',
+    updatedAt: 1,
+    ...over,
+  })
+
+  const eerdere = [
+    bon({ date: Date.parse('2026-02-01'), amountExcl: 390 }),
+    bon({ date: Date.parse('2026-03-01'), amountExcl: 410 }),
+    bon({ date: Date.parse('2026-04-01'), amountExcl: 400 }),
+    bon({ date: Date.parse('2026-05-01'), amountExcl: 405 }),
+  ]
+
+  /* ---- een gewone maandfactuur valt niet op ---- */
+
+  const gewoon = bon({ amountExcl: 415 })
+  const h1 = historieVan(gewoon, [gewoon, ...eerdere])
+  check('de eerdere facturen van dezelfde leverancier komen mee',
+    h1.eerder.length === 4, String(h1.eerder.length))
+  check('het gebruikelijke bedrag klopt', h1.gebruikelijk === 402.5, String(h1.gebruikelijk))
+  check('en een gewone maandfactuur levert geen opmerking op', !h1.opmerking, h1.opmerking)
+
+  /* ---- een jaarafrekening wel ---- */
+
+  const groot = bon({ amountExcl: 1240 })
+  const h2 = historieVan(groot, [groot, ...eerdere])
+  check('een bedrag van drie keer de mediaan valt op', !!h2.opmerking, h2.opmerking)
+
+  /*
+   * En het zegt niet dat het fout is. Een jaarafrekening hoort hoog te zijn;
+   * de administratie moet hem nakijken, niet afkeuren op gezag van een
+   * rekensom.
+   */
+  check('maar het wordt geen afkeuring',
+    !!h2.opmerking && /kan kloppen/i.test(h2.opmerking), h2.opmerking)
+
+  /* ---- te weinig om iets over te zeggen ---- */
+
+  const h3 = historieVan(groot, [groot, eerdere[0], eerdere[1]])
+  check('met twee eerdere bonnen wordt er niets beweerd',
+    h3.gebruikelijk === undefined && !h3.opmerking)
+
+  /* ---- alleen goedgekeurde bonnen tellen mee ---- */
+
+  const openStaand = eerdere.map((e) => ({ ...e, status: 'open' as const }))
+  const h4 = historieVan(groot, [groot, ...openStaand])
+  check('open bonnen tellen niet mee voor wat gebruikelijk is',
+    h4.gebruikelijk === undefined, String(h4.gebruikelijk))
+  check('maar ze staan wel in de lijst', h4.eerder.length === 4)
+
+  /* ---- dezelfde rekening twee keer ---- */
+
+  const eerste = bon({ date: Date.parse('2026-05-01'), factuurnummer: 'F-8811' })
+  const nogmaals = bon({ date: Date.parse('2026-05-20'), factuurnummer: 'F-8811' })
+  const h5 = historieVan(nogmaals, [nogmaals, eerste, ...eerdere])
+  check('een factuurnummer dat er al staat wordt gemeld',
+    h5.dubbel?.id === eerste.id)
+
+  const h6 = historieVan(bon({ factuurnummer: 'F-9999' }), [eerste, ...eerdere])
+  check('en een nieuw nummer niet', h6.dubbel === undefined)
+
+  /* ---- een andere leverancier hoort er niet bij ---- */
+
+  const ander = bon({ supplier: 'PreZero Nederland B.V.' })
+  const h7 = historieVan(ander, [ander, ...eerdere])
+  check('de historie blijft bij dezelfde leverancier', h7.eerder.length === 0)
+}
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   AlertTriangle, Check, CheckCheck, Clock, Euro, Loader2, Mail, Paperclip,
-  Receipt, RotateCcw, ScanText, Sparkles, Wallet, X,
+  History, Receipt, RotateCcw, ScanText, Sparkles, Wallet, X,
 } from 'lucide-react'
 import { db } from '../../lib/db'
 import { expenses as expRepo } from '../../lib/repo'
@@ -18,6 +18,7 @@ import { dateShort, money } from '../../lib/format'
 import {
   BRON_TEKST, onthoudBoeking, rekeningNaam, vraagtAandacht, zetBoeking,
 } from '../../lib/boeking'
+import { historieVan } from '../../lib/factuurhistorie'
 import { Badge, Card, Empty, Field, Modal, Stat } from '../../components/ui'
 import { magOpenen, postbus } from '../../lib/postbus'
 import Bekijker from '../../components/Bekijker'
@@ -372,6 +373,7 @@ function BonDetail({
           {fout && <p className="waarschuwing">{fout}</p>}
 
           <Boeking bon={bon} />
+          <Historie bon={bon} />
 
           <AnimatePresence mode="wait">
             {bon.gelezen && (
@@ -389,6 +391,79 @@ function BonDetail({
         </>
       )}
     </Modal>
+  )
+}
+
+/* -------------------------- De historie --------------------------- */
+
+/**
+ * Wat deze leverancier eerder stuurde.
+ *
+ * Een bon los beoordelen is lastiger dan het lijkt: is €1.240 voor Enexis
+ * veel? Dat weet je pas als je ziet dat het de vorige vier keer rond de €400
+ * was. Dan is dit geen bedrag maar een vraag.
+ */
+function Historie({ bon }: { bon: Expense }) {
+  const alle = useLiveQuery(() => db.expenses.toArray(), [], [] as Expense[])
+  const rekeningen = useLiveQuery(
+    () => db.grootboek.toArray(), [], [] as Grootboek[])
+
+  const h = useMemo(() => historieVan(bon, alle), [bon, alle])
+
+  if (!h.eerder.length) return null
+
+  return (
+    <Card
+      title="Eerder van deze leverancier"
+      hint={h.gebruikelijk
+        ? `Meestal rond ${money(h.gebruikelijk)} excl. btw`
+        : 'Zodat je ziet of dit bedrag in de lijn ligt'}
+      className="mb"
+    >
+      {h.dubbel && (
+        <p className="waarschuwing">
+          <AlertTriangle size={14} style={{ verticalAlign: -2 }} />{' '}
+          Factuurnummer <strong>{bon.factuurnummer}</strong> staat er al, van{' '}
+          {dateShort(h.dubbel.date)} ({money(h.dubbel.amountExcl)}). Waarschijnlijk
+          is dit dezelfde rekening die nog een keer is gestuurd.
+        </p>
+      )}
+
+      {h.opmerking && !h.dubbel && (
+        <p className="hint">
+          <History size={14} style={{ verticalAlign: -2 }} /> {h.opmerking}
+        </p>
+      )}
+
+      <div className="table-wrap">
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Datum</th>
+              <th>Omschrijving</th>
+              <th>Rekening</th>
+              <th className="num">Excl. btw</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {h.eerder.map((e) => (
+              <tr key={e.id}>
+                <td>{dateShort(e.date)}</td>
+                <td className="afgekapt">{e.description || '—'}</td>
+                <td className="afgekapt">{rekeningNaam(e.grootboekCode, rekeningen) || '—'}</td>
+                <td className="num">{e.amountExcl > 0 ? money(e.amountExcl) : '—'}</td>
+                <td>
+                  {e.status === 'goedgekeurd' && <Badge tone="ok">akkoord</Badge>}
+                  {e.status === 'afgekeurd' && <Badge tone="danger">afgekeurd</Badge>}
+                  {e.status === 'open' && <Badge>open</Badge>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   )
 }
 

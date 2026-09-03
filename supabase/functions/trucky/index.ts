@@ -23,6 +23,22 @@
 
 const ANTHROPIC_KEY = Deno.env.get('ANTHROPIC_API_KEY') ?? ''
 const RESEND_KEY = Deno.env.get('RESEND_API_KEY') ?? ''
+
+/*
+ * Hetzelfde afzenderadres als stuur-mail, en om dezelfde reden dezelfde
+ * instelling: Resend weigert alles wat niet van een geverifieerd domein komt.
+ *
+ * Hier stond eerst info@truckwash1group.nl hardgecodeerd. Dat is het adres dat
+ * op de site staat en dat een bezoeker zou verwachten -- maar het domein is bij
+ * Resend niet geverifieerd, dus elke mail kwam terug met een weigering. Het
+ * adres dat je wilt tonen en het adres waarvandaan je mag versturen zijn twee
+ * verschillende dingen.
+ *
+ * Wil je hier alsnog info@truckwash1group.nl: verifieer dat domein bij Resend
+ * en zet MAIL_FROM. Dan gaat stuur-mail vanzelf mee.
+ */
+const AFZENDER = Deno.env.get('MAIL_FROM') ??
+  'Truckwash1 Group <dashboard@preview.truckwash.cloud>'
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 
@@ -193,7 +209,9 @@ async function stuurVerslag(adres: string, beurten: Beurt[]) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: 'Truckwash 1 Group <info@truckwash1group.nl>',
+      from: AFZENDER,
+      /* Antwoorden gaan wél naar het adres dat de bezoeker kent. */
+      reply_to: 'info@truckwash1group.nl',
       to: [adres.trim()],
       subject: 'Je gesprek met Trucky',
       // Platte tekst: dit gaat naar een adres dat een onbekende heeft
@@ -262,19 +280,38 @@ Deno.serve(async (req) => {
     }
     try {
       await stuurVerslag(adres, eerdere)
+    } catch (e) {
+      console.error('[trucky] verslag versturen', e)
+      return json({
+        ok: false,
+        reden: 'Versturen lukte niet. Probeer het later nog eens, of mail ' +
+          'info@truckwash1group.nl.',
+      }, 502)
+    }
+
+    /*
+     * De boekhouding pas hierna, en apart.
+     *
+     * De mail is op dit punt de deur uit. Zou een mislukte schrijfactie hier
+     * alsnog een fout teruggeven, dan drukt de bezoeker nog een keer op
+     * versturen en krijgt hij hem twee keer -- en wij een raadsel, want de
+     * eerste is wel degelijk aangekomen.
+     */
+    try {
       await db(`trucky_gesprekken?id=eq.${encodeURIComponent(gesprek)}`, {
         method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
         body: JSON.stringify({
           email: adres.trim().toLowerCase(),
           verslag_at: Date.now(),
           updated_at: Date.now(),
         }),
       })
-      return json({ ok: true })
     } catch (e) {
-      console.error('[trucky] verslag', e)
-      return json({ ok: false, reden: 'Versturen lukte niet. Probeer het later nog eens.' }, 502)
+      console.error('[trucky] verslag noteren', e)
     }
+
+    return json({ ok: true })
   }
 
   /* --- een vraag --- */
@@ -339,7 +376,28 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: 700,
-        system: opdracht(await vestigingen()),
+        /*
+         * De opdracht in de cache.
+         *
+         * Gemeten na de eerste gesprekken: 5433 tokens invoer voor twee
+         * vragen. Vrijwel alles daarvan is deze opdracht -- de achttien
+         * vestigingen met hun openingstijden zijn er ruim tweeduizend, en die
+         * gingen bij elke vraag opnieuw mee.
+         *
+         * Deze tekst is voor iedere bezoeker identiek en verandert alleen als
+         * er in de app een vestiging wordt gewijzigd. Precies waar caching
+         * voor is: een herlezing kost ongeveer een tiende. De vraag van de
+         * bezoeker staat er ná, dus die breekt de cache niet.
+         *
+         * Belangrijk voor later: alles wat per bezoeker verschilt moet ACHTER
+         * dit blok blijven. Zet er ooit een naam of een tijdstip in, dan is de
+         * cache voor iedereen stuk en zie je dat alleen terug op de rekening.
+         */
+        system: [{
+          type: 'text',
+          text: opdracht(await vestigingen()),
+          cache_control: { type: 'ephemeral' },
+        }],
         messages: [...eerdere, { role: 'user', content: vraag }],
       }),
     })
@@ -355,7 +413,10 @@ Deno.serve(async (req) => {
 
     const uit = await res.json() as {
       content?: Array<{ type: string; text?: string }>
-      usage?: { input_tokens?: number; output_tokens?: number }
+      usage?: {
+        input_tokens?: number; output_tokens?: number
+        cache_creation_input_tokens?: number; cache_read_input_tokens?: number
+      }
       stop_reason?: string
     }
 
@@ -369,7 +430,26 @@ Deno.serve(async (req) => {
       return ''
     }).trim()
 
-    const inTok = uit.usage?.input_tokens ?? 0
+    /* Gelezen uit de cache telt ook mee -- het is goedkoper, niet gratis. */
+    const inTok = (uit.usage?.input_tokens ?? 0)
+      + (uit.usage?.cache_creation_input_tokens ?? 0)
+      + (uit.usage?.cache_read_input_tokens ?? 0)
+
+    /*
+     * De verdeling in het logboek, want alleen daaraan zie je of de cache
+     * werkelijk aanslaat. De teller in de database telt alles bij elkaar op --
+     * goed voor de dagrekening, maar dan zie je niet of "gelezen" nul blijft.
+     *
+     * Blijft cache_read op nul staan terwijl er verkeer is, dan is er iets in
+     * de opdracht gaan verschillen per bezoeker. Dat kost geld en meldt zich
+     * verder niet.
+     */
+    console.log('[trucky] tokens', JSON.stringify({
+      nieuw: uit.usage?.input_tokens ?? 0,
+      cache_geschreven: uit.usage?.cache_creation_input_tokens ?? 0,
+      cache_gelezen: uit.usage?.cache_read_input_tokens ?? 0,
+      uit: uit.usage?.output_tokens ?? 0,
+    }))
     const uitTok = uit.usage?.output_tokens ?? 0
 
     /*

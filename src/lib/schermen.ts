@@ -1,7 +1,7 @@
 import {
   AlertTriangle, Briefcase, Bug, CalendarDays, CalendarRange, ClipboardList,
   FolderLock, GraduationCap, Inbox, LayoutDashboard, LayoutGrid, Mail,
-  MessageSquare, Package, Radio, Receipt, ScrollText, Server, Settings, Timer, Truck, Users, Wrench,
+  MessageSquare, Package, PackageCheck, Radio, Receipt, ScrollText, Server, Settings, Timer, Truck, Users, Wrench,
 } from 'lucide-react'
 import { ROLE_ORDER, type Permission, type Role } from './types'
 
@@ -31,8 +31,8 @@ import { ROLE_ORDER, type Permission, type Role } from './types'
  * dan hoort ze ook hier.
  */
 export const DASHBOARDS_MET: Record<string, Role[]> = {
-  start:        ['employee', 'supervisor', 'technician', 'customer', 'employer', 'administratie', 'management'],
-  overleg:      ['employee', 'supervisor', 'technician', 'employer', 'administratie', 'management', 'developer'],
+  start:        ['employee', 'supervisor', 'technician', 'customer', 'employer', 'administratie', 'management', 'trucksupply'],
+  overleg:      ['employee', 'supervisor', 'technician', 'employer', 'administratie', 'management', 'developer', 'trucksupply'],
   agenda:       ['employee', 'supervisor', 'technician', 'management'],
   opleiding:    ['employee', 'supervisor', 'technician', 'management'],
   uren:         ['employee', 'supervisor', 'administratie'],
@@ -82,10 +82,17 @@ export const DASHBOARDS_MET: Record<string, Role[]> = {
   techniek:     ['management'],
   beheer:       ['management'],
   kassas:       ['management'],
-  vestigingen:  ['management'],
-  voorraad:     ['management'],
+  vestigingen:  ['management', 'trucksupply'],
+  voorraad:     ['management', 'trucksupply'],
   werkgevers:   ['management'],
   klanten:      ['management'],
+
+  // Alleen bij Trucksupply: artikelen tot in de kassa, bestellingen met
+  // pakbon, en de instellingen van de leverancier (mailadres, ochtendtijd,
+  // Exact). Voorraad en vestigingen deelt hij met het management.
+  artikelen:    ['trucksupply'],
+  bestellingen: ['trucksupply'],
+  instellingen: ['trucksupply'],
 
   // Alleen bij ontwikkeling
   tickets:      ['developer'],
@@ -201,4 +208,10 @@ export const SCHERMEN: Scherm[] = [
   { page: 'beurten',    label: 'Wasbeurten',   hint: 'Wat er op naam van je bedrijf staat', icon: Truck,      rol: 'employer' },
   { page: 'chauffeurs', label: 'Chauffeurs',   hint: 'Wie er namens je bedrijf komt wassen', icon: Users,     rol: 'employer', recht: 'employer.staff' },
   { page: 'afspraken',  label: 'Afspraken',    hint: 'Wat er per wagen wel en niet mag',  icon: ClipboardList, rol: 'employer', recht: 'employer.rules' },
+  // Met rol: management heeft alle rechten, maar deze pagina's bestaan alleen
+  // in het dashboard van Trucksupply; zonder rol was het een treffer die
+  // nergens heen leidde (kiesDashboard geeft dan null).
+  { page: 'artikelen',  label: 'Artikelen',    hint: 'Wat Trucksupply levert, tot in de kassa', icon: Package, rol: 'trucksupply', recht: 'supply.articles', ook: ['assortiment', 'sku', 'producten'] },
+  { page: 'bestellingen', label: 'Bestellingen', hint: 'Inpakken, verzenden, pakbon en label', icon: PackageCheck, rol: 'trucksupply', recht: 'supply.orders', ook: ['pakbon', 'levering', 'verzenden', 'order'] },
+  { page: 'instellingen', label: 'Instellingen', hint: 'Mailadres, ochtendmail en Exact', icon: Settings, rol: 'trucksupply', recht: 'supply.settings', ook: ['exact', 'ochtendmail'] },
 ]

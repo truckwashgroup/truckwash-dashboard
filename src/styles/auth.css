@@ -207,6 +207,7 @@
 .role-card.dev        { --rol-kleur: var(--paars); }
 .role-card.werkgever  { --rol-kleur: var(--info); }
 .role-card.admin      { --rol-kleur: var(--ok); }
+.role-card.supply     { --rol-kleur: var(--warn); }   /* Trucksupply: de leverancier, RolePicker cls 'supply' */
 
 .role-card {
   position: relative;

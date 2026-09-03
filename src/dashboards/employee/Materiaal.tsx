@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Minus, Package, Plus, TriangleAlert } from 'lucide-react'
+import { Minus, Package, Plus, Send, TriangleAlert } from 'lucide-react'
 import { db } from '../../lib/db'
 import { inventory as invRepo } from '../../lib/repo'
-import type { InventoryItem, StockMovement } from '../../lib/types'
+import { isConceptNummer, nieuweBestelling, voorstelAantal } from '../../lib/trucksupply'
+import type { Bestelling, Bestelregel, InventoryItem, StockMovement } from '../../lib/types'
 import { dateTime, money, number } from '../../lib/format'
 import { Badge, Bar, Card, Empty, Field, Modal, Stat } from '../../components/ui'
 import { useAuth } from '../../store/useAuth'
@@ -29,6 +30,43 @@ export default function Materiaal() {
   )
 
   const health = inventoryHealth(items)
+
+  /*
+   * Aanvragen bij Trucksupply.
+   *
+   * Vroeger ging "we zijn door de shampoo heen" per telefoon of appje, of
+   * helemaal niet. Nu maakt de knop een bestelling met bron 'aanvraag' aan:
+   * die verschijnt bij Trucksupply als concept, met de standaard
+   * bestelhoeveelheid erin. Staat het artikel al in een lopende bestelling,
+   * dan zeggen we dat in plaats van een tweede aan te maken.
+   */
+  const bestellingen = useLiveQuery(() => db.bestellingen.toArray(), [], [] as Bestelling[])
+  const bestelregels = useLiveQuery(() => db.bestelregels.toArray(), [], [] as Bestelregel[])
+
+  function onderweg(item: InventoryItem): Bestelling | undefined {
+    return bestellingen.find((b) =>
+      b.locationId === item.locationId
+      && b.status !== 'ontvangen' && b.status !== 'geannuleerd'
+      && bestelregels.some((r) => r.bestellingId === b.id && r.itemId === item.id))
+  }
+
+  async function aanvragen(item: InventoryItem) {
+    // Dezelfde regel als bij de leverancier, anders vraagt de vloer 12 en
+    // stelt het voorraadscherm 10 voor.
+    const aantal = voorstelAantal(item)
+    try {
+      await nieuweBestelling({
+        locationId: item.locationId,
+        bron: 'aanvraag',
+        door: { id: user.id, name: user.name },
+        regels: [{ itemId: item.id, itemNaam: item.name, aantal, eenheid: item.unit, prijs: item.inkoopprijs }],
+        opmerking: `Aangevraagd vanaf de vloer door ${user.name}`,
+      })
+      toast.ok(`${aantal} ${item.unit} ${item.name} aangevraagd bij Trucksupply`)
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
 
   async function submit() {
     if (!target) return
@@ -79,6 +117,25 @@ export default function Materiaal() {
             <span style={{ color: 'var(--text-2)' }}>
               {health.low.map((i) => i.name).join(', ')}
             </span>
+          </div>
+          <div className="row" style={{ marginTop: 10, gap: 6 }}>
+            {health.low.map((i) => {
+              const b = onderweg(i)
+              return b ? (
+                <Badge key={i.id} tone="info">
+                  {i.name}: {b.status === 'verzonden' ? 'onderweg' : 'aangevraagd'} ({isConceptNummer(b.nummer) ? 'concept' : b.nummer})
+                </Badge>
+              ) : (
+                <button
+                  key={i.id}
+                  className="btn sm"
+                  onClick={() => void aanvragen(i)}
+                  title="Maakt een aanvraag aan die Trucksupply als concept ziet"
+                >
+                  <Send size={13} /> {i.name} aanvragen bij Trucksupply
+                </button>
+              )
+            })}
           </div>
         </div>
       )}

@@ -4,7 +4,7 @@
 
 export type Role =
   | 'employee' | 'supervisor' | 'technician' | 'customer' | 'management'
-  | 'developer' | 'employer' | 'administratie'
+  | 'developer' | 'employer' | 'administratie' | 'trucksupply'
 
 export const ROLE_LABELS: Record<Role, string> = {
   employee: 'Werknemer',
@@ -15,10 +15,17 @@ export const ROLE_LABELS: Record<Role, string> = {
   developer: 'Ontwikkelaar',
   employer: 'Werkgever',
   administratie: 'Administratie',
+  /*
+   * De leverancier van de vestigingen. Trucksupply houdt de voorraad van alle
+   * negentien vestigingen in de gaten, vult aan wat onder het minimum zakt en
+   * zet artikelen tot in de kassa. Een eigen rol en niet "management met
+   * minder rechten": wie hier inlogt hoort geen personeel of cijfers te zien.
+   */
+  trucksupply: 'Trucksupply',
 }
 
 export const ROLE_ORDER: Role[] =
-  ['employee', 'supervisor', 'technician', 'customer', 'employer',
+  ['employee', 'supervisor', 'technician', 'customer', 'employer', 'trucksupply',
    'administratie', 'management', 'developer']
 
 export interface User {
@@ -305,6 +312,126 @@ export interface InventoryItem {
   minStock: number
   pricePerUnit: number
   supplier: string
+
+  /* --- wat Trucksupply erbij zet ------------------------------------- *
+   *
+   * De voorraad bestond al, per vestiging en met een minimum. Wat ontbrak
+   * was de kant van de leverancier: wat er standaard per keer wordt
+   * meegestuurd, wat hij ervoor rekent, en een foto zodat de wasser het
+   * juiste vat pakt. Alles optioneel: een artikel dat de vestiging zelf
+   * inkoopt heeft dit niet en dat is geen fout.
+   */
+
+  /** Artikelnummer van de leverancier */
+  sku?: string
+  omschrijving?: string
+  /** Kleine foto als data-URI, zelfde regel als in de kassa (max ~150 kB) */
+  image?: string
+  /** Wat er standaard per keer wordt meegestuurd */
+  bestelhoeveelheid?: number
+  /** Wat Trucksupply rekent; pricePerUnit blijft de interne waarde */
+  inkoopprijs?: number
+  /** Uit staat: niet meer bestellen, wel in de historie */
+  actief?: boolean
+  /** Artikelcode in Exact, voor later */
+  exactCode?: string
+
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
+ *  Trucksupply: alarmen en bestellingen
+ *
+ *  Een vestiging die onder haar minimum zakt, hoort dat niet zelf te hoeven
+ *  melden -- daar komt het gedoe van "we zijn door de shampoo heen" vandaan.
+ *  De database zet een alarm zodra de stand onder het minimum komt, en
+ *  Trucksupply ziet dat en stuurt een bestelling.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Eén artikel op één vestiging dat onder zijn minimum staat.
+ *
+ * Komt uit een trigger op inventory_items en niet uit de app: dan maakt
+ * het niet uit of de afboeking van de kassa, de wasser of een levering
+ * kwam. Opgelost zet de trigger ook, zodra de stand weer boven het minimum
+ * staat.
+ */
+export interface VoorraadAlarm {
+  id: string
+  itemId: string
+  itemNaam: string
+  locationId: string
+  /** De stand op het moment dat het alarm ontstond */
+  stand: number
+  minimum: number
+  ontstaanAt: number
+  /** Iemand van Trucksupply heeft het gezien; de ochtendmail slaat het over */
+  gezienAt?: number
+  gezienDoor?: string
+  gezienDoorNaam?: string
+  /** De directe mail is gestuurd */
+  gemaildAt?: number
+  /** Meegegaan in de ochtendmail */
+  ochtendGemaildAt?: number
+  opgelostAt?: number
+  updatedAt: number
+}
+
+export type BestellingStatus =
+  | 'concept' | 'bevestigd' | 'ingepakt' | 'verzonden' | 'ontvangen' | 'geannuleerd'
+
+/** De kleur die de Badge kent; als union, zodat een scherm niet hoeft te casten. */
+export type BadgeTone = 'default' | 'ok' | 'warn' | 'danger' | 'info' | 'brand'
+
+export const BESTELLING_STATUS: Record<BestellingStatus, { label: string; tone: BadgeTone }> = {
+  concept:     { label: 'Concept',     tone: 'default' },
+  bevestigd:   { label: 'Bevestigd',   tone: 'info' },
+  ingepakt:    { label: 'Ingepakt',    tone: 'warn' },
+  verzonden:   { label: 'Verzonden',   tone: 'brand' },
+  ontvangen:   { label: 'Ontvangen',   tone: 'ok' },
+  geannuleerd: { label: 'Geannuleerd', tone: 'danger' },
+}
+
+/** Waar een bestelling vandaan komt. */
+export type BestellingBron = 'voorraad' | 'handmatig' | 'aanvraag'
+
+export interface Bestelling {
+  id: string
+  /** TS-2026-0001; komt van de server, offline een tijdelijk concept-nummer */
+  nummer: string
+  locationId: string
+  status: BestellingStatus
+  /**
+   *   voorraad    uit de alarmen samengesteld
+   *   handmatig   door Trucksupply zelf ingetikt
+   *   aanvraag    door de vestiging gevraagd
+   */
+  bron: BestellingBron
+  aangemaaktDoor: string
+  aangemaaktDoorNaam: string
+  aangemaaktAt: number
+  bevestigdAt?: number
+  verzondenAt?: number
+  ontvangenAt?: number
+  vervoerder?: string
+  trackTrace?: string
+  opmerking?: string
+  /** Naar wie de pakbon per mail is doorgestuurd */
+  doorgestuurdNaar?: string
+  doorgestuurdAt?: number
+  updatedAt: number
+}
+
+export interface Bestelregel {
+  id: string
+  bestellingId: string
+  itemId: string
+  itemNaam: string
+  aantal: number
+  eenheid: string
+  prijs?: number
+  /** Wat er werkelijk is meegegaan, als dat afwijkt van aantal */
+  geleverd?: number
   updatedAt: number
 }
 
@@ -569,6 +696,8 @@ export type Permission =
   /* kassa */
   | 'pos.use' | 'pos.discount' | 'pos.refund' | 'pos.cash' | 'pos.safe'
   | 'pos.manage'
+  /* leverancier */
+  | 'supply.view' | 'supply.articles' | 'supply.orders' | 'supply.settings'
   /* beheer */
   | 'admin.settings' | 'admin.audit'
 
@@ -682,6 +811,11 @@ export const PERMISSIONS: PermissionMeta[] = [
   { key: 'pos.cash',          group: 'Kassa',      label: 'Lade en dagafsluiting', hint: 'Kas openen, tellen, afstorten en de dag afsluiten.', sensitive: true },
   { key: 'pos.safe',          group: 'Kassa',      label: 'Kluis',                hint: 'De kluis openen, afstorten, wisselgeld halen en de kluis tellen.', sensitive: true },
   { key: 'pos.manage',        group: 'Kassa',      label: 'Kassa beheren',        hint: "Artikelen, prijzen, kaarten, codes en de printerinstellingen.", sensitive: true },
+
+  { key: 'supply.view',       group: 'Leverancier', label: 'Voorraad en vestigingen zien', hint: 'Alle vestigingen, hun standen, de alarmen en de contactgegevens.' },
+  { key: 'supply.articles',   group: 'Leverancier', label: 'Artikelen beheren',   hint: 'Toevoegen, prijs, foto, minimum en doorzetten naar de kassa.' },
+  { key: 'supply.orders',     group: 'Leverancier', label: 'Bestellingen afhandelen', hint: 'Maken, inpakken, verzenden, doorsturen, pakbon en verzendlabel.' },
+  { key: 'supply.settings',   group: 'Leverancier', label: 'Leveranciersinstellingen', hint: 'Het mailadres, de ochtendtijd en de koppeling met Exact.', sensitive: true },
 
   { key: 'admin.settings',    group: 'Beheer',     label: 'Instellingen',         hint: 'Tarieven, openingstijden en app-instellingen.', sensitive: true },
   { key: 'admin.audit',       group: 'Beheer',     label: 'Logboek',              hint: 'Zien wie wat heeft gewijzigd.', sensitive: true },
@@ -1842,6 +1976,7 @@ export type EntityName =
   | 'locationPhotos'
   | 'truckyVragen' | 'truckyContact' | 'instellingen'
   | 'grootboek' | 'kostenTags'
+  | 'voorraadAlarmen' | 'bestellingen' | 'bestelregels'
 
 export type SyncOp = 'put' | 'delete'
 

@@ -30,6 +30,7 @@ import DeveloperDashboard from './dashboards/developer/DeveloperDashboard'
 import EmployerDashboard from './dashboards/employer/EmployerDashboard'
 import RondleidingPoort from './components/RondleidingPoort'
 import ManagementDashboard from './dashboards/management/ManagementDashboard'
+import TrucksupplyDashboard from './dashboards/trucksupply/TrucksupplyDashboard'
 
 export default function App() {
   const { user, role, booting, restore } = useAuth()
@@ -231,6 +232,8 @@ export default function App() {
         <EmployerDashboard />
       ) : role === 'customer' ? (
         <CustomerDashboard />
+      ) : role === 'trucksupply' ? (
+        <TrucksupplyDashboard />
       ) : (
         <ManagementDashboard />
       )}

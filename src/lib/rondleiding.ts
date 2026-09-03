@@ -731,12 +731,77 @@ const ADMINISTRATIE: Rondleiding = {
   ],
 }
 
+const TRUCKSUPPLY: Rondleiding = {
+  rol: 'trucksupply',
+  versie: 1,
+  naam: 'Trucksupply',
+  schermen: [
+    {
+      id: 'welkom',
+      titel: 'De voorraad van alle vestigingen',
+      tekst:
+        'Negentien vestigingen, elk met hun eigen standen en minima. Zakt er ' +
+        'ergens iets onder het minimum, dan zet de database daar een alarm ' +
+        'bij -- of de afboeking nu van de kassa, de wasser of een levering ' +
+        'kwam. Jij ziet ze hier bij elkaar, per vestiging.',
+      tint: 'brand',
+      icoon: 'Warehouse',
+    },
+    {
+      id: 'alarmen',
+      titel: 'Alarmen komen ook per mail',
+      tekst:
+        'Elk nieuw alarm gaat binnen een kwartier naar het mailadres van ' +
+        'Trucksupply, en elke ochtend komt er één overzicht van alles wat ' +
+        'nog openstaat en dat niemand heeft gezien. Zet je een alarm op ' +
+        'gezien, dan blijft het uit de ochtendmail.',
+      tint: 'warn',
+      icoon: 'BellRing',
+    },
+    {
+      id: 'bestellen',
+      titel: 'Van alarm naar bestelling naar pakbon',
+      tekst:
+        'Uit de open alarmen van een vestiging maak je met één knop een ' +
+        'bestelling, met de standaard bestelhoeveelheid per artikel. Inpakken, ' +
+        'verzenden, pakbon en verzendlabel afdrukken -- en op het moment dat ' +
+        'hij op verzonden gaat, wordt de voorraad van de vestiging bijgeboekt.',
+      tint: 'ok',
+      icoon: 'PackageCheck',
+    },
+  ],
+  aanwijzers: [
+    {
+      id: 'nav-voorraad',
+      doel: 'nav-voorraad',
+      titel: 'De voorraad',
+      tekst: 'Alle vestigingen, met de alarmen bovenaan.',
+      recht: 'supply.view',
+    },
+    {
+      id: 'nav-bestellingen',
+      doel: 'nav-bestellingen',
+      titel: 'Bestellingen',
+      tekst: 'Wat er klaarligt om in te pakken, en wat onderweg is.',
+      recht: 'supply.orders',
+    },
+    {
+      id: 'nav-artikelen',
+      doel: 'nav-artikelen',
+      titel: 'Artikelen',
+      tekst: 'Prijs, foto en minimum, en met één knop in de kassa.',
+      recht: 'supply.articles',
+    },
+  ],
+}
+
 export const RONDLEIDINGEN: Record<Role, Rondleiding> = {
   employee: WERKNEMER,
   supervisor: LEIDINGGEVENDE,
   technician: TECHNICUS,
   customer: KLANT,
   employer: WERKGEVER,
+  trucksupply: TRUCKSUPPLY,
   management: MANAGEMENT,
   administratie: ADMINISTRATIE,
   developer: ONTWIKKELAAR,

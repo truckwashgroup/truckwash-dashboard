@@ -4385,6 +4385,195 @@ console.log('\n29. Zoeken vóór je een dashboard hebt gekozen')
     tegenstrijdig.length === 0, tegenstrijdig.join(', '))
 }
 
+/* ====================================================================
+ *  30. Trucksupply
+ *
+ *  De leverancier van de vestigingen. Wat hier wordt nagerekend is de pure
+ *  kant: welke alarmen open zijn, wat er dan besteld wordt, welke stempels
+ *  een statuswijziging zet, en of de pakbon alles noemt. Plus de afspraken
+ *  over de rol zelf: wel alle supply-rechten, geen verbruik boeken.
+ * ==================================================================== */
+
+console.log('\n30. Trucksupply')
+
+{
+  const {
+    openAlarmen, perVestiging, voorstelUitAlarmen, volgendeStatus, magNaar,
+    pakbonTekst, printvel, isConceptNummer, CONCEPT_VOORVOEGSEL,
+    MUTATIE_ROLLEN, magMutatieBoeken, voorstelAantal, FOTO_SERVER_MAX_TEKENS, FOTO_MAX_TEKENS,
+  } = await import('../src/lib/trucksupply')
+  const { ROLE_DEFAULTS } = await import('../src/lib/permissions')
+  const { DASHBOARDS_MET } = await import('../src/lib/schermen')
+  const { BESTELLING_STATUS, ROLE_LABELS, ROLE_ORDER } = await import('../src/lib/types')
+  type VoorraadAlarm = import('../src/lib/types').VoorraadAlarm
+  type InventoryItem = import('../src/lib/types').InventoryItem
+  type Bestelling = import('../src/lib/types').Bestelling
+  type Bestelregel = import('../src/lib/types').Bestelregel
+  type Location = import('../src/lib/types').Location
+
+  /* ---- de rol ---- */
+
+  const rechten = new Set(ROLE_DEFAULTS.trucksupply)
+  check('trucksupply heeft alle vier de supply-rechten',
+    ['supply.view', 'supply.articles', 'supply.orders', 'supply.settings']
+      .every((r) => rechten.has(r as never)))
+  check('en ziet alle vestigingen', rechten.has('locations.all') && rechten.has('locations.view'))
+  check('maar boekt geen verbruik', !rechten.has('inventory.adjust'))
+  check('en komt niet bij personeel of cijfers',
+    !rechten.has('staff.view') && !rechten.has('finance.view'))
+  check('de rol heeft een label en staat na de werkgever',
+    ROLE_LABELS.trucksupply === 'Trucksupply'
+    && ROLE_ORDER.indexOf('trucksupply') === ROLE_ORDER.indexOf('employer') + 1)
+
+  for (const pagina of ['start', 'voorraad', 'artikelen', 'bestellingen', 'vestigingen', 'instellingen', 'overleg']) {
+    check(`het Trucksupply-dashboard kent de pagina ${pagina}`,
+      (DASHBOARDS_MET[pagina] ?? []).includes('trucksupply'))
+  }
+
+  check('elke bestelstatus heeft een badge',
+    (['concept', 'bevestigd', 'ingepakt', 'verzonden', 'ontvangen', 'geannuleerd'] as const)
+      .every((s) => !!BESTELLING_STATUS[s]?.label))
+
+  /* ---- alarmen ---- */
+
+  const alarm = (over: Partial<VoorraadAlarm>): VoorraadAlarm => ({
+    id: 'va_' + Math.random().toString(36).slice(2),
+    itemId: 'inv_shampoo',
+    itemNaam: 'Shampoo',
+    locationId: 'loc_utr',
+    stand: 2,
+    minimum: 5,
+    ontstaanAt: 1000,
+    updatedAt: 1000,
+    ...over,
+  })
+
+  const alarmen = [
+    alarm({ id: 'va_oud', ontstaanAt: 1000 }),
+    alarm({ id: 'va_nieuw', itemId: 'inv_wax', itemNaam: 'Wax', ontstaanAt: 3000, stand: 0, minimum: 4 }),
+    alarm({ id: 'va_klaar', itemId: 'inv_doek', itemNaam: 'Doeken', ontstaanAt: 2000, opgelostAt: 2500 }),
+    alarm({ id: 'va_elders', itemId: 'inv_shampoo_ams', locationId: 'loc_ams', ontstaanAt: 1500 }),
+  ]
+
+  const open = openAlarmen(alarmen)
+  check('een opgelost alarm is niet open', open.every((a) => a.id !== 'va_klaar') && open.length === 3)
+  check('nieuwste bovenaan', open[0].id === 'va_nieuw')
+
+  const locaties: Location[] = [
+    { id: 'loc_utr', code: 'TW-UTR', name: 'Utrecht', kind: 'vestiging', address: 'Havenweg 1', postcode: '3542 AB', city: 'Utrecht', phone: '030-1234567', bays: 2, active: true, updatedAt: 1 },
+  ]
+  const groepen = perVestiging(alarmen, locaties)
+  check('gegroepeerd per vestiging, drukste bovenaan',
+    groepen.length === 2 && groepen[0].locationId === 'loc_utr' && groepen[0].alarmen.length === 2)
+  check('een onbekende vestiging valt niet weg maar krijgt een naam',
+    groepen[1].locationId === 'loc_ams' && groepen[1].naam === 'Onbekende vestiging' && !groepen[1].locatie)
+
+  /* ---- het voorstel ---- */
+
+  const items: InventoryItem[] = [
+    { id: 'inv_shampoo', locationId: 'loc_utr', name: 'Shampoo', unit: 'liter', stock: 2, minStock: 5, pricePerUnit: 3, supplier: 'Trucksupply', bestelhoeveelheid: 20, inkoopprijs: 2.5, updatedAt: 1 },
+    { id: 'inv_wax', locationId: 'loc_utr', name: 'Wax', unit: 'liter', stock: 0, minStock: 4, pricePerUnit: 8, supplier: 'Trucksupply', bestelhoeveelheid: 0, updatedAt: 1 },
+    { id: 'inv_shampoo_ams', locationId: 'loc_ams', name: 'Shampoo', unit: 'liter', stock: 7, minStock: 3, pricePerUnit: 3, supplier: 'Trucksupply', updatedAt: 1 },
+  ]
+  const voorstel = voorstelUitAlarmen(alarmen, items)
+  const perItem = Object.fromEntries(voorstel.map((r) => [r.itemId, r]))
+
+  check('een opgelost alarm komt niet in het voorstel', !perItem.inv_doek)
+  check('de bestelhoeveelheid wint als die er is',
+    perItem.inv_shampoo?.aantal === 20 && perItem.inv_shampoo?.prijs === 2.5)
+  check('zonder bestelhoeveelheid: twee keer het minimum min de stand',
+    perItem.inv_wax?.aantal === 8)
+  check('en nooit nul of minder, ook als de stand alweer boven het minimum staat',
+    perItem.inv_shampoo_ams?.aantal === 3)
+  check('de eenheid komt van het artikel', perItem.inv_wax?.eenheid === 'liter')
+
+  const dubbel = voorstelUitAlarmen([alarmen[0], { ...alarmen[0], id: 'va_dubbel' }], items)
+  check('twee alarmen op hetzelfde artikel leveren één regel', dubbel.length === 1)
+
+  /* ---- statussen en stempels ---- */
+
+  const bestelling: Bestelling = {
+    id: 'bst_1', nummer: 'TS-2026-0001', locationId: 'loc_utr', status: 'concept', bron: 'voorraad',
+    aangemaaktDoor: 'u_ts', aangemaaktDoorNaam: 'Casper', aangemaaktAt: 100, updatedAt: 100,
+  }
+
+  const bevestigd = volgendeStatus(bestelling, 'bevestigd', 200)
+  check('bevestigen zet bevestigdAt', bevestigd.status === 'bevestigd' && bevestigd.bevestigdAt === 200)
+  check('en verandert het origineel niet', bestelling.status === 'concept' && !bestelling.bevestigdAt)
+
+  const verzonden = volgendeStatus(bevestigd, 'verzonden', 300)
+  check('verzenden zet verzondenAt en laat bevestigdAt staan',
+    verzonden.verzondenAt === 300 && verzonden.bevestigdAt === 200)
+  check('nog eens verzenden verandert het tijdstip niet',
+    volgendeStatus(verzonden, 'verzonden', 999).verzondenAt === 300)
+
+  const snel = volgendeStatus(bestelling, 'verzonden', 400)
+  check('verzenden zonder bevestigen stempelt allebei',
+    snel.bevestigdAt === 400 && snel.verzondenAt === 400)
+
+  const ontvangen = volgendeStatus(verzonden, 'ontvangen', 500)
+  check('ontvangen zet ontvangenAt', ontvangen.ontvangenAt === 500)
+  check('annuleren zet geen leveringsstempels',
+    !volgendeStatus(bestelling, 'geannuleerd', 600).verzondenAt)
+
+  check('van concept mag je bevestigen of annuleren, niet verzenden',
+    magNaar('concept', 'bevestigd') && magNaar('concept', 'geannuleerd') && !magNaar('concept', 'verzonden'))
+  check('wat verzonden is kan niet meer geannuleerd worden', !magNaar('verzonden', 'geannuleerd'))
+  check('ontvangen en geannuleerd zijn eindstations',
+    !magNaar('ontvangen', 'concept') && !magNaar('geannuleerd', 'concept'))
+
+  check('een tijdelijk nummer is aan zijn vorm te herkennen',
+    isConceptNummer(CONCEPT_VOORVOEGSEL + '1725000000000') && !isConceptNummer('TS-2026-0001'))
+
+  /* ---- wie een mutatie mag schrijven (spiegel van stock_insert / is_staff) ---- */
+
+  check('de mutatierollen zijn precies de rollen van public.is_staff() in 0048',
+    [...MUTATIE_ROLLEN].sort().join(',')
+      === ['employee', 'supervisor', 'technician', 'administratie', 'management', 'developer'].sort().join(','))
+  check('alleen trucksupply mag geen mutatie schrijven: de levering gaat dan via de stand',
+    !magMutatieBoeken({ roles: ['trucksupply'] }))
+  check('management wel, en trucksupply naast een personeelsrol ook',
+    magMutatieBoeken({ roles: ['management'] }) && magMutatieBoeken({ roles: ['trucksupply', 'employee'] }))
+  check('zonder rollen geen mutatie (dan hangt er niets in de wachtrij)',
+    !magMutatieBoeken({}) && !magMutatieBoeken({ roles: [] }))
+
+  /* ---- het voorstelaantal, een regel voor alarmen, voorraadscherm en de vloer ---- */
+
+  check('de bestelhoeveelheid wint als die er staat',
+    voorstelAantal({ stock: 1, minStock: 10, bestelhoeveelheid: 24 }) === 24)
+  check('anders genoeg om op twee keer het minimum te komen',
+    voorstelAantal({ stock: 3, minStock: 10, bestelhoeveelheid: 0 }) === 17
+    && voorstelAantal({ stock: 2.5, minStock: 5 }) === 7.5)
+  check('en nooit nul of minder, ook niet boven het minimum',
+    voorstelAantal({ stock: 40, minStock: 10 }) === 10 && voorstelAantal({ stock: 5, minStock: 0 }) === 1)
+  check('de fotogrens van de app ligt ruim onder die van de database (inventory_items_image_maat)',
+    FOTO_MAX_TEKENS < FOTO_SERVER_MAX_TEKENS && FOTO_SERVER_MAX_TEKENS === 150_000)
+
+  /* ---- de pakbon ---- */
+
+  const regels: Bestelregel[] = [
+    { id: 'bsr_1', bestellingId: 'bst_1', itemId: 'inv_shampoo', itemNaam: 'Shampoo', aantal: 20, eenheid: 'liter', prijs: 2.5, updatedAt: 1 },
+    { id: 'bsr_2', bestellingId: 'bst_1', itemId: 'inv_wax', itemNaam: 'Wax', aantal: 8, eenheid: 'liter', geleverd: 6, updatedAt: 1 },
+    { id: 'bsr_x', bestellingId: 'bst_ander', itemId: 'inv_doek', itemNaam: 'Doeken', aantal: 3, eenheid: 'pak', updatedAt: 1 },
+  ]
+  const tekst = pakbonTekst({ ...verzonden, opmerking: 'Achterom afleveren' }, regels, locaties[0])
+  check('de pakbon noemt het nummer', tekst.includes('TS-2026-0001'))
+  check('en de vestiging met adres',
+    tekst.includes('Utrecht') && tekst.includes('Havenweg 1') && tekst.includes('3542 AB'))
+  check('en elke regel van deze bestelling',
+    tekst.includes('20 liter  Shampoo') && tekst.includes('Wax'))
+  check('met het geleverde aantal als dat afwijkt', tekst.includes('6 liter  Wax') && !tekst.includes('8 liter'))
+  check('regels van een andere bestelling niet', !tekst.includes('Doeken'))
+  check('en de opmerking', tekst.includes('Achterom afleveren'))
+  check('de tekst bevat geen HTML', !/<[a-z]/i.test(tekst))
+
+  const vel = printvel(verzonden, regels, locaties[0], items)
+  check('het printvel heeft twee regels en het label draagt het nummer',
+    vel.regels.length === 2 && vel.label.nummer === 'TS-2026-0001' && vel.label.naar === 'Utrecht')
+  check('zonder vestiging valt de pakbon terug op het id',
+    pakbonTekst(verzonden, regels).includes('Vestiging loc_utr'))
+}
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

@@ -1,0 +1,92 @@
+name: Voorraadwekker
+
+# Wekt de Edge Function trucksupply, die de voorraadalarmen mailt.
+#
+# Waarom hier en niet in Supabase: een cron in de database (pg_cron) kan geen
+# mail versturen en de gratis laag heeft er geen. GitHub Actions draait toch
+# al voor dit project, en een schedule met een curl is het kleinste stuk
+# infrastructuur dat elk kwartier iets kan aanstoten.
+#
+# Twee secrets zetten, op twee plekken:
+#
+#   GitHub  ->  deze repo  ->  Settings  ->  Secrets and variables  ->  Actions
+#     SUPABASE_FUNCTIONS_URL   https://yxsbmhavnttswxczeovt.supabase.co/functions/v1
+#     VOORRAAD_CRON_SECRET     een lang, zelf gekozen wachtwoord
+#
+#   Supabase (vanuit de map dashboard):
+#     supabase secrets set VOORRAAD_CRON_SECRET=<hetzelfde wachtwoord> --project-ref yxsbmhavnttswxczeovt
+#
+# Het geheim is wat de functie vergelijkt; klopt het niet, dan antwoordt ze
+# 403 en wordt deze job rood. Daarna: npm run functions:open, anders staat de
+# functie er nog niet.
+#
+# Over de tijden: GitHub plant in UTC. Acht uur 's ochtends in Nederland is
+# 6 uur UTC in de zomer en 7 uur UTC in de winter. Het uur is instelbaar
+# (instelling trucksupply_ochtend_uur), dus de wekker loopt elk heel uur van
+# 4 tot en met 9 UTC; de functie kijkt zelf of het lokaal het ingestelde uur
+# is en slaat de andere over, en mailt hoogstens één keer per dag. Daarmee
+# werkt elk uur van 6 tot en met 10 Nederlandse tijd, zomer en winter; een
+# ander uur komt de wekker nooit langs. Let op: GitHub start een schedule
+# soms een paar minuten later dan gepland, en bij drukte helemaal niet. Voor
+# een voorraadmelding is dat goed genoeg.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # direct: wat sinds het vorige kwartier onder het minimum kwam
+    - cron: '0 4-9 * * *'    # ochtend: één overzicht per dag, op het ingestelde uur (6-10 NL)
+  workflow_dispatch:
+    inputs:
+      actie:
+        description: 'Wat de functie moet doen'
+        type: choice
+        required: true
+        default: test
+        options:
+          - direct
+          - ochtend
+          - test
+
+jobs:
+  wekken:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Bepalen welke actie
+        id: actie
+        env:
+          GEPLAND: ${{ github.event.schedule }}
+          GEKOZEN: ${{ github.event.inputs.actie }}
+        run: |
+          if [ -n "$GEKOZEN" ]; then
+            actie="$GEKOZEN"
+          elif [ "$GEPLAND" = "*/15 * * * *" ]; then
+            actie="direct"
+          else
+            actie="ochtend"
+          fi
+          echo "actie=$actie" >> "$GITHUB_OUTPUT"
+          echo "Actie: $actie"
+
+      - name: De functie wekken
+        env:
+          URL: ${{ secrets.SUPABASE_FUNCTIONS_URL }}
+          GEHEIM: ${{ secrets.VOORRAAD_CRON_SECRET }}
+          ACTIE: ${{ steps.actie.outputs.actie }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$GEHEIM" ]; then
+            echo "SUPABASE_FUNCTIONS_URL of VOORRAAD_CRON_SECRET ontbreekt in de repo-secrets."
+            exit 1
+          fi
+          # --fail-with-body: een 403 of 500 maakt de job rood én laat het antwoord zien.
+          # Het geheim gaat via een tijdelijk bestand, zodat het niet in de proceslijst staat.
+          # jq maakt de JSON, zodat een aanhalingsteken of backslash in het geheim geen
+          # onleesbaar verzoek (400) oplevert -- dat zou elk kwartier een rode job zijn
+          # zonder dat iemand ziet dat het aan de vorm van het geheim ligt.
+          jq -n --arg actie "$ACTIE" --arg geheim "$GEHEIM" '{actie: $actie, geheim: $geheim}' > body.json
+          curl --silent --show-error --fail-with-body \
+            --max-time 60 \
+            -X POST "$URL/trucksupply" \
+            -H 'Content-Type: application/json' \
+            --data @body.json
+          echo
+          rm -f body.json

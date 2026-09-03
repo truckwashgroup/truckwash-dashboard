@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion'
 import {
   ArrowRight, BarChart3, Briefcase, Building2, ClipboardList, Code2, FileCheck, HardHat,
-  LogOut, Mic, Search, ShieldCheck, Wrench,
+  LogOut, Mic, Search, ShieldCheck, Warehouse, Wrench,
 } from 'lucide-react'
 import { useAuth } from '../store/useAuth'
 import { useNav } from '../store/useNav'
@@ -59,6 +59,12 @@ const CARDS: Record<Role, {
     text: 'Je chauffeurs beheren, zien wat er gewassen is, en vastleggen wat er per wagen wel en niet afgenomen mag worden.',
     icon: Briefcase,
     cls: 'werkgever',
+  },
+  trucksupply: {
+    title: 'Trucksupply',
+    text: 'Voorraad per vestiging, alarmen, artikelen tot in de kassa, bestellingen met pakbon en verzendlabel.',
+    icon: Warehouse,
+    cls: 'supply',
   },
   management: {
     title: 'Management',

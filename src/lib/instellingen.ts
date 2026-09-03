@@ -36,6 +36,15 @@ export const SLEUTELS = {
   eigenKvk: 'eigen_kvk',
   eigenBtw: 'eigen_btw',
   eigenIban: 'eigen_iban',
+  /*
+   * Trucksupply. Het adres waar de voorraadalarmen heen gaan, het uur waarop
+   * de ochtendmail vertrekt (Europe/Amsterdam) en de divisie in Exact. De
+   * serverfunctie leest ze bij elke ronde; daarom staan ze hier en niet in
+   * een .env van de app.
+   */
+  trucksupplyMail: 'trucksupply_mail',
+  trucksupplyOchtendUur: 'trucksupply_ochtend_uur',
+  exactDivision: 'exact_division',
 } as const
 
 export type Sleutel = (typeof SLEUTELS)[keyof typeof SLEUTELS]

@@ -197,6 +197,7 @@ export async function ensureBackendMatches(): Promise<boolean> {
     db.personnelPrivate.clear(), db.documents.clear(), db.mailbox.clear(),
     db.changeRequests.clear(), db.agendaItems.clear(),
     db.employers.clear(), db.employerLinks.clear(), db.employerRules.clear(),
+    db.voorraadAlarmen.clear(), db.bestellingen.clear(), db.bestelregels.clear(),
     // Wijzigingen die voor een andere server bedoeld waren zijn onbruikbaar.
     db.outbox.clear(),
   ])
@@ -238,6 +239,7 @@ export async function haalAllesOpnieuw(): Promise<void> {
     db.personnelPrivate.clear(), db.documents.clear(), db.mailbox.clear(),
     db.changeRequests.clear(), db.agendaItems.clear(),
     db.employers.clear(), db.employerLinks.clear(), db.employerRules.clear(),
+    db.voorraadAlarmen.clear(), db.bestellingen.clear(), db.bestelregels.clear(),
   ])
 
   await setMeta(LAST_SYNC, 0)
@@ -317,6 +319,9 @@ export const PUSH_ORDER: EntityName[] = [
   'agendaItems', 'employerLinks', 'employerRules',
   'truckyVragen', 'truckyContact', 'instellingen',
   'grootboek', 'kostenTags',
+  // Een regel hangt aan een bestelling; een alarm aan een artikel (dat staat
+  // hoger, bij inventory).
+  'voorraadAlarmen', 'bestellingen', 'bestelregels',
 ]
 
 const RANG = new Map(PUSH_ORDER.map((e, i) => [e, i]))
@@ -459,6 +464,9 @@ const TABLE_OF: Record<EntityName, () => any> = {
   truckyVragen: () => db.truckyVragen,
   grootboek: () => db.grootboek,
   kostenTags: () => db.kostenTags,
+  voorraadAlarmen: () => db.voorraadAlarmen,
+  bestellingen: () => db.bestellingen,
+  bestelregels: () => db.bestelregels,
   truckyContact: () => db.truckyContact,
   instellingen: () => db.instellingen,
   users: () => db.users,

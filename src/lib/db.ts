@@ -14,6 +14,7 @@ AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   CourseProgress, EmailLog, Expense, Fault, InventoryItem, Location, LogEvent,
   AgendaItem, DossierWijziging, Instelling, MailBericht, MaintenancePlan, OutboxRecord,
   TruckyContact, TruckyVraag, Grootboek, KostenTag,
+  VoorraadAlarm, Bestelling, Bestelregel,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel,
   PersonnelDocument, PersonnelPrivate,
   Shift, Signup, StockMovement, Ticket,
@@ -56,6 +57,9 @@ class TruckwashDB extends Dexie {
   truckyVragen!: Table<TruckyVraag, string>
   grootboek!: Table<Grootboek, string>
   kostenTags!: Table<KostenTag, string>
+  voorraadAlarmen!: Table<VoorraadAlarm, string>
+  bestellingen!: Table<Bestelling, string>
+  bestelregels!: Table<Bestelregel, string>
   truckyContact!: Table<TruckyContact, string>
   instellingen!: Table<Instelling, string>
   media!: Table<Media, string>
@@ -213,6 +217,18 @@ class TruckwashDB extends Dexie {
     this.version(19).stores({
       grootboek: 'code, actief, updatedAt',
       kostenTags: 'id, naam, updatedAt',
+    })
+
+    /* Trucksupply: de alarmen die de database zet als een vestiging onder
+       haar minimum zakt, en de bestellingen waarmee die worden aangevuld.
+
+       opgelostAt staat in de index omdat het scherm vooral de open alarmen
+       wil (opgelostAt leeg); bestelregels zijn op bestellingId te vinden
+       omdat een pakbon alle regels van één bestelling nodig heeft. */
+    this.version(20).stores({
+      voorraadAlarmen: 'id, itemId, locationId, opgelostAt, updatedAt',
+      bestellingen: 'id, locationId, status, aangemaaktAt, updatedAt',
+      bestelregels: 'id, bestellingId, updatedAt',
     })
   }
 }

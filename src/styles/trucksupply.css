@@ -1,0 +1,362 @@
+/* ================================================================== *
+ *  Trucksupply  (.ts-)
+ *
+ *  De opmaak van het leveranciersdashboard, los van theme.css. Alles hier
+ *  heet .ts- en gebruikt de tokens van het thema, zodat licht en donker
+ *  vanzelf goed staan. Onderaan het printblok: de pakbon en het verzendlabel
+ *  zijn het enige dat uit de printer mag komen, dezelfde truc als bij de
+ *  QR-labels van de installaties (.qr-sheet in theme.css).
+ *
+ *  Waarom een eigen bestand: theme.css is al groot, en wie hier iets zoekt
+ *  over de pakbon hoeft niet door de roosterkleuren.
+ * ================================================================== */
+
+/* ------------------------------ Kleinigheden ---------------------- */
+
+.ts-sub { font-size: .76rem; color: var(--text-3); line-height: 1.4; }
+.ts-sub svg { vertical-align: -2px; margin-right: 2px; }
+.ts-rood { color: var(--danger); }
+.ts-rood svg { vertical-align: -2px; }
+.ts-uit { opacity: .6; }
+
+.ts-link {
+  background: none; border: 0; padding: 0;
+  color: var(--text-brand); text-decoration: underline; text-underline-offset: 2px;
+  cursor: pointer; font: inherit; font-size: inherit;
+}
+.ts-link:hover { color: var(--brand); }
+
+/* De balk bovenaan een scherm: zoekveld, filters, knop. */
+.ts-balk {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin-bottom: 14px;
+}
+.ts-balk > input[type="search"] { flex: 1 1 240px; min-width: 0; }
+.ts-balk .select.sm { min-width: 160px; }
+.ts-balk h3 { font-size: 1.05rem; }
+
+.ts-schakel {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: .82rem; color: var(--text-2); cursor: pointer; user-select: none;
+}
+.ts-schakel input { width: 16px; height: 16px; accent-color: var(--brand); }
+
+/* ------------------------------ Tabbladen ------------------------- */
+
+.ts-tabs {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  padding: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  width: fit-content; max-width: 100%;
+}
+.ts-tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 32px; padding: 5px 11px;
+  border: 0; border-radius: 7px;
+  background: transparent; color: var(--text-2);
+  font: inherit; font-size: .8rem; font-weight: 550;
+  cursor: pointer;
+}
+.ts-tab:hover { color: var(--text); background: var(--surface-3); }
+.ts-tab.actief { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+.ts-tab-n {
+  min-width: 18px; padding: 0 5px;
+  border-radius: 999px;
+  background: var(--surface-3); color: var(--text-3);
+  font-size: .68rem; font-weight: 700; line-height: 18px; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.ts-tab.actief .ts-tab-n { background: var(--tint-brand); color: var(--text-brand); }
+
+/* ------------------------------ Tabellen -------------------------- */
+
+.ts-tabel td { vertical-align: middle; }
+.ts-tabel .ts-acties {
+  text-align: right; white-space: nowrap;
+}
+.ts-tabel .ts-acties .btn + .btn { margin-left: 4px; }
+.ts-tabel tfoot td { border-top: 1px solid var(--line); font-weight: 600; }
+
+.ts-artikelcel { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ts-artikelcel > div { min-width: 0; }
+.ts-artikelcel strong { font-size: .88rem; }
+
+/* Een rij die op of laag is krijgt een dun streepje links; kleur zegt genoeg,
+   maar niet iedereen ziet kleur, dus de badge blijft ook staan. */
+.ts-rij-op    > td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
+.ts-rij-laag  > td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+.ts-rij-uit   { opacity: .55; }
+
+.ts-klikbaar tbody tr { cursor: pointer; }
+.ts-klikbaar tbody tr:hover td { background: var(--surface-2); }
+.ts-klikbaar tbody tr:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+.ts-foto {
+  flex: none;
+  display: inline-grid; place-items: center;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  color: var(--text-3);
+  overflow: hidden;
+}
+.ts-foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.ts-aantalveld { display: inline-flex; align-items: center; gap: 6px; }
+.ts-aantal { width: 78px; text-align: right; font-variant-numeric: tabular-nums; }
+.ts-eenheid { font-size: .76rem; color: var(--text-3); min-width: 34px; }
+
+/* ------------------------------ Vestigingsraster ------------------ */
+
+.ts-raster {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.ts-vest, .ts-contact {
+  display: grid; gap: 10px;
+  padding: 14px 15px;
+  text-align: left;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--surface), var(--bg-2));
+  color: var(--text);
+  font: inherit;
+  transition: border-color .16s var(--ease), transform .16s var(--ease), box-shadow .16s var(--ease);
+}
+.ts-vest { cursor: pointer; }
+.ts-vest:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); border-color: var(--line); }
+.ts-vest.ts-laag { border-color: var(--line-warn); }
+.ts-vest.ts-laag:hover { border-color: var(--warn); }
+
+.ts-vest-kop { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.ts-vest-kop > div { display: grid; gap: 2px; min-width: 0; }
+.ts-vest-kop strong { font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ts-vest-getal {
+  flex: none;
+  min-width: 34px; height: 34px; padding: 0 8px;
+  display: grid; place-items: center;
+  border-radius: 10px;
+  background: var(--tint-ok); color: var(--text-ok);
+  font-weight: 750; font-size: 1rem; font-variant-numeric: tabular-nums;
+}
+.ts-vest-getal.rood { background: var(--tint-danger); color: var(--text-danger); }
+
+.ts-vest-voet {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  font-size: .76rem; color: var(--text-3);
+}
+.ts-vest-voet .ts-rood { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+
+/* Het adresblok: elke regel is een link die iets doet. */
+.ts-contactblok { display: grid; gap: 6px; font-size: .84rem; }
+.ts-contactblok a, .ts-contactblok > span {
+  display: flex; align-items: flex-start; gap: 8px;
+  color: var(--text-2); text-decoration: none; line-height: 1.4;
+}
+.ts-contactblok a:hover { color: var(--text-brand); }
+.ts-contactblok svg { flex: none; margin-top: 2px; color: var(--text-3); }
+.ts-contactblok a:hover svg { color: var(--brand); }
+.ts-contactblok strong { font-size: .95rem; }
+
+/* ------------------------------ Kieslijsten ----------------------- *
+ *  In de vensters: een rij per artikel of vestiging, met een vinkje of
+ *  een aantal erachter.
+ * ------------------------------------------------------------------ */
+
+.ts-kieslijst {
+  display: grid; gap: 4px;
+  max-height: min(50vh, 440px); overflow-y: auto;
+  margin-bottom: 14px; padding-right: 2px;
+}
+.ts-kiesrij {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-soft);
+  background: var(--surface-2);
+  color: var(--text); text-align: left; font: inherit;
+}
+.ts-kiesrij input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--brand); flex: none; }
+.ts-kiesrij.ts-knop { cursor: pointer; width: 100%; }
+.ts-kiesrij.ts-knop:hover { border-color: var(--line-brand); background: var(--tint-brand-weak); }
+label.ts-kiesrij { cursor: pointer; }
+.ts-kiesrij.ts-uit { cursor: default; }
+.ts-kiestekst { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.ts-kiestekst strong { font-size: .86rem; }
+.ts-kiestekst > span { font-size: .75rem; color: var(--text-3); }
+.ts-kiestekst .badge { vertical-align: 1px; }
+.ts-samenvatting .ts-kiestekst > span { white-space: normal; }
+
+/* ------------------------------ Stappen van een bestelling -------- */
+
+.ts-stappen { display: grid; gap: 6px; }
+.ts-stap {
+  display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 10px;
+  font-size: .84rem; color: var(--text-3);
+}
+.ts-stap .bol {
+  width: 10px; height: 10px; border-radius: 50%;
+  border: 2px solid var(--line); background: transparent;
+  justify-self: center;
+}
+.ts-stap.gehaald { color: var(--text); }
+.ts-stap.gehaald .bol { border-color: var(--ok); background: var(--ok); }
+.ts-stap.geannuleerd { color: var(--text-danger); }
+.ts-stap.geannuleerd .bol { border-color: var(--danger); background: var(--danger); }
+
+.ts-knoppen { display: grid; gap: 10px; margin-top: 14px; }
+
+/* ------------------------------ Formulieren ----------------------- */
+
+.ts-veldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.ts-veldset:disabled .input, .ts-veldset:disabled .select, .ts-veldset:disabled .textarea { opacity: .8; }
+
+.ts-fotorij { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
+.ts-fotovak {
+  position: relative;
+  width: 84px; height: 84px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 12px;
+  border: 1px dashed var(--line);
+  background: var(--surface-2); color: var(--text-3);
+  overflow: hidden;
+}
+.ts-fotovak img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Over de foto heen, in het midden van het vak (inset: auto positioneerde niets
+   en liet de lader onder de img vallen, buiten het vak met overflow hidden). */
+.ts-fotolader { position: absolute; inset: 0; margin: auto; color: var(--brand); }
+
+.ts-uitleg { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.ts-uitleg li { display: flex; gap: 10px; align-items: flex-start; font-size: .85rem; line-height: 1.55; color: var(--text-2); }
+.ts-uitleg li svg { flex: none; margin-top: 3px; color: var(--brand); }
+.ts-uitleg strong { color: var(--text); }
+
+/* ------------------------------ Telefoon -------------------------- */
+
+@media (max-width: 680px) {
+  .ts-balk > .btn, .ts-balk > .select { flex: 1 1 auto; }
+  .ts-tabel .ts-acties .btn { padding-left: 8px; padding-right: 8px; }
+  .ts-raster { grid-template-columns: 1fr; }
+}
+
+/* ================================================================== *
+ *  Pakbon en verzendlabel
+ *
+ *  Op het scherm: een wit vel in het venster, zodat je ziet wat eruit komt.
+ *  Op papier: alleen het vel (zie het printblok onderaan). De kleuren zijn
+ *  hier hard zwart-op-wit en volgen het thema niet -- dit is papier.
+ * ================================================================== */
+
+.ts-printkader {
+  max-height: 60vh; overflow: auto;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+}
+
+.ts-printvel {
+  background: #fff; color: #111;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 10.5pt; line-height: 1.4;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, .2);
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+.ts-printvel .ts-kopje {
+  font-size: 7.5pt; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  color: #555; margin-bottom: 2px;
+}
+.ts-printvel .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+.ts-printvel .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* --- pakbon: A4 --- */
+.ts-pakbon { width: 210mm; min-height: 200mm; padding: 16mm 16mm 14mm; }
+.ts-pakbon-kop {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 20px;
+  padding-bottom: 8mm; margin-bottom: 8mm;
+  border-bottom: 2px solid #111;
+}
+.ts-pakbon-merk { font-size: 9pt; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #555; }
+.ts-pakbon h1 { margin: 2px 0 0; font-size: 22pt; font-weight: 800; letter-spacing: -.01em; color: #111; }
+.ts-pakbon-nummer { text-align: right; font-size: 9.5pt; color: #333; }
+.ts-pakbon-nummer .ts-groot { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 16pt; font-weight: 800; color: #111; }
+
+.ts-pakbon-adressen { display: grid; grid-template-columns: 1fr 1fr; gap: 12mm; margin-bottom: 8mm; font-size: 10.5pt; }
+.ts-pakbon-adressen strong { display: block; font-size: 12pt; margin-bottom: 1px; }
+
+.ts-pakbon-tabel { width: 100%; border-collapse: collapse; margin-bottom: 8mm; }
+.ts-pakbon-tabel th, .ts-pakbon-tabel td { padding: 2.2mm 2mm; border-bottom: 1px solid #ccc; text-align: left; vertical-align: middle; }
+.ts-pakbon-tabel th { font-size: 8pt; text-transform: uppercase; letter-spacing: .07em; color: #555; border-bottom: 1.5px solid #111; }
+.ts-pakbon-tabel .vak { width: 22mm; text-align: center; }
+.ts-hokje { display: inline-block; width: 5mm; height: 5mm; border: 1.5px solid #111; border-radius: 1mm; vertical-align: middle; }
+
+.ts-pakbon-opmerking { margin-bottom: 6mm; font-size: 10.5pt; white-space: pre-wrap; }
+
+.ts-pakbon-voet { display: grid; grid-template-columns: 2fr 1fr; gap: 12mm; margin-top: 14mm; }
+.ts-tekenregel { display: grid; gap: 8mm; font-size: 8.5pt; color: #555; }
+.ts-tekenregel .lijn { display: block; border-bottom: 1px solid #111; }
+
+/* --- verzendlabel: A6 staand --- */
+.ts-label {
+  width: 105mm; height: 148mm;
+  padding: 7mm 8mm;
+  display: grid; grid-template-rows: auto 1fr auto; gap: 5mm;
+  border: 1px solid #ddd;
+  /* Een vaste hoogte: een lang adres mag niet van het vel af lopen. */
+  overflow: hidden;
+}
+.ts-label-aan .ts-kopje { font-size: 8pt; }
+.ts-label-naam { font-size: 17pt; font-weight: 800; line-height: 1.15; margin: 1mm 0 2mm; overflow-wrap: anywhere; }
+.ts-label-adres { font-size: 12pt; font-weight: 600; line-height: 1.3; }
+.ts-label-tel { font-size: 10.5pt; margin-top: 1.5mm; color: #333; }
+
+.ts-label-midden {
+  display: grid; grid-template-columns: auto 1fr; gap: 6mm; align-items: center;
+  padding: 4mm 0; border-top: 1.5px solid #111; border-bottom: 1.5px solid #111;
+}
+.ts-label-nummer { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 17pt; font-weight: 800; letter-spacing: .02em; line-height: 1.1; word-break: break-all; }
+.ts-label-colli { margin-top: 2.5mm; font-size: 12pt; font-weight: 700; }
+.ts-qr svg { width: 100%; height: 100%; display: block; }
+
+.ts-label-voet { display: flex; justify-content: space-between; align-items: flex-end; gap: 6mm; font-size: 9pt; color: #333; }
+
+/* Op een klein scherm past een A4 niet; schaal het vel naar de breedte
+   van het venster, zodat je nog ziet wat erop staat. Printen gaat op ware
+   grootte, want het printblok zet dit terug. */
+@media (max-width: 860px) {
+  .ts-printkader { padding: 6px; }
+  .ts-pakbon { width: 100%; min-height: 0; padding: 8mm; font-size: 9pt; }
+  .ts-pakbon-adressen { grid-template-columns: 1fr; gap: 4mm; }
+}
+
+/* ------------------------------ Printen --------------------------- *
+ *  Alleen het vel; alles eromheen (het venster, de zijbalk, de knop) is
+ *  onzichtbaar. Het venster zit in een portaal met een transform van
+ *  framer-motion; die halen we weg, anders staat het vel op een rare plek.
+ * ------------------------------------------------------------------ */
+
+@media print {
+  body * { visibility: hidden; }
+  .ts-printvel, .ts-printvel * { visibility: visible; }
+  .modal-backdrop:has(.ts-printvel),
+  .modal:has(.ts-printvel) {
+    position: static !important; transform: none !important;
+    overflow: visible !important; max-height: none !important;
+    padding: 0 !important; margin: 0 !important; border: 0 !important; box-shadow: none !important;
+    background: transparent !important;
+  }
+  .ts-printkader { max-height: none; overflow: visible; padding: 0; background: transparent; }
+  .ts-printvel {
+    position: absolute; left: 0; top: 0;
+    box-shadow: none; border: 0;
+    margin: 0;
+  }
+  .ts-pakbon { width: 100%; min-height: 0; padding: 12mm 14mm; font-size: 10.5pt; }
+  .ts-pakbon-adressen { grid-template-columns: 1fr 1fr; gap: 12mm; }
+  .ts-label { width: 105mm; height: 148mm; border: 0; }
+}

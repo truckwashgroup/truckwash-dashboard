@@ -135,6 +135,26 @@ const ADMINISTRATIE: Permission[] = [
   'dev.report',
 ]
 
+/**
+ * Trucksupply, de leverancier van de vestigingen.
+ *
+ * Ziet de voorraad van álle vestigingen -- dat is het werk: zien waar het
+ * onder het minimum zakt en aanvullen. Vandaar locations.all, en vandaar ook
+ * de vier supply-rechten.
+ *
+ * Wat er bewust níét bij zit: inventory.adjust. Verbruik boeken doet de
+ * vestiging zelf, en een levering wordt bijgeboekt door de bestelling die op
+ * verzonden gaat -- niet door iemand die met de hand een stand overschrijft.
+ * Het is bovendien geen personeel (geen is_staff aan de serverkant), dus geen
+ * rooster, geen dossiers, geen cijfers.
+ */
+const TRUCKSUPPLY: Permission[] = [
+  'supply.view', 'supply.articles', 'supply.orders', 'supply.settings',
+  'locations.view', 'locations.all',
+  'chat.use',
+  'dev.report',
+]
+
 const MANAGEMENT: Permission[] = PERMISSIONS.map((p) => p.key)
 
 export const ROLE_DEFAULTS: Record<Role, Permission[]> = {
@@ -145,6 +165,7 @@ export const ROLE_DEFAULTS: Record<Role, Permission[]> = {
   employer: EMPLOYER,
   customer: CUSTOMER,
   administratie: ADMINISTRATIE,
+  trucksupply: TRUCKSUPPLY,
   management: MANAGEMENT,
 }
 

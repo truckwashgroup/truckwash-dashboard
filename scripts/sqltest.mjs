@@ -178,6 +178,7 @@ await run(db, '0044_facturen_boeken_zichzelf.sql draait', sqlFile('supabase/migr
 await run(db, '0045_een_kassa_ziet_wie_er_mag_werken.sql draait', sqlFile('supabase/migrations/0045_een_kassa_ziet_wie_er_mag_werken.sql'))
 await run(db, '0046_de_fotos_gaan_mee_naar_de_website.sql draait', sqlFile('supabase/migrations/0046_de_fotos_gaan_mee_naar_de_website.sql'))
 await run(db, '0047_een_verkoopfactuur_is_geen_kostenpost.sql draait', sqlFile('supabase/migrations/0047_een_verkoopfactuur_is_geen_kostenpost.sql'))
+await run(db, '0048_trucksupply_ziet_de_voorraad.sql draait', sqlFile('supabase/migrations/0048_trucksupply_ziet_de_voorraad.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -227,6 +228,7 @@ await run(db, '0044 nogmaals', sqlFile('supabase/migrations/0044_facturen_boeken
 await run(db, '0045 nogmaals', sqlFile('supabase/migrations/0045_een_kassa_ziet_wie_er_mag_werken.sql'))
 await run(db, '0046 nogmaals', sqlFile('supabase/migrations/0046_de_fotos_gaan_mee_naar_de_website.sql'))
 await run(db, '0047 nogmaals', sqlFile('supabase/migrations/0047_een_verkoopfactuur_is_geen_kostenpost.sql'))
+await run(db, '0048 nogmaals', sqlFile('supabase/migrations/0048_trucksupply_ziet_de_voorraad.sql'))
 
 
 
@@ -4009,6 +4011,341 @@ const gemeld = (await db.query(`select tabel, record_id from public.deletion_log
 check('een weggehaalde kostenpost meldt zichzelf in het logboek', gemeld.length === 1)
 check('en het bericht wijst niet meer naar een bon die er niet is',
   (await db.query("select expense_id from public.mailbox where id = 'mb_1'")).rows[0].expense_id === null)
+
+
+/* ===========================================================================
+ *  Trucksupply ziet de voorraad (0048)
+ *
+ *  Een leverancier krijgt een eigen rol die op alle vestigingen de voorraad
+ *  ziet, zonder personeel te zijn. Daaromheen: een trigger die alarmen maakt
+ *  als een stand onder het minimum zakt, een bestelnummer uit de database,
+ *  en één deur naar de kassatabel.
+ *
+ *  En de reparatie die meekwam: is_staff() was in 0029 ingekort tot drie
+ *  rollen. Dat viel niet op omdat bijna iedereen employee ernaast heeft --
+ *  precies de reden om het hier per rol los vast te leggen.
+ * ======================================================================== */
+
+console.log('\n32. Trucksupply ziet de voorraad (0048)')
+
+await asServer(db)
+
+/*
+ * Acht accounts, elk met precies één rol. Niet employee ernaast, want dan
+ * bewijst is_staff() niets over de rol die je test.
+ */
+const ROL_UIDS = {
+  employee:      'a5a50000-0000-0000-0000-000000000001',
+  supervisor:    'a5a50000-0000-0000-0000-000000000002',
+  technician:    'a5a50000-0000-0000-0000-000000000003',
+  administratie: 'a5a50000-0000-0000-0000-000000000004',
+  management:    'a5a50000-0000-0000-0000-000000000005',
+  developer:     'a5a50000-0000-0000-0000-000000000006',
+  trucksupply:   'a5a50000-0000-0000-0000-000000000007',
+  employer:      'a5a50000-0000-0000-0000-000000000008',
+}
+
+for (const [rol, uid] of Object.entries(ROL_UIDS)) {
+  await db.exec(`
+    insert into auth.users (id, email) values ('${uid}', 'rol.${rol}@truckwash1group.nl')
+    on conflict (id) do nothing;
+    update public.profiles
+       set roles = array['${rol}']::text[], active = true,
+           location_id = ${rol === 'employee' ? "'loc_utr'" : 'null'}
+     where email = 'rol.${rol}@truckwash1group.nl';`)
+}
+
+async function isStaf(uid) {
+  await asUser(db, uid)
+  try {
+    return (await db.query('select public.is_staff() as ja')).rows[0].ja === true
+  } finally {
+    await asServer(db)
+  }
+}
+
+for (const rol of ['employee', 'supervisor', 'technician', 'administratie', 'management', 'developer']) {
+  check(`is_staff(): ${rol} is personeel`, await isStaf(ROL_UIDS[rol]))
+}
+check('is_staff(): trucksupply is geen personeel', !(await isStaf(ROL_UIDS.trucksupply)))
+check('is_staff(): een werkgever ook niet', !(await isStaf(ROL_UIDS.employer)))
+
+/* ---- de leverancier ziet elke vestiging, een medewerker de eigen ---- */
+
+const leverancier = ROL_UIDS.trucksupply
+const medewerkerUtr = ROL_UIDS.employee
+
+await db.exec(`
+  insert into public.inventory_items (id, name, unit, stock, min_stock, location_id)
+  values ('inv_ts_utr', 'Ontvetter Utrecht',   'liter', 10, 5, 'loc_utr'),
+         ('inv_ts_rtm', 'Ontvetter Rotterdam', 'liter', 10, 5, 'loc_rtm')
+  on conflict (id) do nothing;`)
+
+const zietArtikelen = (uid) => countAs(uid,
+  "select count(*)::int as n from public.inventory_items where id in ('inv_ts_utr', 'inv_ts_rtm')")
+
+check('Trucksupply ziet de voorraad van elke vestiging', (await zietArtikelen(leverancier)) === 2)
+check('een medewerker alleen die van zijn eigen', (await zietArtikelen(medewerkerUtr)) === 1)
+check('en een klant nog steeds niets', (await zietArtikelen(klant)) === 0)
+
+/* ---- de trigger: onder het minimum is één alarm, niet twee ---- */
+
+const openAlarmen = async (item) => (await db.query(
+  `select count(*)::int as n from public.voorraad_alarmen
+    where item_id = '${item}' and opgelost_at is null`)).rows[0].n
+
+check('boven het minimum is er geen alarm', (await openAlarmen('inv_ts_utr')) === 0)
+
+/* De afboeking doet de medewerker, zoals in het echt; het alarm maakt de
+   trigger, die daar geen schrijfrecht voor hoeft te hebben. */
+check('de medewerker boekt af tot onder het minimum',
+  await magSchrijven(medewerkerUtr, "update public.inventory_items set stock = 3 where id = 'inv_ts_utr'"))
+check('en dan staat er precies één open alarm', (await openAlarmen('inv_ts_utr')) === 1)
+
+await magSchrijven(medewerkerUtr, "update public.inventory_items set stock = 2 where id = 'inv_ts_utr'")
+check('nog een afboeking maakt geen tweede', (await openAlarmen('inv_ts_utr')) === 1)
+check('maar de stand op het alarm loopt wel mee',
+  Number((await db.query(
+    "select stand from public.voorraad_alarmen where item_id = 'inv_ts_utr' and opgelost_at is null"))
+    .rows[0].stand) === 2)
+
+await magSchrijven(medewerkerUtr, "update public.inventory_items set stock = 9 where id = 'inv_ts_utr'")
+check('terug boven het minimum sluit het alarm', (await openAlarmen('inv_ts_utr')) === 0)
+check('en de geschiedenis blijft staan',
+  (await db.query(
+    "select count(*)::int as n from public.voorraad_alarmen where item_id = 'inv_ts_utr' and opgelost_at is not null"))
+    .rows[0].n === 1)
+
+/* Wat al onder het minimum stond toen 0048 draaide, heeft ook een alarm:
+   de ontvetter uit de seed staat op 68 bij een minimum van 80. */
+check('wat al onder het minimum stond kreeg bij de migratie een alarm',
+  (await openAlarmen('inv_ontvetter')) === 1)
+
+/* ---- het bestelnummer ---- */
+
+async function nummerAls(uid) {
+  await asUser(db, uid)
+  await db.exec('set role authenticated;')
+  try {
+    return (await db.query('select public.bestelnummer() as n')).rows[0].n
+  } finally {
+    await db.exec('reset role;')
+    await asServer(db)
+  }
+}
+
+const jaar = new Date().getFullYear()
+const nr1 = await nummerAls(leverancier)
+const nr2 = await nummerAls(leverancier)
+check('bestelnummer() heeft de vorm TS-<jaar>-0001', nr1 === `TS-${jaar}-0001`, nr1)
+check('en het volgende nummer telt door zonder dat er iets is opgeslagen',
+  nr2 === `TS-${jaar}-0002`, nr2)
+
+/* ---- de rechten op bestellingen ---- */
+
+await db.exec(`
+  alter table public.bestellingen force row level security;
+  alter table public.bestelregels force row level security;
+  alter table public.voorraad_alarmen force row level security;
+  alter table public.instellingen force row level security;
+  grant select, insert, update, delete on all tables in schema public to authenticated;`)
+
+check('Trucksupply maakt een bestelling aan',
+  await magSchrijven(leverancier, `
+    insert into public.bestellingen (id, nummer, location_id, status, bron)
+    values ('best_ts_1', '${nr1}', 'loc_utr', 'concept', 'handmatig')`))
+check('en zet er regels op',
+  await magSchrijven(leverancier, `
+    insert into public.bestelregels (id, bestelling_id, item_id, item_naam, aantal, eenheid)
+    values ('br_ts_1', 'best_ts_1', 'inv_ts_utr', 'Ontvetter Utrecht', 20, 'liter')`))
+check('een medewerker legt een aanvraag neer voor zijn eigen vestiging',
+  await magSchrijven(medewerkerUtr, `
+    insert into public.bestellingen (id, location_id, status, bron)
+    values ('best_ts_aanvraag', 'loc_utr', 'concept', 'aanvraag')`))
+check('maar geen gewone bestelling',
+  !(await magSchrijven(medewerkerUtr, `
+    insert into public.bestellingen (id, location_id, status, bron)
+    values ('best_ts_fout1', 'loc_utr', 'concept', 'handmatig')`)))
+check('en geen aanvraag voor een andere vestiging',
+  !(await magSchrijven(medewerkerUtr, `
+    insert into public.bestellingen (id, location_id, status, bron)
+    values ('best_ts_fout2', 'loc_rtm', 'concept', 'aanvraag')`)))
+/* in_my_locations(null) is waar (0004); zonder de 'is not null' in de policy
+   ging een aanvraag voor niemand er gewoon doorheen. */
+check('en geen aanvraag zonder vestiging',
+  !(await magSchrijven(medewerkerUtr, `
+    insert into public.bestellingen (id, location_id, status, bron)
+    values ('best_ts_fout3', null, 'concept', 'aanvraag')`)))
+check('de medewerker ziet de bestelling voor zijn vestiging',
+  (await countAs(medewerkerUtr,
+    "select count(*)::int as n from public.bestellingen where id = 'best_ts_1'")) === 1)
+check('met de regels erbij',
+  (await countAs(medewerkerUtr,
+    "select count(*)::int as n from public.bestelregels where id = 'br_ts_1'")) === 1)
+check('de leverancier ziet het alarm van elke vestiging',
+  (await countAs(leverancier,
+    "select count(*)::int as n from public.voorraad_alarmen where item_id = 'inv_ts_utr'")) === 1)
+
+/* Weg mag alleen een concept, en de verwijdering meldt zichzelf (0038). */
+await magSchrijven(leverancier, "update public.bestellingen set status = 'verzonden' where id = 'best_ts_1'")
+await magSchrijven(leverancier, "delete from public.bestellingen where id = 'best_ts_1'")
+check('een verzonden bestelling is niet te wissen',
+  (await db.query("select count(*)::int as n from public.bestellingen where id = 'best_ts_1'")).rows[0].n === 1)
+await magSchrijven(leverancier, "delete from public.bestellingen where id = 'best_ts_aanvraag'")
+check('een concept wel',
+  (await db.query("select count(*)::int as n from public.bestellingen where id = 'best_ts_aanvraag'")).rows[0].n === 0)
+check('en dat staat in de verwijderlijst',
+  (await db.query(
+    "select count(*)::int as n from public.deletion_log where tabel = 'bestellingen' and record_id = 'best_ts_aanvraag'"))
+    .rows[0].n === 1)
+
+/* ---- de drie instellingen van de leverancier ---- */
+
+/*
+ * De tabel instellingen was dicht voor iedereen behalve het management
+ * (0042). De leverancier moet zijn eigen mailadres en ochtenduur kunnen
+ * zetten, maar niet het inkoopdomein of het adres van Trucky. Een update op
+ * een rij die je niet mag zien geeft geen fout maar raakt nul rijen; daarom
+ * kijken we na afloop naar de waarde en niet naar het slagen.
+ */
+check('de leverancier ziet precies zijn drie instellingen',
+  (await countAs(leverancier, 'select count(*)::int as n from public.instellingen')) === 3
+  && (await countAs(leverancier, `
+    select count(*)::int as n from public.instellingen
+    where sleutel in ('trucksupply_mail', 'trucksupply_ochtend_uur', 'exact_division')`)) === 3)
+check('een medewerker ziet er geen enkele',
+  (await countAs(medewerkerUtr, 'select count(*)::int as n from public.instellingen')) === 0)
+
+await magSchrijven(leverancier,
+  "update public.instellingen set waarde = 'voorraad@trucksupply.test' where sleutel = 'trucksupply_mail'")
+check('de leverancier zet zijn eigen mailadres',
+  (await db.query("select waarde from public.instellingen where sleutel = 'trucksupply_mail'")).rows[0].waarde
+    === 'voorraad@trucksupply.test')
+
+const domeinVoor = (await db.query("select waarde from public.instellingen where sleutel = 'inkoop_domein'")).rows[0]?.waarde
+await magSchrijven(leverancier,
+  "update public.instellingen set waarde = 'gekaapt.nl' where sleutel = 'inkoop_domein'")
+check('maar niet het inkoopdomein van het management',
+  (await db.query("select waarde from public.instellingen where sleutel = 'inkoop_domein'")).rows[0]?.waarde === domeinVoor)
+check('en ook geen nieuwe sleutel onder een andere naam',
+  !(await magSchrijven(leverancier, `
+    insert into public.instellingen (id, sleutel, waarde, omschrijving)
+    values ('in_ts_smokkel', 'trucky_contact_adres_2', 'x', '')`)))
+check('een medewerker zet het mailadres van de leverancier niet',
+  !(await magSchrijven(medewerkerUtr,
+    "update public.instellingen set waarde = 'x@x.nl' where sleutel = 'trucksupply_mail'"))
+  || (await db.query("select waarde from public.instellingen where sleutel = 'trucksupply_mail'")).rows[0].waarde
+    === 'voorraad@trucksupply.test')
+
+await db.exec(`
+  alter table public.bestellingen no force row level security;
+  alter table public.bestelregels no force row level security;
+  alter table public.voorraad_alarmen no force row level security;
+  alter table public.instellingen no force row level security;`)
+
+/* ---- anon mag geen van de nieuwe functies aanroepen ---- */
+
+/*
+ * Het anon-hoofdstuk hierboven vangt de security definer-functies al. Dit
+ * zegt het ook voor de twee gewone (is_trucksupply, mag_leverancier): die
+ * krijgen anon net zo goed gratis via de standaardregel, en staan in geen
+ * enkele regel die anon ooit beoordeelt.
+ */
+for (const f of ['public.is_trucksupply()', 'public.mag_leverancier()', 'public.bestelnummer()',
+                 'public.is_trucksupply_instelling(text)',
+                 'public.supply_artikel_naar_kassa(text, numeric, text)',
+                 'public.supply_kassa_prijzen()']) {
+  check(`anon mag ${f} niet aanroepen`,
+    (await db.query(`select has_function_privilege('anon', '${f}', 'execute') as mag`)).rows[0].mag === false)
+}
+
+/* ---- één deur naar de kassa ---- */
+
+async function naarKassa(uid, prijs, groep) {
+  await asUser(db, uid)
+  await db.exec('set role authenticated;')
+  try {
+    return (await db.query('select public.supply_artikel_naar_kassa($1, $2, $3) as id',
+      ['inv_ts_utr', prijs, groep])).rows[0].id
+  } catch {
+    return null
+  } finally {
+    await db.exec('reset role;')
+    await asServer(db)
+  }
+}
+
+const kassaRijen = async () => (await db.query(
+  "select id, price_incl, group_name, kind, name from public.pos_products where inventory_item_id = 'inv_ts_utr'")).rows
+
+check('een medewerker zonder recht zet niets op de kassa',
+  (await naarKassa(medewerkerUtr, 12.5, 'Shop')) === null && (await kassaRijen()).length === 0)
+
+const ppId = await naarKassa(leverancier, 12.5, 'Shop')
+let kassaRij = await kassaRijen()
+check('Trucksupply maakt de kassarij aan', ppId !== null && kassaRij.length === 1 && kassaRij[0].id === ppId)
+check('met de naam van het artikel en als soort artikel',
+  kassaRij[0]?.name === 'Ontvetter Utrecht' && kassaRij[0]?.kind === 'artikel' && kassaRij[0]?.group_name === 'Shop')
+
+const ppId2 = await naarKassa(leverancier, 14, null)
+kassaRij = await kassaRijen()
+check('een tweede keer werkt dezelfde rij bij, geen tweede rij',
+  ppId2 === ppId && kassaRij.length === 1 && Number(kassaRij[0].price_incl) === 14)
+check('en zonder groep blijft de groep staan', kassaRij[0]?.group_name === 'Shop')
+
+/* ---- de Exact-tabel: dicht, en met een vervaltijd op de state ---- */
+
+/*
+ * De terugkeer van Exact is een open GET. De functie schrijft daar pas iets
+ * als de state klopt en niet ouder is dan een kwartier (state_at). Die kolom
+ * moet er dus zijn, en op de tabel mag nooit een policy komen: de tokens
+ * zijn de boekhouding.
+ */
+check('exact_koppeling kent state en state_at',
+  (await db.query(`
+    select count(*)::int as n from information_schema.columns
+    where table_schema = 'public' and table_name = 'exact_koppeling' and column_name in ('state', 'state_at')`))
+    .rows[0].n === 2)
+check('exact_koppeling heeft RLS aan en geen enkele policy',
+  (await db.query(`
+    select c.relrowsecurity as rls,
+           (select count(*)::int from pg_policies where schemaname = 'public' and tablename = 'exact_koppeling') as n
+    from pg_class c join pg_namespace ns on ns.oid = c.relnamespace
+    where ns.nspname = 'public' and c.relname = 'exact_koppeling'`))
+    .rows[0].rls === true
+  && (await db.query("select count(*)::int as n from pg_policies where schemaname = 'public' and tablename = 'exact_koppeling'")).rows[0].n === 0)
+
+/* ---- de kassaprijs terugkijken ----
+ *
+ * De leverancier zet een artikel op de kassa, maar mag pos_products niet
+ * lezen. Zonder een leesdeur ziet hij nooit welke prijs er staat -- en dan
+ * verbergt het scherm de kolom. supply_kassa_prijzen() is die leesdeur:
+ * alleen de koppeling, de prijs en of het aanstaat.
+ */
+async function kassaPrijzen(uid) {
+  await asUser(db, uid)
+  await db.exec('set role authenticated;')
+  try {
+    return (await db.query('select * from public.supply_kassa_prijzen()')).rows
+  } catch {
+    return null
+  } finally {
+    await db.exec('reset role;')
+    await asServer(db)
+  }
+}
+
+const prijzenLev = await kassaPrijzen(leverancier)
+check('de leverancier leest de kassaprijs van zijn artikel terug',
+  Array.isArray(prijzenLev)
+  && prijzenLev.some((r) => r.inventory_item_id === 'inv_ts_utr' && Number(r.price_incl) === 14 && r.product_id === ppId))
+check('en krijgt daarbij niets anders dan koppeling, prijs en aan/uit',
+  Array.isArray(prijzenLev) && prijzenLev.length > 0
+  && Object.keys(prijzenLev[0]).sort().join(',') === 'active,inventory_item_id,price_incl,product_id')
+
+/* Een klant is geen staf, geen leverancier en beheert de kassa niet: leeg. */
+check('een klant ziet via die deur niets',
+  (await kassaPrijzen(klant))?.length === 0)
 
 
 await db.close()

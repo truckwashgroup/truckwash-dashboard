@@ -108,8 +108,12 @@ export default function Overzicht({ days }: { days: number }) {
                 <CartesianGrid stroke={gridStroke} vertical={false} />
                 <XAxis dataKey="label" {...axis} tickLine={false} minTickGap={26} />
                 <YAxis {...axis} tickLine={false} tickFormatter={(v) => moneyShort(v)} width={62} />
+                {/* recharts 3 sorteert de tooltip-regels standaard op naam, waardoor
+                    Kosten boven Omzet kwam te staan. Een vaste sleutel laat de
+                    volgorde van de reeksen staan, zoals het hiervoor was. */}
                 <Tooltip
                   contentStyle={tooltipStyle}
+                  itemSorter={() => 0}
                   formatter={(v, n) => [money(Number(v ?? 0)), n === 'omzet' ? 'Omzet' : 'Kosten']}
                 />
                 <Area type="monotone" dataKey="omzet" stroke="#f8c010" strokeWidth={2} fill="url(#gOmzet)" />

@@ -54,7 +54,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
   postbus: { title: 'Postbus', subtitle: 'Post die binnenkomt op het dashboard' },
   agenda: { title: 'Agenda', subtitle: 'Afspraken, verjaardagen en wat er aankomt' },
-  werkgevers: { title: 'Werkgevers', subtitle: 'Bedrijven waarvan de chauffeurs hier wassen' },
+  werkgevers: { title: 'Klanten', subtitle: 'Bedrijven waarvan de chauffeurs hier wassen' },
   kassas: { title: "Kassa's", subtitle: 'Apparaten, koppelcodes en de kluis' },
   vestigingen: { title: 'Vestigingen', subtitle: "Adressen, foto's en openingstijden" },
   trucky: { title: 'Trucky', subtitle: 'Vragen via de website, en wat de chatbot zelf beantwoordt' },
@@ -140,7 +140,7 @@ export default function ManagementDashboard() {
       ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
       : []),
     ...(perms.can('employer.view')
-      ? [{ key: 'werkgevers', label: 'Werkgevers', icon: Briefcase,
+      ? [{ key: 'werkgevers', label: 'Klanten', icon: Briefcase,
            badge: cijfers.nieuweWerkgevers || undefined }]
       : []),
     ...(perms.can('locations.view')
@@ -294,7 +294,7 @@ export default function ManagementDashboard() {
     }] : []),
     ...(perms.can('employer.view') ? [{
       key: 'werkgevers',
-      label: 'Werkgevers',
+      label: 'Klanten',
       hint: 'Bedrijven waarvan de chauffeurs hier wassen',
       icon: Briefcase,
       tint: (cijfers.nieuweWerkgevers ? 'oranje' : 'neutraal') as TegelTint,

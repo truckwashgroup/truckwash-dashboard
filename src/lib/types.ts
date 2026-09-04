@@ -10,10 +10,10 @@ export const ROLE_LABELS: Record<Role, string> = {
   employee: 'Werknemer',
   supervisor: 'Leidinggevende',
   technician: 'Technische dienst',
-  customer: 'Klant',
+  customer: 'Klant (uitgenodigd)',
   management: 'Management',
   developer: 'Ontwikkelaar',
-  employer: 'Werkgever',
+  employer: 'Klant',
   administratie: 'Administratie',
   /*
    * De leverancier van de vestigingen. Trucksshop houdt de voorraad van alle

@@ -1695,14 +1695,23 @@ table.data.matrix th { vertical-align: bottom; }
 
 .tegels {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  /* 268px was te krap voor deze indeling: icoon, titel en een opschrift in
+     hoofdletters passen daar met geen mogelijkheid naast elkaar, en dan moet
+     er iets wijken. Bij 320px vallen er drie tegels op een rij in plaats van
+     vier, en past een woord als "Dossierwijzigingen" gewoon. */
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 14px;
 }
 
 .tegel {
   position: relative;
+  container-type: inline-size;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  /* De derde kolom stond op 'auto' en pakte daarmee de volle breedte van het
+     opschrift op een regel -- 128 tot 145px van de 250px die er te verdelen
+     valt. Wat overbleef voor de tekst was 21 tot 47px. Met een plafond mag het
+     opschrift over twee regels, en houdt de tekst ruimte. */
+  grid-template-columns: auto minmax(0, 1fr) minmax(auto, 104px);
   grid-template-areas: "ico tekst cijfer" "ico tekst pijl";
   align-items: center;
   gap: 4px 14px;
@@ -1759,11 +1768,29 @@ table.data.matrix th { vertical-align: bottom; }
 }
 .tegel:hover .ico { transform: scale(1.04); }
 
-.tegel .tekst { grid-area: tekst; display: grid; gap: 3px; min-width: 0; position: relative; }
-.tegel .tekst strong { font-size: .96rem; font-weight: 650; letter-spacing: -.01em; }
+/* De binnenkolom moet net zo hard kunnen krimpen als het vak eromheen.
+   Zonder deze regel bleef hij staan op het langste woord van de titel
+   ("Dossierwijzigingen" = 133px) terwijl het vak eromheen inzakte tot 38px --
+   en dan wordt de tekst gewoon buiten zijn eigen vak geschilderd, dwars over
+   het cijfer heen. Dat was de overlap: niet het opschrift dat naar links liep,
+   maar de omschrijving die naar rechts liep. */
+.tegel .tekst {
+  grid-area: tekst; display: grid; grid-template-columns: minmax(0, 1fr);
+  gap: 3px; min-width: 0; position: relative;
+}
+/* Een samenstelling als "Urenwijzigingen" is een woord van 115px; op een smalle
+   tegel moet die mogen breken in plaats van uit te steken. */
+.tegel .tekst strong {
+  font-size: .96rem; font-weight: 650; letter-spacing: -.01em;
+  overflow-wrap: anywhere;
+}
+/* Hier stond overflow:hidden met text-overflow:ellipsis. Dat deed niets: een
+   beletselteken komt alleen bij tekst die niet afbreekt, en afknippen kon ook
+   niet, want wat uitstak was de span zelf en niet zijn inhoud. Weg dus, in
+   plaats van een bescherming suggereren die er niet was. */
 .tegel .tekst > span {
   font-size: .78rem; color: var(--text-3); line-height: 1.4;
-  overflow: hidden; text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .tegel .cijfer {
@@ -1772,13 +1799,21 @@ table.data.matrix th { vertical-align: bottom; }
   text-align: right;
   position: relative;
 }
+/* Op klant en management staat hier geen aantal maar een bedrag, en dat groeit
+   mee met de omzet: bij een ton drukte het de tekstkolom naar nul. Vandaar een
+   maat die meekrimpt met de tegel. */
 .tegel .cijfer b {
-  font-size: 1.65rem; font-weight: 750; letter-spacing: -.03em;
+  font-size: clamp(1.05rem, 9cqi, 1.65rem);
+  max-width: 100%; overflow-wrap: anywhere;
+  font-weight: 750; letter-spacing: -.03em;
   color: var(--tegel-kleur, var(--text));
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
-.tegel .cijfer span { font-size: .68rem; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
+.tegel .cijfer span {
+  font-size: .68rem; color: var(--text-3); text-transform: uppercase;
+  letter-spacing: .04em;
+}
 
 .tegel .pijl {
   grid-area: pijl;

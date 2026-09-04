@@ -60,7 +60,7 @@ const CARDS: Record<Role, {
     icon: Building2,
   },
   employer: {
-    title: 'Werkgever',
+    title: 'Klant',
     text: 'Je chauffeurs beheren, zien wat er gewassen is, en vastleggen wat er per wagen wel en niet afgenomen mag worden.',
     icon: Briefcase,
     cls: 'werkgever',

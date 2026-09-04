@@ -441,9 +441,9 @@ export default function GlobalSearch() {
       if (perms.can('employer.view')) {
         for (const w of await db.employers.toArray()) {
           if (!has(w.naam, w.contactNaam, w.email, w.plaats, w.kvk)) continue
-          if (!voegToe('Werkgevers', () => ({
+          if (!voegToe('Klanten', () => ({
             id: 'wg:' + w.id,
-            group: 'Werkgevers',
+            group: 'Klanten',
             icon: Briefcase,
             title: w.naam,
             subtitle: [w.contactNaam, w.plaats].filter(Boolean).join(' · '),

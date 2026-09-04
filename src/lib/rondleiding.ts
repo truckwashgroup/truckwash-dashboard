@@ -388,7 +388,7 @@ const KLANT: Rondleiding = {
 const WERKGEVER: Rondleiding = {
   rol: 'employer',
   versie: 1,
-  naam: 'Werkgeversportaal',
+  naam: 'Klantportaal',
   schermen: [
     {
       id: 'welkom',

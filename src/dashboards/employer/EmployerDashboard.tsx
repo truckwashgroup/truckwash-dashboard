@@ -91,11 +91,11 @@ export default function EmployerDashboard() {
   if (!werkgever) {
     return (
       <Shell
-        roleLabel="Werkgever"
+        roleLabel="Klant"
         items={[]}
         active="start"
         onNavigate={() => {}}
-        title="Werkgever"
+        title="Klant"
         subtitle="Nog geen bedrijf gekoppeld"
       >
         <Card>
@@ -173,7 +173,7 @@ export default function EmployerDashboard() {
 
   return (
     <Shell
-      roleLabel="Werkgever"
+      roleLabel="Klant"
       items={items}
       active={page}
       onNavigate={setPage}

@@ -460,7 +460,7 @@ function BeheerdersDialoog({
         <ShieldCheck size={16} />
         <span>
           Een beheerder kan chauffeurs uitnodigen en afspraken vastleggen. Hij
-          heeft daarvoor de rol Werkgever nodig; die krijgt hij automatisch bij
+          heeft daarvoor de rol Klant nodig; die krijgt hij automatisch bij
           het goedkeuren.
         </span>
       </div>

@@ -39,7 +39,7 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
   resolve: {
-    alias: { '@': path.resolve(__dirname, 'src') },
+    alias: { '@': path.resolve(import.meta.dirname, 'src') },
   },
   // Zonder dit doorzoekt Vite ook android/ en ios/. Daar staat een kopie van
   // een eerdere build, en die probeert hij dan als broncode te behandelen --

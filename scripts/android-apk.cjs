@@ -24,8 +24,8 @@ function majorVersionOf(javaHome) {
   return m ? Number(m[1]) : null
 }
 
-/** Gradle 8.11 draait op Java 17 t/m 23. */
-const usable = (v) => v !== null && v >= 17 && v <= 23
+/** Gradle 8.13 draait op Java 17 t/m 24, maar Capacitor 8 compileert met Java 21. */
+const usable = (v) => v !== null && v >= 21 && v <= 24
 
 function findJdk() {
   const candidates = []

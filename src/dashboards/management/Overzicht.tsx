@@ -110,7 +110,7 @@ export default function Overzicht({ days }: { days: number }) {
                 <YAxis {...axis} tickLine={false} tickFormatter={(v) => moneyShort(v)} width={62} />
                 <Tooltip
                   contentStyle={tooltipStyle}
-                  formatter={(v: number, n: string) => [money(v), n === 'omzet' ? 'Omzet' : 'Kosten']}
+                  formatter={(v, n) => [money(Number(v ?? 0)), n === 'omzet' ? 'Omzet' : 'Kosten']}
                 />
                 <Area type="monotone" dataKey="omzet" stroke="#f8c010" strokeWidth={2} fill="url(#gOmzet)" />
                 <Area type="monotone" dataKey="kosten" stroke="#58b6f5" strokeWidth={2} fill="url(#gKosten)" />
@@ -126,7 +126,7 @@ export default function Overzicht({ days }: { days: number }) {
                 <CartesianGrid stroke={gridStroke} vertical={false} />
                 <XAxis dataKey="label" {...axis} tickLine={false} minTickGap={26} />
                 <YAxis {...axis} tickLine={false} allowDecimals={false} width={38} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [v, 'Wasbeurten']} cursor={hoverFill} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [Number(v ?? 0), 'Wasbeurten']} cursor={hoverFill} />
                 <Bar dataKey="wasbeurten" fill="#f8c010" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>

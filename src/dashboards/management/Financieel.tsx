@@ -84,7 +84,7 @@ export default function Financieel({ days }: { days: number }) {
                   />
                   <Tooltip
                     contentStyle={tooltipStyle}
-                    formatter={(v: number) => [money(v), 'Kosten']}
+                    formatter={(v) => [money(Number(v ?? 0)), 'Kosten']}
                     cursor={hoverFill}
                   />
                   <Bar dataKey="value" radius={[0, 4, 4, 0]}>

@@ -136,7 +136,7 @@ export default function Voorraad({ days }: { days: number }) {
                 <YAxis stroke="#6b7d9e" fontSize={11} tickLine={false} width={54} />
                 <Tooltip
                   contentStyle={tooltipStyle}
-                  formatter={(v: number) => [money(v), 'Verbruik']}
+                  formatter={(v) => [money(Number(v ?? 0)), 'Verbruik']}
                 />
                 <Line type="monotone" dataKey="waarde" stroke={BRAND} strokeWidth={2} dot={false} />
               </LineChart>

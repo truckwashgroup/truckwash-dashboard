@@ -111,6 +111,7 @@ check('afspraak staat direct in de lokale cache', !!localJob)
 check('kenteken genormaliseerd', localJob?.plate === 'TEST-01', localJob?.plate)
 
 await expenses.create({
+  locationId: locaties.find((l) => l.kind === 'vestiging')!.id,
   date: Date.now(),
   category: 'materiaal',
   supplier: 'Zelftest BV',

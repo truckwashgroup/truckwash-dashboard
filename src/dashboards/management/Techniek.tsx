@@ -197,7 +197,7 @@ function Cijfers({
                   <Tooltip
                     contentStyle={tooltipStyle}
                     cursor={hoverFill}
-                    formatter={(v: number) => [v, 'storingen']}
+                    formatter={(v) => [Number(v ?? 0), 'storingen']}
                   />
                   <Bar dataKey="aantal" radius={[0, 4, 4, 0]}>
                     {perVestiging.map((_, i) => (

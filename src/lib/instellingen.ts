@@ -78,7 +78,7 @@ export const SLEUTELS = {
   autoGoedkeurenMarge: 'auto_goedkeuren_marge',
   autoGoedkeurenMax: 'auto_goedkeuren_max',
   /*
-   * Trucksupply. Het adres waar de voorraadalarmen heen gaan, het uur waarop
+   * Trucksshop. Het adres waar de voorraadalarmen heen gaan, het uur waarop
    * de ochtendmail vertrekt (Europe/Amsterdam) en de divisie in Exact. De
    * serverfunctie leest ze bij elke ronde; daarom staan ze hier en niet in
    * een .env van de app.

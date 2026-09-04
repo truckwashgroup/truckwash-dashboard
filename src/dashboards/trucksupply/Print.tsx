@@ -9,7 +9,7 @@ import { Field, Modal } from '../../components/ui'
  *
  *  Twee vellen die uit de printer moeten komen als een zending de deur
  *  uitgaat. De pakbon gaat in de doos: wat erin zit, zonder prijzen -- de
- *  vestiging hoeft niet te weten wat Trucksupply rekent, en de wasser die
+ *  vestiging hoeft niet te weten wat Trucksshop rekent, en de wasser die
  *  de doos openmaakt al helemaal niet. Het label gaat op de doos: groot
  *  het adres, groot het nummer, en een QR met datzelfde nummer voor wie
  *  later wil weten welke doos dit was.

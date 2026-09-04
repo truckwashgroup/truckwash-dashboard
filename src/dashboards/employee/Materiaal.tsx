@@ -32,11 +32,11 @@ export default function Materiaal() {
   const health = inventoryHealth(items)
 
   /*
-   * Aanvragen bij Trucksupply.
+   * Aanvragen bij Trucksshop.
    *
    * Vroeger ging "we zijn door de shampoo heen" per telefoon of appje, of
    * helemaal niet. Nu maakt de knop een bestelling met bron 'aanvraag' aan:
-   * die verschijnt bij Trucksupply als concept, met de standaard
+   * die verschijnt bij Trucksshop als concept, met de standaard
    * bestelhoeveelheid erin. Staat het artikel al in een lopende bestelling,
    * dan zeggen we dat in plaats van een tweede aan te maken.
    */
@@ -62,7 +62,7 @@ export default function Materiaal() {
         regels: [{ itemId: item.id, itemNaam: item.name, aantal, eenheid: item.unit, prijs: item.inkoopprijs }],
         opmerking: `Aangevraagd vanaf de vloer door ${user.name}`,
       })
-      toast.ok(`${aantal} ${item.unit} ${item.name} aangevraagd bij Trucksupply`)
+      toast.ok(`${aantal} ${item.unit} ${item.name} aangevraagd bij Trucksshop`)
     } catch (e) {
       toast.error((e as Error).message)
     }
@@ -130,9 +130,9 @@ export default function Materiaal() {
                   key={i.id}
                   className="btn sm"
                   onClick={() => void aanvragen(i)}
-                  title="Maakt een aanvraag aan die Trucksupply als concept ziet"
+                  title="Maakt een aanvraag aan die Trucksshop als concept ziet"
                 >
-                  <Send size={13} /> {i.name} aanvragen bij Trucksupply
+                  <Send size={13} /> {i.name} aanvragen bij Trucksshop
                 </button>
               )
             })}

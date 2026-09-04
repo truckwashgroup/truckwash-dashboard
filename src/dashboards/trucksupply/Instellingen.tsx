@@ -120,15 +120,15 @@ export default function Instellingen() {
             <div className="waarschuwing zacht mb">
               <Lock size={16} />
               <span>
-                Deze instellingen mogen alleen Trucksupply en het management lezen en wijzigen.
+                Deze instellingen mogen alleen Trucksshop en het management lezen en wijzigen.
                 Wat hieronder staat is de standaardwaarde, niet per se wat er is ingesteld; de meldingen
                 gaan naar het adres dat daar is gezet. Wil je het adres of het uur anders, vraag het aan
-                Trucksupply of het management.
+                Trucksshop of het management.
               </span>
             </div>
           )}
           <fieldset className="ts-veldset" disabled={!geladen || !magSchrijven}>
-            <Field label="Mailadres van Trucksupply" help="Elke directe melding en de ochtendmail gaan hierheen. Eén adres; een groepsadres is prima.">
+            <Field label="Mailadres van Trucksshop" help="Elke directe melding en de ochtendmail gaan hierheen. Eén adres; een groepsadres is prima.">
               <input className="input" type="email" value={mail} onChange={(e) => setMail(e.target.value)} />
             </Field>
             <Field label="Uur van de ochtendmail" help={`Nederlandse tijd, ook in de zomer; van ${OCHTEND_UUR_MIN} tot en met ${OCHTEND_UUR_MAX} uur. De mail vertrekt in het kwartier na het hele uur.`}>
@@ -210,7 +210,7 @@ export default function Instellingen() {
             label="Division (administratienummer)"
             help={magSchrijven
               ? 'Het nummer van de administratie in Exact. Staat in Exact onder Administratie > Instellingen.'
-              : 'Het nummer van de administratie in Exact. Alleen Trucksupply en het management kunnen dit hier zetten; de status hierboven toont wat de server kent.'}
+              : 'Het nummer van de administratie in Exact. Alleen Trucksshop en het management kunnen dit hier zetten; de status hierboven toont wat de server kent.'}
           >
             <div className="row">
               <input className="input" value={division} onChange={(e) => setDivision(e.target.value)} placeholder="1234567" style={{ flex: 1 }} disabled={!magSchrijven} />

@@ -10,13 +10,13 @@ import {
 } from './types'
 
 /* ------------------------------------------------------------------ *
- *  Trucksupply, de leverancier van de vestigingen
+ *  Trucksshop, de leverancier van de vestigingen
  *
  *  Drie dingen die aan elkaar hangen:
  *
  *    Alarm        een artikel op een vestiging dat onder zijn minimum staat;
  *                 de database zet hem, de app toont en mailt hem
- *    Artikel      wat Trucksupply levert, met prijs, foto en minimum, en
+ *    Artikel      wat Trucksshop levert, met prijs, foto en minimum, en
  *                 desgewenst doorgezet naar de kassa
  *    Bestelling   wat er naar een vestiging gaat: van concept via inpakken
  *                 en verzenden tot ontvangen, met pakbon en verzendlabel
@@ -129,7 +129,7 @@ export function perVestiging(alarmen: VoorraadAlarm[], locaties: Location[]): Al
  * Een alarm op gezien zetten.
  *
  * Gezien is niet opgelost: de stand is nog steeds te laag. Het betekent
- * alleen dat iemand van Trucksupply het weet, en dan hoeft de ochtendmail
+ * alleen dat iemand van Trucksshop het weet, en dan hoeft de ochtendmail
  * er niet nog eens over te beginnen.
  */
 export async function markeerGezien(alarm: VoorraadAlarm, door: Pick<User, 'id' | 'name'>) {
@@ -192,7 +192,7 @@ export async function artikelOpslaan(input: ArtikelInvoer): Promise<InventoryIte
       stock: 0,
       minStock: 0,
       pricePerUnit: 0,
-      supplier: 'Trucksupply',
+      supplier: 'Trucksshop',
       updatedAt: Date.now(),
     }),
     locationId: input.locationId,
@@ -211,7 +211,7 @@ export async function artikelOpslaan(input: ArtikelInvoer): Promise<InventoryIte
     pricePerUnit: input.pricePerUnit !== undefined
       ? getal(input.pricePerUnit)
       : (bestaand?.pricePerUnit || getal(input.inkoopprijs, 0)),
-    supplier: input.supplier?.trim() || bestaand?.supplier || 'Trucksupply',
+    supplier: input.supplier?.trim() || bestaand?.supplier || 'Trucksshop',
     actief: input.actief ?? bestaand?.actief ?? true,
     exactCode: input.exactCode?.trim() || undefined,
   }
@@ -558,7 +558,7 @@ export function magMutatieBoeken(door: { roles?: readonly Role[] }): boolean {
  *
  *   mutatie   als de gebruiker een voorraadmutatie mag schrijven (zie
  *             MUTATIE_ROLLEN): via de inventory-repo, dus mét een regel
- *             "Levering Trucksupply <nummer>" in de mutaties van de vestiging
+ *             "Levering Trucksshop <nummer>" in de mutaties van de vestiging
  *   stand     anders alleen de stand zelf ophogen (inventory_write laat de
  *             leverancier door). De bestelling met haar regels en
  *             verzondenAt ís dan het bewijs van de levering; er staat alleen
@@ -577,7 +577,7 @@ async function boekLevering(
     await voorraadRepo.adjust({
       itemId: item.id,
       qty: aantal,
-      reason: `Levering Trucksupply ${bestelling.nummer}`,
+      reason: `Levering Trucksshop ${bestelling.nummer}`,
       user: door,
     })
     return 'mutatie'
@@ -593,7 +593,7 @@ async function boekLevering(
  * Een bestelling een stap verder zetten.
  *
  * Bij 'verzonden' wordt de levering bijgeboekt op de vestiging: per regel
- * positief, met de reden "Levering Trucksupply <nummer>" als de gebruiker
+ * positief, met de reden "Levering Trucksshop <nummer>" als de gebruiker
  * een mutatie mag schrijven en anders alleen de stand (zie boekLevering).
  * Dat gebeurt één keer: staat hij al op verzonden of ontvangen, dan wordt er
  * niets nog eens bijgeboekt.
@@ -710,7 +710,7 @@ export async function mailBestelling(bestelling: Bestelling, naar: string, beric
  *  Pakbon en verzendlabel
  * ------------------------------------------------------------------ */
 
-const AFZENDER = 'Trucksupply'
+const AFZENDER = 'Trucksshop'
 
 function datumTekst(ms?: number): string {
   if (!ms) return '-'
@@ -821,7 +821,7 @@ export function printvel(
  *  Instellingen
  * ================================================================== */
 
-export interface TrucksupplyInstellingen {
+export interface TrucksshopInstellingen {
   mail: string
   /** Het uur (Europe/Amsterdam) waarop de ochtendmail vertrekt */
   ochtendUur: number
@@ -829,7 +829,7 @@ export interface TrucksupplyInstellingen {
 }
 
 /** Wat er staat, met de terugval die de serverfunctie ook hanteert. */
-export async function trucksupplyInstellingen(): Promise<TrucksupplyInstellingen> {
+export async function trucksupplyInstellingen(): Promise<TrucksshopInstellingen> {
   const uur = Number(await leesInstelling(SLEUTELS.trucksupplyOchtendUur, '8'))
   return {
     mail: await leesInstelling(SLEUTELS.trucksupplyMail, 'casper@truckwash1group.nl'),

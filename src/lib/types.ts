@@ -16,12 +16,12 @@ export const ROLE_LABELS: Record<Role, string> = {
   employer: 'Werkgever',
   administratie: 'Administratie',
   /*
-   * De leverancier van de vestigingen. Trucksupply houdt de voorraad van alle
+   * De leverancier van de vestigingen. Trucksshop houdt de voorraad van alle
    * negentien vestigingen in de gaten, vult aan wat onder het minimum zakt en
    * zet artikelen tot in de kassa. Een eigen rol en niet "management met
    * minder rechten": wie hier inlogt hoort geen personeel of cijfers te zien.
    */
-  trucksupply: 'Trucksupply',
+  trucksupply: 'Trucksshop',
 }
 
 export const ROLE_ORDER: Role[] =
@@ -313,7 +313,7 @@ export interface InventoryItem {
   pricePerUnit: number
   supplier: string
 
-  /* --- wat Trucksupply erbij zet ------------------------------------- *
+  /* --- wat Trucksshop erbij zet ------------------------------------- *
    *
    * De voorraad bestond al, per vestiging en met een minimum. Wat ontbrak
    * was de kant van de leverancier: wat er standaard per keer wordt
@@ -329,7 +329,7 @@ export interface InventoryItem {
   image?: string
   /** Wat er standaard per keer wordt meegestuurd */
   bestelhoeveelheid?: number
-  /** Wat Trucksupply rekent; pricePerUnit blijft de interne waarde */
+  /** Wat Trucksshop rekent; pricePerUnit blijft de interne waarde */
   inkoopprijs?: number
   /** Uit staat: niet meer bestellen, wel in de historie */
   actief?: boolean
@@ -340,12 +340,12 @@ export interface InventoryItem {
 }
 
 /* ------------------------------------------------------------------ *
- *  Trucksupply: alarmen en bestellingen
+ *  Trucksshop: alarmen en bestellingen
  *
  *  Een vestiging die onder haar minimum zakt, hoort dat niet zelf te hoeven
  *  melden -- daar komt het gedoe van "we zijn door de shampoo heen" vandaan.
  *  De database zet een alarm zodra de stand onder het minimum komt, en
- *  Trucksupply ziet dat en stuurt een bestelling.
+ *  Trucksshop ziet dat en stuurt een bestelling.
  * ------------------------------------------------------------------ */
 
 /**
@@ -365,7 +365,7 @@ export interface VoorraadAlarm {
   stand: number
   minimum: number
   ontstaanAt: number
-  /** Iemand van Trucksupply heeft het gezien; de ochtendmail slaat het over */
+  /** Iemand van Trucksshop heeft het gezien; de ochtendmail slaat het over */
   gezienAt?: number
   gezienDoor?: string
   gezienDoorNaam?: string
@@ -403,7 +403,7 @@ export interface Bestelling {
   status: BestellingStatus
   /**
    *   voorraad    uit de alarmen samengesteld
-   *   handmatig   door Trucksupply zelf ingetikt
+   *   handmatig   door Trucksshop zelf ingetikt
    *   aanvraag    door de vestiging gevraagd
    */
   bron: BestellingBron

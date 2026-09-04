@@ -16,7 +16,7 @@ import { toast } from '../../store/useToasts'
 import { Foto, Zoekveld, getalUit, past, useArtikelen, useVestigingen } from './gedeeld'
 
 /* ------------------------------------------------------------------ *
- *  Artikelen -- de catalogus van Trucksupply
+ *  Artikelen -- de catalogus van Trucksshop
  *
  *  De voorraad bestond al per vestiging, met een minimum. Wat hier bij komt
  *  is de kant van de leverancier: artikelnummer, foto, wat hij rekent, wat
@@ -77,7 +77,7 @@ interface KassaInfo { productId: string; prijsIncl: number; actief: boolean }
  *
  * De pos_*-tabellen zitten niet in de synchronisatie van deze app, dus ze
  * staan niet in Dexie. En rechtstreeks lezen kon de leverancier niet:
- * pos_products_select (0012) is voor personeel, en Trucksupply is bewust
+ * pos_products_select (0012) is voor personeel, en Trucksshop is bewust
  * geen personeel. Daarom een leesdeur in de database (supply_kassa_prijzen,
  * 0048) die alleen koppeling, prijs en aan/uit teruggeeft -- voor iedereen
  * die hier mag staan.
@@ -418,7 +418,7 @@ function ArtikelModal({
             </div>
           )}
           <div className="grid cols-3">
-            <Field label="Inkoopprijs" help="Wat Trucksupply rekent, excl. btw.">
+            <Field label="Inkoopprijs" help="Wat Trucksshop rekent, excl. btw.">
               <input className="input" inputMode="decimal" value={v.inkoopprijs} onChange={(e) => zet({ inkoopprijs: e.target.value })} placeholder="0,00" />
             </Field>
             <Field label="Interne prijs" help="Voor de voorraadwaarde. Leeg = de inkoopprijs.">

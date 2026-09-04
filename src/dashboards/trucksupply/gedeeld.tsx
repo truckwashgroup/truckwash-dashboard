@@ -17,7 +17,7 @@ import { useNav } from '../../store/useNav'
 import { toast } from '../../store/useToasts'
 
 /* ------------------------------------------------------------------ *
- *  Wat de schermen van Trucksupply met elkaar delen
+ *  Wat de schermen van Trucksshop met elkaar delen
  *
  *  De zeven schermen kijken naar dezelfde vier lijsten (vestigingen,
  *  artikelen, alarmen, bestellingen) en doen een paar dingen allemaal:
@@ -36,7 +36,7 @@ export function useVestigingen(): Location[] {
   const alle = useLiveQuery(() => db.locations.toArray(), [], [] as Location[])
   return useMemo(() => {
     const zichtbaar = visibleLocations(user, alle)
-    // Trucksupply levert aan wasstraten; een inactieve vestiging staat achteraan
+    // Trucksshop levert aan wasstraten; een inactieve vestiging staat achteraan
     // en niet ertussen, want daar gaat niets meer heen.
     return [...zichtbaar].sort((a, b) =>
       Number(!a.active) - Number(!b.active) || a.name.localeCompare(b.name, 'nl'))

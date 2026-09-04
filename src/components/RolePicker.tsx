@@ -50,7 +50,12 @@ const CARDS: Record<Role, {
     cls: 'admin',
   },
   customer: {
-    title: 'Klanten',
+    /*
+     * Heette 'Klanten', net als het scherm waar het management de bedrijven
+     * beheert. Twee dingen met dezelfde naam is er een te veel, en dit is de
+     * kant die uitgenodigd wordt: iemand van een klant die zelf inlogt.
+     */
+    title: 'Klanten (uitgenodigd)',
     text: 'Wasbeurt inplannen, de status van je wagens volgen en je historie en facturen inzien.',
     icon: Building2,
   },
@@ -61,7 +66,7 @@ const CARDS: Record<Role, {
     cls: 'werkgever',
   },
   trucksupply: {
-    title: 'Trucksupply',
+    title: 'Trucksshop',
     text: 'Voorraad per vestiging, alarmen, artikelen tot in de kassa, bestellingen met pakbon en verzendlabel.',
     icon: Warehouse,
     cls: 'supply',

@@ -47,7 +47,7 @@ export default function Werkgevers() {
   const aangevraagd = alle.filter((w) => w.status === 'aangevraagd')
 
   if (!perms.can('employer.view')) {
-    return <Empty text="Je hebt geen toegang tot de werkgevers." icon={<Briefcase size={30} />} />
+    return <Empty text="Je hebt geen toegang tot de klanten." icon={<Briefcase size={30} />} />
   }
 
   if (geopend) {
@@ -93,7 +93,7 @@ export default function Werkgevers() {
       </div>
 
       <Card
-        title="Werkgevers"
+        title="Klanten"
         hint="Bedrijven waarvan de chauffeurs hier komen wassen"
         flush
         action={
@@ -121,8 +121,8 @@ export default function Werkgevers() {
         {lijst.length === 0 ? (
           <Empty
             text={alle.length === 0
-              ? 'Nog geen werkgevers. Voeg er een toe, of laat ze zich aanmelden.'
-              : 'Geen werkgevers in deze lijst.'}
+              ? 'Nog geen klanten. Voeg er een toe, of laat ze zich aanmelden.'
+              : 'Geen klanten in deze lijst.'}
             icon={<Briefcase size={30} />}
           />
         ) : (
@@ -230,7 +230,7 @@ function WerkgeverDetail({
   return (
     <>
       <button className="btn ghost sm" onClick={onTerug} style={{ marginBottom: 14 }}>
-        <ArrowLeft size={15} /> Terug naar de werkgevers
+        <ArrowLeft size={15} /> Terug naar de klanten
       </button>
 
       <Card>
@@ -368,7 +368,7 @@ function WerkgeverDetail({
       </Card>
 
       {regels.length > 0 && (
-        <Card title="Afspraken" hint="Vastgelegd door de werkgever" flush className="mt">
+        <Card title="Afspraken" hint="Vastgelegd door de klant" flush className="mt">
           <div className="regel-lijst">
             {regels.map((r) => (
               <div key={r.id} className={`regel t-${REGEL_SOORTEN[r.soort].tone}`}>
@@ -545,7 +545,7 @@ function NieuweWerkgever({
   return (
     <Modal
       open={open}
-      title="Werkgever toevoegen"
+      title="Klant toevoegen"
       subtitle="Aangemaakt door Truckwash1: meteen actief"
       onClose={onClose}
       width={580}

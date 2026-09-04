@@ -219,7 +219,7 @@ class TruckwashDB extends Dexie {
       kostenTags: 'id, naam, updatedAt',
     })
 
-    /* Trucksupply: de alarmen die de database zet als een vestiging onder
+    /* Trucksshop: de alarmen die de database zet als een vestiging onder
        haar minimum zakt, en de bestellingen waarmee die worden aangevuld.
 
        opgelostAt staat in de index omdat het scherm vooral de open alarmen

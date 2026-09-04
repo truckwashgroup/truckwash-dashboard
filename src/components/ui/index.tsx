@@ -75,7 +75,7 @@ export function Badge({
 /* ---------------------------- Modal ------------------------------ */
 
 export function Modal({
-  open, title, subtitle, onClose, children, width,
+  open, title, subtitle, onClose, children, width, alleenBewustSluiten = false,
 }: {
   open: boolean
   title: string
@@ -83,13 +83,24 @@ export function Modal({
   onClose: () => void
   children: ReactNode
   width?: number
+  /**
+   * Sluiten kan dan alleen via het kruisje of een knop in het venster zelf --
+   * niet met Escape en niet door ernaast te klikken.
+   *
+   * Voor een venster waar je iets in typt. Een manager was een hele melding
+   * kwijt doordat hij er per ongeluk naast klikte: het venster ging dicht en
+   * wat hij had ingevuld bestond nergens meer. Bij een venster dat alleen iets
+   * laat zien of bevestigen is wegklikken juist prettig, dus dit staat uit
+   * tenzij je erom vraagt.
+   */
+  alleenBewustSluiten?: boolean
 }) {
   useEffect(() => {
-    if (!open) return
+    if (!open || alleenBewustSluiten) return
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  }, [open, onClose, alleenBewustSluiten])
 
   return createPortal(
     <AnimatePresence>
@@ -97,7 +108,10 @@ export function Modal({
         <motion.div
           className="modal-backdrop"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+          onMouseDown={(e) => {
+            if (alleenBewustSluiten) return
+            if (e.target === e.currentTarget) onClose()
+          }}
         >
           <motion.div
             className="modal"

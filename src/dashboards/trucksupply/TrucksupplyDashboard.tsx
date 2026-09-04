@@ -24,7 +24,7 @@ import {
 import '../../styles/trucksupply.css'
 
 /* ------------------------------------------------------------------ *
- *  Het dashboard van Trucksupply
+ *  Het dashboard van Trucksshop
  *
  *  Voor de twee of drie mensen die de wasstraten bevoorraden. Wat zij
  *  's ochtends willen: in één blik zien waar iets op is, in een paar klikken
@@ -41,7 +41,7 @@ const TITELS: Record<string, { title: string; subtitle: string }> = {
   start: { title: 'Start', subtitle: 'Waar is iets op, en wat gaat er vandaag de deur uit' },
   voorraad: { title: 'Voorraad', subtitle: 'Alle vestigingen, hun standen en de alarmen' },
   bestellingen: { title: 'Bestellingen', subtitle: 'Van concept tot ontvangen, met pakbon en verzendlabel' },
-  artikelen: { title: 'Artikelen', subtitle: 'Wat Trucksupply levert, tot in de kassa' },
+  artikelen: { title: 'Artikelen', subtitle: 'Wat Trucksshop levert, tot in de kassa' },
   vestigingen: { title: 'Vestigingen', subtitle: 'Adres, telefoon, manager en openingstijden' },
   instellingen: { title: 'Instellingen', subtitle: 'Mailadres, ochtendmail en Exact' },
   overleg: { title: 'Overleg', subtitle: 'Contact met de vestigingen en het kantoor' },
@@ -169,7 +169,7 @@ export default function TrucksupplyDashboard() {
 
   return (
     <Shell
-      roleLabel="Trucksupply"
+      roleLabel="Trucksshop"
       items={items_}
       active={page}
       onNavigate={setPage}
@@ -260,7 +260,7 @@ function Snelknoppen({
     setBezig('mail')
     try {
       await testMail()
-      toast.ok('Proefmail gestuurd. Kijk in het postvak van Trucksupply.')
+      toast.ok('Proefmail gestuurd. Kijk in het postvak van Trucksshop.')
     } catch (e) {
       toast.error((e as Error).message)
     } finally {

@@ -417,15 +417,41 @@ input, select, textarea { font: inherit; }
 
 /* ----------------------------- Stat ------------------------------ */
 
-.stat { position: relative; overflow: hidden; }
+/* De tegel meet zichzelf, niet het venster.
+   Het cijfer stond op een vaste 2rem en het label kon nergens heen. Werd de
+   tegel smal -- klein scherm, of gewoon inzoomen -- dan liep een lang bedrag
+   door tot onder de iconvlek en botste het label ertegenaan. Op het
+   administratie-dashboard staan vijf tegels naast elkaar, dus daar gebeurde
+   dat het eerst.
+   Met een container mag het cijfer meekrimpen met de tegel waar het in staat,
+   en niet met de breedte van het venster: een tegel in een smalle kolom heeft
+   hetzelfde probleem op een groot scherm. */
+.stat { position: relative; overflow: hidden; container-type: inline-size; }
 /* De ruimte rechts is voor de iconvlek; een tegel zonder icoon zou anders 64px
    kwijt zijn en een lang bedrag afbreken. */
 .stat:has(.glyph) { padding-right: 64px; }
-.stat .label { font-size: .74rem; color: var(--text-3); text-transform: uppercase; letter-spacing: .07em; font-weight: 600; }
+.stat .label {
+  font-size: .74rem; color: var(--text-3); text-transform: uppercase;
+  letter-spacing: .07em; font-weight: 600;
+  /* Een lang label mag afbreken in plaats van de tegel uit te rekken. */
+  overflow-wrap: anywhere;
+}
 .stat .value {
-  font-size: 2rem; font-weight: 700; letter-spacing: -.03em; line-height: 1.1;
+  /* Ondergrens zodat het leesbaar blijft, bovengrens zodat een brede tegel er
+     niet anders uitziet dan hiervoor. */
+  font-size: clamp(1.15rem, 13cqi, 2rem);
+  font-weight: 700; letter-spacing: -.03em; line-height: 1.1;
   margin-top: 8px;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* Onder deze breedte kost de iconvlek meer dan hij oplevert: er blijft dan zo
+   weinig over voor het cijfer dat het gaat afbreken. Het label zegt al wat het
+   is, dus het plaatje mag weg en de ruimte terug. */
+@container (max-width: 200px) {
+  .stat:has(.glyph) { padding-right: 14px; }
+  .stat .glyph { display: none; }
 }
 .stat .delta { font-size: .8rem; margin-top: 6px; display: flex; align-items: center; gap: 5px; font-weight: 550; }
 .stat .delta.up { color: var(--ok); }

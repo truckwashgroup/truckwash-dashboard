@@ -121,6 +121,11 @@ export default function DevMelding({
       subtitle="Werkt iets niet, of mist er iets? Laat het weten."
       onClose={sluit}
       width={620}
+      /*
+       * Hier typt iemand een melding. Ernaast klikken hoort dat niet weg te
+       * gooien -- dat is precies wat er gebeurde bij M-2609-0010.
+       */
+      alleenBewustSluiten
     >
       {gesprek && (
         <>

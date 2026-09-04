@@ -136,7 +136,7 @@ const ADMINISTRATIE: Permission[] = [
 ]
 
 /**
- * Trucksupply, de leverancier van de vestigingen.
+ * Trucksshop, de leverancier van de vestigingen.
  *
  * Ziet de voorraad van álle vestigingen -- dat is het werk: zien waar het
  * onder het minimum zakt en aanvullen. Vandaar locations.all, en vandaar ook

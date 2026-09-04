@@ -4423,7 +4423,7 @@ console.log('\n30. Trucksupply')
   check('en komt niet bij personeel of cijfers',
     !rechten.has('staff.view') && !rechten.has('finance.view'))
   check('de rol heeft een label en staat na de werkgever',
-    ROLE_LABELS.trucksupply === 'Trucksupply'
+    ROLE_LABELS.trucksupply === 'Trucksshop'
     && ROLE_ORDER.indexOf('trucksupply') === ROLE_ORDER.indexOf('employer') + 1)
 
   for (const pagina of ['start', 'voorraad', 'artikelen', 'bestellingen', 'vestigingen', 'instellingen', 'overleg']) {

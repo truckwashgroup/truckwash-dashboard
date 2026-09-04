@@ -734,7 +734,7 @@ const ADMINISTRATIE: Rondleiding = {
 const TRUCKSUPPLY: Rondleiding = {
   rol: 'trucksupply',
   versie: 1,
-  naam: 'Trucksupply',
+  naam: 'Trucksshop',
   schermen: [
     {
       id: 'welkom',
@@ -752,7 +752,7 @@ const TRUCKSUPPLY: Rondleiding = {
       titel: 'Alarmen komen ook per mail',
       tekst:
         'Elk nieuw alarm gaat binnen een kwartier naar het mailadres van ' +
-        'Trucksupply, en elke ochtend komt er één overzicht van alles wat ' +
+        'Trucksshop, en elke ochtend komt er één overzicht van alles wat ' +
         'nog openstaat en dat niemand heeft gezien. Zet je een alarm op ' +
         'gezien, dan blijft het uit de ochtendmail.',
       tint: 'warn',

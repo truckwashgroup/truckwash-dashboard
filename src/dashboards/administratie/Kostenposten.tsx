@@ -14,7 +14,7 @@ import {
   bedragExcl, btwPercentage, heeftIetsTeLezen, leesFactuur, nogNietIngevuld,
   regelsKloppen, voorstellen, type Voorstel,
 } from '../../lib/facturen'
-import { dateShort, money } from '../../lib/format'
+import { dateShort, dateTime, datumMisschienTijd, money } from '../../lib/format'
 import {
   BRON_TEKST, onthoudBoeking, rekeningNaam, vraagtAandacht, zetBoeking,
 } from '../../lib/boeking'
@@ -210,7 +210,7 @@ export default function Kostenposten() {
                           />
                         </td>
                       )}
-                      <td>{dateShort(e.date)}</td>
+                      <td>{datumMisschienTijd(e.date)}</td>
                       <td><strong>{e.supplier || <span className="hint">onbekend</span>}</strong></td>
                       <td>
                         <button className="kosten-open" onClick={() => setOpen(e.id)}>
@@ -348,7 +348,7 @@ function BonDetail({
     <Modal
       open={!!bon}
       title={bon?.supplier || 'Kostenpost'}
-      subtitle={bon ? `${dateShort(bon.date)} · ${money(bon.amountExcl)} excl. btw` : undefined}
+      subtitle={bon ? `${datumMisschienTijd(bon.date)} · ${money(bon.amountExcl)} excl. btw` : undefined}
       onClose={onClose}
       width={760}
     >
@@ -530,7 +530,7 @@ function Historie({ bon }: { bon: Expense }) {
           <tbody>
             {h.eerder.map((e) => (
               <tr key={e.id}>
-                <td>{dateShort(e.date)}</td>
+                <td>{datumMisschienTijd(e.date)}</td>
                 <td className="afgekapt">{e.description || '—'}</td>
                 <td className="afgekapt">{rekeningNaam(e.grootboekCode, rekeningen) || '—'}</td>
                 <td className="num">{e.amountExcl > 0 ? money(e.amountExcl) : '—'}</td>
@@ -752,7 +752,7 @@ function Lezing({ bon, lezing }: { bon: Expense; lezing: FactuurLezing }) {
       <div className="lezing-kop">
         <ScanText size={15} />
         <span>
-          Voorgelezen op {dateShort(lezing.gelezenOp)}
+          Voorgelezen {dateTime(lezing.gelezenOp)}
           {lezing.bestand ? ` uit ${lezing.bestand}` : ''}
         </span>
         {lezing.soort && lezing.soort !== 'factuur' && (

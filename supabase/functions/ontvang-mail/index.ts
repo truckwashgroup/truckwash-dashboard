@@ -775,55 +775,102 @@ Deno.serve(async (req) => {
 
   let expenseId: string | null = null
 
-  if (bijlagen.length > 0) {
-    /*
-     * Welke bijlage is de bon?
-     *
-     * Eerst een PDF, en pas als die er niet is een foto. Hier stond "een PDF
-     * óf een plaatje, de eerste de beste", en dan wint het logo uit de
-     * handtekening van de factuur die eronder hangt -- want dat logo staat
-     * meestal eerst. Wat er dan aan de kostenpost hangt is een plaatje van
-     * een paar kilobyte in plaats van de rekening.
-     *
-     * En wat er is opgeslagen gaat voor: een bijlage zonder pad is er niet.
-     */
-    const bruikbaar = bijlagen.filter((b) => b.path)
-    const bon =
-      bruikbaar.find((b) => b.mime === 'application/pdf')
-      ?? bruikbaar.find((b) => b.mime.startsWith('image/'))
-      ?? bruikbaar[0]
-      ?? bijlagen[0]
+  /* ------------------------------------------------------------------ *
+   *  Eén kostenpost per bijlage
+   *
+   *  Hier werd er één gemaakt, met de "beste" bijlage eraan: eerst een PDF,
+   *  anders een foto. Bij een mail met één bon klopte dat. Bij een mail met
+   *  tien facturen en drie foto's verdwenen er twaalf: ze stonden wel in de
+   *  postbus, maar er hing er één aan de boekhouding en de rest zag niemand.
+   *
+   *  Nu krijgt elke bijlage zijn eigen bon, en wordt elke bon los gelezen,
+   *  los ingedeeld en los beoordeeld. Dan is achteraf te zien wat waar
+   *  vandaan komt.
+   *
+   *  Twee remmen, want "alles" is hier niet de bedoeling
+   *  ---------------------------------------------------
+   *
+   *  Een logo in de handtekening is ook een bijlage. Zou die een bon worden,
+   *  dan staat er bij elke mail van dezelfde leverancier een lege kostenpost
+   *  van drie kilobyte in de rij. Dus: een PDF telt altijd mee, een plaatje
+   *  alleen als het groot genoeg is om een gefotografeerde bon te kunnen
+   *  zijn -- of als er helemaal geen PDF bij zit, want dan is dat kleine
+   *  plaatje het enige wat er is.
+   *
+   *  En een bovengrens. Een mail met zestig bijlagen is geen boekhouding maar
+   *  een archief; daar hoort iemand naar te kijken in plaats van dat er
+   *  zestig bonnen in de rij verschijnen.
+   * ------------------------------------------------------------------ */
 
-    expenseId = 'exp_mail_' + berichtId.slice(3, 15)
+  /** Kleiner dan dit is een plaatje geen bon maar een logo of een streepje. */
+  const MIN_FOTO = 40 * 1024
 
+  /** Meer dan dit uit één mail: dan is er iets anders aan de hand. */
+  const MAX_BONNEN = 20
+
+  const opgeslagen = bijlagen.filter((b) => b.path)
+  const pdfs = opgeslagen.filter((b) => b.mime === 'application/pdf')
+  const fotos = opgeslagen.filter((b) => b.mime.startsWith('image/'))
+
+  const kandidaten = [
+    ...pdfs,
+    ...fotos.filter((b) => pdfs.length === 0 || b.size >= MIN_FOTO),
+  ].slice(0, MAX_BONNEN)
+
+  const overgeslagen = opgeslagen.length - kandidaten.length
+  if (overgeslagen > 0) {
+    console.log(`[ontvang-mail] ${overgeslagen} bijlage(n) overgeslagen (te klein of boven het maximum)`)
+  }
+
+  const gemaakt: string[] = []
+
+  if (kandidaten.length > 0) {
     const vestiging = await welkeVestiging(aan.adres)
+    const vanNaam = van.naam ?? van.adres
 
-    const { error: kosten } = await admin.from('expenses').insert({
-      id: expenseId,
-      expense_date: nu(),
-      category: 'overig',
-      supplier: van.naam ?? van.adres,
-      description: onderwerp,
-      // Bewust nul: het bedrag lezen uit een PDF is gokken, en een gok in
-      // de boekhouding is erger dan een leeg veld. Even later vult de lezer
-      // hem in als hij het bedrag zonder twijfel op de bon zag staan.
-      amount_excl: 0,
-      vat_pct: 21,
-      status: 'open',
-      submitted_by: null,
-      submitted_by_name: van.naam ?? van.adres,
-      source: 'mail',
-      mailbox_id: berichtId,
-      location_id: vestiging,
-      attachment_path: bon.path,
-      attachment_name: bon.naam,
-    })
+    for (const [i, bon] of kandidaten.entries()) {
+      /*
+       * Het volgnummer hoort in de id. Bij één bijlage blijft de id precies
+       * zoals hij was, zodat een mail die opnieuw wordt aangeboden dezelfde
+       * kostenpost raakt en er geen tweede verschijnt.
+       */
+      const id = 'exp_mail_' + berichtId.slice(3, 15) + (i === 0 ? '' : '_' + (i + 1))
 
-    if (kosten) {
-      console.error('[ontvang-mail] kostenpost niet aangemaakt: ' + kosten.message)
-      expenseId = null
-    } else {
-      await admin.from('mailbox').update({ expense_id: expenseId }).eq('id', berichtId)
+      /*
+       * Bij meer dan één bon de bestandsnaam erbij, anders staan er dertien
+       * regels met hetzelfde onderwerp en is er niets uit elkaar te houden.
+       */
+      const omschrijving = kandidaten.length > 1
+        ? `${onderwerp} · ${bon.naam}`.slice(0, 300)
+        : onderwerp
+
+      const { error: kosten } = await admin.from('expenses').insert({
+        id,
+        expense_date: nu(),
+        category: 'overig',
+        supplier: vanNaam,
+        description: omschrijving,
+        // Bewust nul: het bedrag lezen uit een PDF is gokken, en een gok in
+        // de boekhouding is erger dan een leeg veld. Even later vult de lezer
+        // hem in als hij het bedrag zonder twijfel op de bon zag staan.
+        amount_excl: 0,
+        vat_pct: 21,
+        status: 'open',
+        submitted_by: null,
+        submitted_by_name: vanNaam,
+        source: 'mail',
+        mailbox_id: berichtId,
+        location_id: vestiging,
+        attachment_path: bon.path,
+        attachment_name: bon.naam,
+      })
+
+      if (kosten) {
+        console.error(`[ontvang-mail] kostenpost ${id} niet aangemaakt: ${kosten.message}`)
+        continue
+      }
+
+      gemaakt.push(id)
 
       /*
        * En meteen laten uitlezen en indelen.
@@ -833,37 +880,53 @@ Deno.serve(async (req) => {
        * app op "laat de factuur voorlezen" drukte. Wie de app een week niet
        * opent, heeft een week lang een lege bon.
        *
-       * Twee dingen aan de vorm hiervan zijn met opzet zo.
-       *
-       * Het staat na de controle op kosten. Eerst stond het ervoor, en dan
-       * ging de lezer aan de slag met een kostenpost die zojuist niet was
-       * aangemaakt -- werk voor niets, en een foutmelding die nergens over
-       * ging.
-       *
-       * En er wordt niet op gewacht. Resend staat aan de andere kant van deze
+       * Er wordt niet op gewacht. Resend staat aan de andere kant van deze
        * webhook te wachten op een antwoord en geeft het op voordat een PDF is
        * gelezen; dan biedt hij dezelfde mail nog eens aan. Mislukt het lezen,
        * dan blijft de kostenpost staan zoals hij nu ook zou staan en werkt de
        * knop in de app nog steeds.
+       *
+       * Bij tien bijlagen gaan er dus tien tegelijk weg. Dat mag: ze komen
+       * allemaal in dezelfde wachtrij terecht en worden daar één voor één
+       * gelezen -- de server deelt ze uit, en de machine die leest bepaalt het
+       * tempo.
        */
-      const bonPad = bon.path
-      const vanNaam = van.naam ?? van.adres
-      void boekAutomatisch(berichtId, expenseId, bonPad, vanNaam, onderwerp)
-        .catch((e) => console.error('[ontvang-mail] automatisch boeken: ' + String(e)))
+      void boekAutomatisch(berichtId, id, bon.path, vanNaam, omschrijving)
+        .catch((e) => console.error(`[ontvang-mail] automatisch boeken ${id}: ` + String(e)))
+    }
+
+    /*
+     * Het bericht wijst naar de eerste. Dat veld kan er maar één bevatten en
+     * bestond al voordat er meer dan één bon per mail was; alle bonnen wijzen
+     * andersom wél terug naar dit bericht (mailbox_id), en daar zoekt het
+     * scherm op.
+     */
+    if (gemaakt.length > 0) {
+      expenseId = gemaakt[0]
+      await admin.from('mailbox').update({ expense_id: expenseId }).eq('id', berichtId)
     }
   }
 
   /* ---- het management een seintje ---- */
 
   await meldManagement(admin, berichtId, {
-    kind: expenseId ? 'taak' : 'info',
-    title: expenseId
-      ? `Bon per mail: ${onderwerp}`
-      : `Post ontvangen: ${onderwerp}`,
+    kind: gemaakt.length > 0 ? 'taak' : 'info',
+    title: gemaakt.length > 1
+      ? `${gemaakt.length} bonnen per mail: ${onderwerp}`
+      : gemaakt.length === 1
+        ? `Bon per mail: ${onderwerp}`
+        : `Post ontvangen: ${onderwerp}`,
     body: `Van ${van.naam ?? van.adres}` +
-          (bijlagen.length ? ` · ${bijlagen.length} bijlage(n)` : ''),
-    link: expenseId ? 'financieel' : 'postbus',
+          (bijlagen.length ? ` · ${bijlagen.length} bijlage(n)` : '') +
+          (overgeslagen > 0 ? `, waarvan ${overgeslagen} overgeslagen (te klein voor een bon)` : ''),
+    link: gemaakt.length > 0 ? 'financieel' : 'postbus',
   })
 
-  return json({ ok: true, id: berichtId, attachments: bijlagen.length, expenseId })
+  return json({
+    ok: true,
+    id: berichtId,
+    attachments: bijlagen.length,
+    expenseId,
+    bonnen: gemaakt.length,
+  })
 })

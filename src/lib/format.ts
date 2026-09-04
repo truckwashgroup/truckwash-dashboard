@@ -18,6 +18,31 @@ export const time = (ts: number) =>
 
 export const dateTime = (ts: number) => dateShort(ts) + ' ' + time(ts)
 
+/**
+ * Draagt dit tijdstip een tijd, of is het alleen een datum?
+ *
+ * Twee soorten momenten komen door elkaar in dezelfde velden terecht. Een
+ * factuurdatum komt van een stuk papier en heeft geen tijd: de lezer maakt
+ * hem met Date.UTC(jaar, maand, dag), dus precies middernacht UTC. Een
+ * moment waarop iets gebeurde -- post die binnenkomt, een bon die wordt
+ * afgetekend -- is Date.now() en valt daar vrijwel nooit op.
+ *
+ * Dat verschil is precies wat je wil laten zien. "21 mrt 01:00" bij een
+ * factuurdatum is geen extra informatie maar een verzinsel (en in de zomer
+ * een uur ernaast); "4 sep 09:12" bij binnengekomen post is juist het enige
+ * wat je wil weten.
+ */
+export const heeftTijd = (ts: number) => Number.isFinite(ts) && ts % 86_400_000 !== 0
+
+/**
+ * Datum, met de tijd erbij als die er is.
+ *
+ * Voor kolommen waar allebei de soorten in staan: een bon die net per mail
+ * binnenkwam toont het moment, en zodra de factuurdatum eruit gelezen is
+ * alleen de datum.
+ */
+export const datumMisschienTijd = (ts: number) => heeftTijd(ts) ? dateTime(ts) : dateShort(ts)
+
 export function duration(ms: number) {
   const min = Math.max(0, Math.round(ms / 60000))
   const h = Math.floor(min / 60)

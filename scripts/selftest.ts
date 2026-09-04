@@ -4665,6 +4665,121 @@ console.log('\n31. Overnemen zonder klikken')
     voorstellen(alGoed, lezing).every((v) => v.veld !== 'supplier' && v.veld !== 'amountExcl' && v.veld !== 'date'))
 }
 
+/* ==================================================================== *
+ *  Tijd bij datum, maar alleen als er een tijd is
+ *
+ *  In hetzelfde veld staan twee soorten momenten. Een factuurdatum komt van
+ *  papier en heeft geen tijd; het moment waarop post binnenkomt wel. Er "01:00"
+ *  bij zetten omdat het toevallig middernacht UTC is, is geen informatie maar
+ *  een verzinsel.
+ * ==================================================================== */
+
+console.log('\n32. Tijd bij datum')
+
+{
+  const { heeftTijd, datumMisschienTijd } = await import('../src/lib/format')
+
+  check('een factuurdatum uit de lezer draagt geen tijd',
+    heeftTijd(Date.UTC(2026, 2, 21)) === false)
+  check('een moment van binnenkomst wel',
+    heeftTijd(Date.UTC(2026, 8, 4, 9, 12)) === true)
+
+  const alleenDatum = datumMisschienTijd(Date.UTC(2026, 2, 21))
+  check('en dus staat er bij een factuurdatum geen tijd',
+    !/\d{2}:\d{2}/.test(alleenDatum), alleenDatum)
+
+  const metTijd = datumMisschienTijd(Date.UTC(2026, 8, 4, 9, 12))
+  check('en bij een binnenkomst wel',
+    /\d{2}:\d{2}/.test(metTijd), metTijd)
+
+  /*
+   * Een factuur die toevallig om precies middernacht binnenkwam verliest zijn
+   * tijd. Dat is de prijs van deze regel, en hij is te dragen: dan staat er
+   * de datum, en die klopt.
+   */
+  check('middernacht telt als "geen tijd" -- bewust',
+    heeftTijd(Date.UTC(2026, 8, 4)) === false)
+}
+
+/* ==================================================================== *
+ *  Eén bon per bijlage
+ *
+ *  "Als er bijvoorbeeld 10 facturen in zitten en 3 fotos, alles 1 voor 1, dus
+ *  dat je ze los van elkaar zet."
+ *
+ *  De keuze welke bijlagen een bon worden zit in ontvang-mail en draait in
+ *  Deno; hier staat de regel zelf, zodat hij te lezen en te toetsen is zonder
+ *  die functie te draaien. Wijkt de functie hiervan af, dan is dat een fout in
+ *  de functie -- de regel hoort er één te zijn.
+ * ==================================================================== */
+
+console.log('\n33. Eén bon per bijlage')
+
+{
+  const MIN_FOTO = 40 * 1024
+  const MAX_BONNEN = 20
+
+  /** Dezelfde keuze als in ontvang-mail. */
+  function bonnenUit(bijlagen: { naam: string; mime: string; size: number; path: string }[]) {
+    const opgeslagen = bijlagen.filter((b) => b.path)
+    const pdfs = opgeslagen.filter((b) => b.mime === 'application/pdf')
+    const fotos = opgeslagen.filter((b) => b.mime.startsWith('image/'))
+    return [
+      ...pdfs,
+      ...fotos.filter((b) => pdfs.length === 0 || b.size >= MIN_FOTO),
+    ].slice(0, MAX_BONNEN)
+  }
+
+  const pdf = (n: number) => ({ naam: `factuur${n}.pdf`, mime: 'application/pdf', size: 90_000, path: `p/${n}` })
+  const foto = (n: number, size = 300_000) => ({ naam: `bon${n}.jpg`, mime: 'image/jpeg', size, path: `f/${n}` })
+  const logo = { naam: 'logo.png', mime: 'image/png', size: 3_000, path: 'l/1' }
+
+  /* Het geval uit de vraag: tien facturen en drie foto's. */
+  const veel = [...Array.from({ length: 10 }, (_, i) => pdf(i)), foto(1), foto(2), foto(3)]
+  check('tien facturen en drie foto\'s worden dertien losse bonnen',
+    bonnenUit(veel).length === 13)
+
+  check('één bijlage blijft één bon', bonnenUit([pdf(1)]).length === 1)
+
+  /*
+   * Het logo uit de handtekening is de reden dat er een ondergrens is. Zonder
+   * die grens stond er bij elke mail van dezelfde leverancier een lege
+   * kostenpost van drie kilobyte in de rij.
+   */
+  check('een logo naast een factuur wordt geen bon',
+    bonnenUit([pdf(1), logo]).length === 1)
+
+  /*
+   * Maar is dat kleine plaatje het enige wat er is, dan is het wél de bon --
+   * een schermafbeelding van een bonnetje kan klein zijn.
+   */
+  check('zonder PDF telt ook een klein plaatje mee',
+    bonnenUit([logo]).length === 1)
+
+  check('een bijlage die niet is opgeslagen telt niet mee',
+    bonnenUit([{ ...pdf(1), path: '' }]).length === 0)
+
+  check('boven het maximum wordt afgekapt',
+    bonnenUit(Array.from({ length: 30 }, (_, i) => pdf(i))).length === MAX_BONNEN)
+
+  /* PDF's staan vooraan: die zijn vrijwel altijd de echte factuur. */
+  check('de PDF\'s komen eerst',
+    bonnenUit([foto(9), pdf(1)])[0].mime === 'application/pdf')
+
+  /* ---- de id per bijlage ---- */
+
+  const idVoor = (berichtId: string, i: number) =>
+    'exp_mail_' + berichtId.slice(3, 15) + (i === 0 ? '' : '_' + (i + 1))
+
+  const bid = 'mb_0123456789abcdef'
+  check('de eerste bon houdt de id die hij altijd had',
+    idVoor(bid, 0) === 'exp_mail_' + bid.slice(3, 15))
+  check('en de volgende krijgen een nummer',
+    idVoor(bid, 1).endsWith('_2') && idVoor(bid, 2).endsWith('_3'))
+  check('alle ids zijn verschillend',
+    new Set([0, 1, 2, 3].map((i) => idVoor(bid, i))).size === 4)
+}
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

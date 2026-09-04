@@ -209,14 +209,31 @@ export const apparaten = {
    */
   intrekken: (apparaat: PosDevice) => zetStatus(apparaat, 'ingetrokken'),
 
-  /** Het inlogaccount en het dossier weghalen. Pas als het apparaat klaar is. */
-  async definitiefWissen(apparaat: PosDevice): Promise<{ ok: boolean; reden?: string }> {
-    if (!apparaat.wipedAt) {
+  /**
+   * Het inlogaccount en het dossier weghalen. Pas als het apparaat klaar is.
+   *
+   * Met `forceren` mag het ook zonder afmelding, en dan is een reden verplicht.
+   * Dat is er voor het toestel dat nooit meer terugkomt -- kwijt, kapot, of
+   * opnieuw ingericht. Zonder die uitweg bleef het kantoor voor altijd naar
+   * "wacht op afmelden" kijken zonder ook maar een knop, en dat is precies wat
+   * er gebeurde bij twee kassa's die al dagen stil stonden.
+   *
+   * De reden gaat het verwijderlogboek in. Er kan omzet mee weg die alleen op
+   * dat apparaat bestond, en dan hoort na te lezen te zijn wie dat besloot.
+   */
+  async definitiefWissen(
+    apparaat: PosDevice,
+    opties: { forceren?: boolean; reden?: string } = {},
+  ): Promise<{ ok: boolean; reden?: string }> {
+    if (!apparaat.wipedAt && !opties.forceren) {
       return {
         ok: false,
         reden: 'Dit apparaat heeft zich nog niet afgemeld. Er kan omzet op ' +
                'staan die nog niet is verstuurd.',
       }
+    }
+    if (!apparaat.wipedAt && (opties.reden ?? '').trim().length < 3) {
+      return { ok: false, reden: 'Geef een reden op voor het geforceerd wissen.' }
     }
     if (!supabaseConfigured) return { ok: false, reden: 'Er is nog geen database ingesteld.' }
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -225,7 +242,14 @@ export const apparaten = {
 
     try {
       const { data, error } = await supabase().functions.invoke<{ ok: boolean; reden?: string }>(
-        'kassa-apparaat', { body: { actie: 'wissen', deviceId: apparaat.id } })
+        'kassa-apparaat', {
+          body: {
+            actie: 'wissen',
+            deviceId: apparaat.id,
+            forceren: opties.forceren === true,
+            reden: (opties.reden ?? '').trim(),
+          },
+        })
       if (error) {
         const detail = await leesFout(error)
         return { ok: false, reden: detail ?? String(error.message ?? error) }

@@ -275,9 +275,26 @@ function Apparaat({
 }) {
   const [bezig, setBezig] = useState(false)
   const [wissen, setWissen] = useState(false)
+  const [forceren, setForceren] = useState(false)
+  const [reden, setReden] = useState('')
 
   const ingetrokken = apparaat.status === 'ingetrokken'
   const klaar = !!apparaat.wipedAt
+
+  /*
+   * Wanneer je mag opgeven op een apparaat dat zich niet afmeldt.
+   *
+   * Een levende kassa meldt zich elk uur. Wie twee uur zwijgt komt dus niet
+   * "zo meteen nog even" langs, en dan is wachten geen strategie meer maar
+   * uitstel. Onder die grens laten we deze knop weg: iemand die net op Eruit
+   * gooien heeft gedrukt hoort de kassa zijn werk te laten doen.
+   *
+   * Een apparaat dat zich nog nooit heeft gemeld telt ook mee -- daar valt
+   * per definitie niets van te verwachten.
+   */
+  const TWEE_UUR = 2 * 60 * 60_000
+  const komtNietMeer = !apparaat.lastSeenAt
+    || Date.now() - apparaat.lastSeenAt > TWEE_UUR
 
   return (
     <div className="apparaat">
@@ -384,6 +401,12 @@ function Apparaat({
             <Trash2 size={14} /> Apparaat definitief wissen
           </button>
         )}
+
+        {ingetrokken && !klaar && komtNietMeer && (
+          <button className="btn ghost sm" onClick={() => setForceren(true)}>
+            <AlertTriangle size={14} /> Meldt zich niet af
+          </button>
+        )}
       </div>
 
       <Modal
@@ -417,6 +440,83 @@ function Apparaat({
             }}
           >
             <Trash2 size={15} /> Wissen
+          </button>
+        </div>
+      </Modal>
+
+      {/*
+        * De uitweg voor een apparaat dat zich nooit meer afmeldt.
+        *
+        * Dit venster praat het niet goed. Wat hier weggaat kan omzet bevatten
+        * die alleen op dat toestel bestond, en dat staat er dan ook zo. Wat
+        * het wel doet is de keuze mogelijk maken: zonder deze knop bleef een
+        * kwijtgeraakte tablet voor altijd als "wacht op afmelden" in de lijst
+        * staan, en dan is er geen beslissing meer te nemen -- alleen nog een
+        * regel die je moet negeren.
+        *
+        * De reden is verplicht en gaat het verwijderlogboek in.
+        */}
+      <Modal
+        open={forceren}
+        title="Dit apparaat meldt zich niet af"
+        subtitle="Wegwissen zonder dat de wachtrij binnen is"
+        onClose={() => { setForceren(false); setReden('') }}
+      >
+        <div className="waarschuwing">
+          <AlertTriangle size={16} />
+          <span>
+            {apparaat.lastSeenAt
+              ? `Deze kassa heeft zich voor het laatst gemeld ${relative(apparaat.lastSeenAt)}`
+                + (stilSinds !== null ? ` (${duration(stilSinds)} geleden)` : '')
+                + '. '
+              : 'Deze kassa heeft zich nog nooit gemeld. '}
+            Zolang hij zich niet afmeldt, weet niemand of er nog bonnen op
+            stonden die nooit zijn verstuurd. Wist je hem nu, dan komt die
+            omzet ook nooit meer binnen — en dat merk je pas bij de
+            maandafsluiting.
+          </span>
+        </div>
+        <div className="signup-note">
+          <ShieldCheck size={16} />
+          <span>
+            Doe dit alleen als het toestel echt weg is: kwijt, kapot, of
+            opnieuw ingericht. Staat hij ergens uit, zet hem dan één keer aan —
+            hij maakt zijn wachtrij leeg en meldt zich vanzelf af, en dan kun
+            je hem gewoon wissen.
+          </span>
+        </div>
+        <Field label="Waarom mag dit toch weg?">
+          <input
+            value={reden}
+            onChange={(e) => setReden(e.target.value)}
+            placeholder="bijv. tablet gestolen in Aalsmeer, aangifte gedaan"
+            maxLength={200}
+          />
+        </Field>
+        <div className="row end">
+          <button
+            className="btn ghost"
+            onClick={() => { setForceren(false); setReden('') }}
+          >
+            Annuleren
+          </button>
+          <button
+            className="btn danger"
+            disabled={bezig || reden.trim().length < 3}
+            onClick={async () => {
+              setBezig(true)
+              try {
+                const uit = await apparaatRepo.definitiefWissen(apparaat, {
+                  forceren: true, reden,
+                })
+                if (!uit.ok) return toast.error(uit.reden ?? 'Wissen lukte niet')
+                setForceren(false)
+                setReden('')
+                toast.ok('Apparaat gewist — vastgelegd in het verwijderlogboek')
+              } finally { setBezig(false) }
+            }}
+          >
+            <Trash2 size={15} /> Toch wissen
           </button>
         </div>
       </Modal>

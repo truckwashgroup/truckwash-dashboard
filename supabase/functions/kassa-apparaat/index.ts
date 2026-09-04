@@ -125,13 +125,57 @@ Deno.serve(async (req) => {
    * zich niet afgemeld, en dan kan er omzet op staan die nog niet is
    * verstuurd. Het account nu weghalen betekent dat die omzet nooit meer
    * binnenkomt -- en dat merk je pas bij de maandafsluiting.
+   *
+   * Daarom blijft dit de regel. Maar er is een geval waarin wachten nergens
+   * toe leidt: een tablet die kwijt is, kapot, of opnieuw ingericht. Die meldt
+   * zich nooit meer af, en dan bleef het kantoor voor altijd naar "wacht op
+   * afmelden" kijken zonder enige knop. Vandaar de uitweg hieronder.
+   *
+   * Hij vraagt een reden en die gaat het verwijderlogboek in. Dat is niet
+   * bureaucratie: dit is het enige moment waarop iemand met opzet accepteert
+   * dat er omzet kan verdwijnen, en dan hoort er te staan wie dat besloot en
+   * waarom.
    */
-  if (!apparaat.wiped_at) {
+  const forceren = body.forceren === true
+  const reden = String(body.reden ?? '').trim()
+
+  if (!apparaat.wiped_at && !forceren) {
     return json({
       ok: false,
       reden: 'Dit apparaat heeft zich nog niet afgemeld. Er kan omzet op ' +
              'staan die nog niet is verstuurd; wacht tot het zich meldt.',
     })
+  }
+
+  if (!apparaat.wiped_at && reden.length < 3) {
+    return json({
+      ok: false,
+      reden: 'Geef een reden op. Zonder afmelding kan er omzet verdwijnen, ' +
+             'en dan hoort er te staan waarom dat toch mocht.',
+    })
+  }
+
+  if (!apparaat.wiped_at) {
+    const { error: logFout } = await admin.from('deletion_log').insert({
+      id: 'del_' + crypto.randomUUID(),
+      soort: 'kassa-apparaat',
+      naam: apparaat.name || apparaat.id,
+      kenmerk: apparaat.register_id ?? null,
+      reden: 'Geforceerd gewist zonder afmelding. ' + reden,
+      door: beller.id,
+      door_naam: beller.naam,
+    })
+    // Lukt het logboek niet, dan gaat het wissen niet door: een verwijdering
+    // die nergens staat is precies wat we hier niet willen.
+    if (logFout) {
+      return json({
+        ok: false,
+        reden: 'Het verwijderlogboek weigerde de regel, dus er is niets ' +
+               `gewist: ${logFout.message}`,
+      })
+    }
+    console.warn(`[kassa-apparaat] ${beller.naam} forceerde ${apparaat.name || apparaat.id} `
+      + `zonder afmelding -- reden: ${reden}`)
   }
 
   /* ---- het inlogaccount ---- */

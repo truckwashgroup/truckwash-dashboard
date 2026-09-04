@@ -453,6 +453,28 @@ export async function ensureDefaultChannels(
 
   const eerste = await channels.create(teMaken[0])
   if (!(await kwamAan(eerste.id))) {
+    /*
+     * De proef is geweigerd, dus ruimen we hem op.
+     *
+     * Dit stond er niet, en dat was het halve werk. De proef voorkwam wel dat
+     * er drieentwintig onverstuurbare kanalen kwamen, maar die ene bleef staan
+     * -- in de wachtrij, die hem elke ronde opnieuw aanbood en elke ronde
+     * dezelfde melding over rechten opleverde. Voor de gebruiker was dat een
+     * foutmelding die nooit meer wegging en waar niets aan te doen viel.
+     *
+     * En lokaal bleef er een kanaal staan dat op de server niet bestaat: wel
+     * te zien in de lijst, maar niemand anders zit erin en er komt nooit een
+     * bericht binnen.
+     *
+     * Weggooien mag hier, en dat is geen uitzondering op "de wachtrij gooit
+     * niets weg": dit is geen werk van iemand, het is een proefballon die de
+     * app zelf net heeft opgelaten om te kijken of het mag. Het antwoord is
+     * nee, en dan hoort hij ook weer weg.
+     */
+    await db.outbox.where('recordId').equals(eerste.id).delete()
+    await db.channels.delete(eerste.id)
+    await useSync.getState().refreshPending()
+
     logLive('netwerk',
       'De vaste overlegkanalen zijn niet aangemaakt: de server weigert het. ' +
       'Alleen management en een leidinggevende mogen dat, of wie het recht ' +

@@ -284,9 +284,25 @@ function Apparaat({
       <div className="wat">
         <Monitor size={15} />
         <span className="n">{apparaat.name || 'Naamloos apparaat'}</span>
-        <span className="s">
+        {/*
+          * De versie hoort hier te staan, want de kassa werkt zichzelf bij.
+          * "Hij doet het vanzelf" is een bewering tot je het kunt nakijken --
+          * en zonder dit nummer is er geen enkele manier om te zien welke
+          * tablet achterloopt.
+          *
+          * Staat er niets, dan is dat zelf een antwoord: een kassa meldt zijn
+          * versie pas vanaf 0.16.0. Vandaar dat hier niet een leeg vakje komt
+          * maar "versie onbekend" -- leeg leest als "dit veld doet niets", en
+          * dan gaat niemand er meer naar kijken.
+          */}
+        <span className="s" title={apparaat.appVersion
+          ? undefined
+          : 'Deze kassa heeft zijn versie niet gemeld. Dat doen ze vanaf 0.16.0, '
+            + 'dus hij staat op een oudere versie.'}>
           {apparaat.platform}
-          {apparaat.appVersion ? ` · v${apparaat.appVersion}` : ''}
+          {apparaat.appVersion
+            ? ` · v${apparaat.appVersion}`
+            : ' · versie onbekend'}
         </span>
         <span className={`s ${langStil ? 'stil' : ''}`}>
           {apparaat.lastSeenAt

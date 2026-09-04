@@ -4423,6 +4423,45 @@ table.data.matrix th { vertical-align: bottom; }
   font-size: .72rem; color: var(--info, #7aa2ff);
 }
 
+/* ---- de loop van een kostenpost ----
+ *
+ *  Binnengekomen, gelezen, goedgekeurd: onder elkaar met een streepje ertussen,
+ *  zodat je in één blik ziet wat er wanneer gebeurde. Alleen de stappen die
+ *  werkelijk hebben plaatsgevonden staan er; een lege tijdlijn met "nog niet"
+ *  overal is ruis. */
+.kosten-loop {
+  display: grid;
+  gap: 0;
+  padding-left: 2px;
+}
+.kosten-stap {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 5px 0 5px 0;
+  font-size: .82rem;
+  position: relative;
+}
+/* De lijn tussen de stippen, behalve onder de laatste. */
+.kosten-stap:not(:last-child)::before {
+  content: '';
+  position: absolute; left: 4px; top: 17px; bottom: -5px;
+  width: 1px; background: var(--line);
+}
+.kosten-stap .stip {
+  flex: none; margin-top: 6px;
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--brand);
+  box-shadow: 0 0 0 3px var(--tint-brand-weak);
+}
+.kosten-stap:last-child .stip { background: var(--ok); }
+.kosten-stap .mono { color: var(--text-2); font-variant-numeric: tabular-nums; }
+/* Wie het deed. Eigen klasse en geen .help: die hoort bij een invoerveld
+   en is elders block. */
+.kosten-door { color: var(--text-3); }
+
+/* De rij van de bon die je open hebt staan, in de lijst met buren. */
+table.data tr.aan { background: var(--tint-brand-weak); }
+table.data tr.aan td { font-weight: 600; }
+
 .lezing {
   margin-top: 4px;
   padding: 14px;

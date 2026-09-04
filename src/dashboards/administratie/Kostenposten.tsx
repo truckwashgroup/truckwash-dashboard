@@ -8,7 +8,7 @@ import {
 import { db } from '../../lib/db'
 import { expenses as expRepo } from '../../lib/repo'
 import type {
-  Expense, FactuurLezing, Grootboek, KostenTag, MailBericht,
+  Expense, FactuurLezing, Grootboek, KostenTag, Location, MailBericht,
 } from '../../lib/types'
 import {
   bedragExcl, btwPercentage, heeftIetsTeLezen, leesFactuur, nogNietIngevuld,
@@ -376,6 +376,7 @@ function BonDetail({
 
           {fout && <p className="waarschuwing">{fout}</p>}
 
+          <Overzicht bon={bon} />
           <Boeking bon={bon} />
           <Historie bon={bon} />
 
@@ -544,6 +545,180 @@ function Historie({ bon }: { bon: Expense }) {
           </tbody>
         </table>
       </div>
+    </Card>
+  )
+}
+
+/* -------------------------- Het overzicht ------------------------- */
+
+/**
+ * Alles van deze ene bon op een rij.
+ *
+ * Sinds een mail met dertien bijlagen dertien losse bonnen oplevert, is de
+ * vraag "waar komt deze vandaan" niet meer vanzelfsprekend te beantwoorden.
+ * Dit blok zegt het: uit welke mail, welke bijlage, wanneer die binnenkwam,
+ * wanneer hij gelezen is en door wie, en wat er verder over hem bekend is.
+ *
+ * De loop staat bovenaan en de gegevens eronder. Dat is de volgorde waarin je
+ * ernaar kijkt: eerst "is hier iets geks gebeurd", dan pas de nummers.
+ */
+function Overzicht({ bon }: { bon: Expense }) {
+  const mail = useLiveQuery(
+    async () => (bon.mailboxId ? await db.mailbox.get(bon.mailboxId) : undefined),
+    [bon.mailboxId],
+  )
+  const locaties = useLiveQuery(() => db.locations.toArray(), [], [] as Location[])
+  const vestiging = locaties.find((l) => l.id === bon.locationId)
+
+  /*
+   * De bonnen die uit dezelfde mail komen. Bij één bijlage is dat er één en
+   * laten we het weg; bij dertien wil je zien dat er dertien zijn en de
+   * hoeveelste dit is.
+   */
+  /*
+   * De bonnen uit dezelfde mail. In het geheugen gefilterd en niet met
+   * where('mailboxId'): dat veld staat niet in de Dexie-index, en een where op
+   * een niet-geïndexeerd veld valt om zodra je een bon opent. Het zijn er
+   * hooguit een paar honderd; die staan er toch al voor de lijst erachter.
+   */
+  const alleBonnen = useLiveQuery(() => db.expenses.toArray(), [], [] as Expense[])
+  const buren = useMemo(
+    () => bon.mailboxId ? alleBonnen.filter((e) => e.mailboxId === bon.mailboxId) : [],
+    [alleBonnen, bon.mailboxId])
+
+  const opVolgorde = useMemo(
+    () => [...buren].sort((a, b) => a.id.localeCompare(b.id)), [buren])
+  const nummer = opVolgorde.findIndex((e) => e.id === bon.id) + 1
+
+  const lezing = bon.gelezen
+
+  /* De loop van deze bon: alleen wat er werkelijk gebeurd is. */
+  const stappen: { wat: string; wanneer: number; door?: string }[] = []
+  if (mail?.at) stappen.push({ wat: 'Binnengekomen per mail', wanneer: mail.at, door: mail.vanNaam || mail.van })
+  if (lezing?.gelezenOp) {
+    stappen.push({
+      wat: 'Voorgelezen',
+      wanneer: lezing.gelezenOp,
+      door: bon.lezer ?? lezing.gelezenDoor,
+    })
+  }
+  if (bon.approvedAt) {
+    stappen.push({
+      wat: bon.status === 'afgekeurd' ? 'Afgekeurd' : 'Goedgekeurd',
+      wanneer: bon.approvedAt,
+      door: bon.approvedByName || undefined,
+    })
+  }
+  stappen.sort((a, b) => a.wanneer - b.wanneer)
+
+  return (
+    <Card title="Overzicht" hint="Waar deze bon vandaan komt en wat ermee gebeurd is" className="mb">
+      {/* ---- de loop ---- */}
+
+      {stappen.length > 0 && (
+        <div className="kosten-loop mb">
+          {stappen.map((st, i) => (
+            <div key={i} className="kosten-stap">
+              <span className="stip" />
+              <div>
+                <strong>{st.wat}</strong>{' '}
+                <span className="mono">{dateTime(st.wanneer)}</span>
+                {st.door && <span className="kosten-door"> · {st.door}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ---- waar hij vandaan komt ---- */}
+
+      <div className="grid cols-2 mb">
+        <div>
+          <Veld label="Uit de mail" waarde={mail?.onderwerp} />
+          <Veld label="Afzender" waarde={mail ? (mail.vanNaam ? `${mail.vanNaam} <${mail.van}>` : mail.van) : undefined} />
+          <Veld label="Bezorgd op" waarde={mail?.aan} mono />
+          <Veld
+            label="Bijlage"
+            waarde={bon.attachmentName
+              ? (opVolgorde.length > 1 && nummer > 0
+                  ? `${bon.attachmentName} — bon ${nummer} van ${opVolgorde.length} uit deze mail`
+                  : bon.attachmentName)
+              : undefined}
+          />
+        </div>
+        <div>
+          <Veld label="Vestiging" waarde={vestiging ? `${vestiging.name}${vestiging.city ? ` · ${vestiging.city}` : ''}` : undefined} />
+          <Veld label="Ingediend door" waarde={bon.submittedByName || undefined} />
+          <Veld label="Bron" waarde={bon.source === 'mail' ? 'Per mail binnengekomen' : bon.source === 'app' ? 'In de app ingevoerd' : undefined} />
+          <Veld label="Gelezen door" waarde={bon.lezer} />
+        </div>
+      </div>
+
+      {/* ---- wat er op het stuk staat ---- */}
+
+      {lezing && (
+        <div className="grid cols-3">
+          <Veld label="Factuurnummer" waarde={bon.factuurnummer ?? lezing.factuurnummer} mono />
+          <Veld label="Factuurdatum" waarde={lezing.datum ? dateShort(lezing.datum) : undefined} />
+          <Veld label="Vervaldatum" waarde={bon.vervaldatum ? dateShort(bon.vervaldatum) : lezing.vervaldatum ? dateShort(lezing.vervaldatum) : undefined} />
+          <Veld label="IBAN" waarde={lezing.iban} mono />
+          <Veld label="Btw-nummer" waarde={lezing.btwNummer} mono />
+          <Veld label="KvK" waarde={lezing.kvk} mono />
+          <Veld label="Betalingskenmerk" waarde={lezing.betalingskenmerk} mono />
+          <Veld label="Soort stuk" waarde={lezing.soort && lezing.soort !== 'onbekend' ? lezing.soort : undefined} />
+          <Veld
+            label="Richting"
+            waarde={lezing.richting === 'inkoop' ? 'Inkoop (wij betalen)'
+              : lezing.richting === 'verkoop' ? 'Verkoop (wij stuurden hem)'
+              : undefined}
+          />
+        </div>
+      )}
+
+      {!lezing && (
+        <p className="hint" style={{ margin: 0 }}>
+          Deze bon is nog niet gelezen, dus er is verder nog niets over hem bekend.
+        </p>
+      )}
+
+      {/* ---- de andere bonnen uit dezelfde mail ---- */}
+
+      {opVolgorde.length > 1 && (
+        <>
+          <h4 style={{ marginTop: 18, marginBottom: 6 }}>
+            Uit dezelfde mail ({opVolgorde.length} bonnen)
+          </h4>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Bijlage</th>
+                  <th>Leverancier</th>
+                  <th className="num">Excl. btw</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {opVolgorde.map((e) => (
+                  <tr key={e.id} className={e.id === bon.id ? 'aan' : undefined}>
+                    <td className="afgekapt">
+                      {e.id === bon.id && <strong>› </strong>}
+                      {e.attachmentName ?? '—'}
+                    </td>
+                    <td className="afgekapt">{e.supplier}</td>
+                    <td className="num">{e.amountExcl > 0 ? money(e.amountExcl) : '—'}</td>
+                    <td>
+                      {e.status === 'goedgekeurd' && <Badge tone="ok">akkoord</Badge>}
+                      {e.status === 'afgekeurd' && <Badge tone="danger">afgekeurd</Badge>}
+                      {e.status === 'open' && <Badge>open</Badge>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </Card>
   )
 }

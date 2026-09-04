@@ -410,7 +410,23 @@ function BonDetail({
  * daar neer, zodat het op dezelfde plek staat als bij Claude.
  */
 function LeesStatus({ bon }: { bon: Expense }) {
-  if (bon.leesStatus === 'wacht' || bon.leesStatus === 'bezig') {
+  /*
+   * Wachten en gelezen worden zijn twee verschillende dingen, en dat was niet
+   * te zien: allebei stond er "wacht op de lokale lezer". Nu zegt de badge of
+   * er iets gebeurt, en sinds wanneer -- dan weet je of het loopt of hangt.
+   */
+  if (bon.leesStatus === 'bezig') {
+    const sinds = bon.leesGeclaimdAt ? Math.round((Date.now() - bon.leesGeclaimdAt) / 1000) : null
+    return (
+      <div style={{ marginTop: 3 }}>
+        <Badge tone="brand">
+          <Loader2 size={11} className="spin" /> wordt nu gelezen
+          {sinds !== null && sinds < 3600 ? ` · ${sinds}s` : ''}
+        </Badge>
+      </div>
+    )
+  }
+  if (bon.leesStatus === 'wacht') {
     return (
       <div style={{ marginTop: 3 }}>
         <Badge tone="info"><Clock size={11} /> wacht op de lokale lezer</Badge>

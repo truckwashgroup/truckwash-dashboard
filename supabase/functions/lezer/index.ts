@@ -271,6 +271,7 @@ async function werk(body: Willekeurig) {
    */
   await zetInstelling('lezer_laatst_gezien', String(nu()))
   await zetInstelling('lezer_model', model)
+  await bewaarStand(body)
 
   const terugvalToegestaan = (await instelling('factuur_lezer')) === 'lokaal-terugval'
 
@@ -565,6 +566,32 @@ const AI_VASTGELOPEN_NA = 3 * 60_000
 
 const rust = (ms: number) => new Promise((klaar) => setTimeout(klaar, ms))
 
+/* ------------------------------------------------------------------ *
+ *  Wat de machine aan het doen is
+ *
+ *  "Ik wil ook ergens kunnen zien of hij al iets doet ofzo, nu zie ik zegmaar
+ *  enkel wacht op lokale lezer."
+ *
+ *  Terecht: aan een bon zie je dat er iets wacht, niet of er iets gebeurt.
+ *  Daarom vertelt de machine bij elke ronde kort hoe het gaat, en zetten we
+ *  dat in instellingen.lezer_stand. Die tabel synchroniseert al naar de app,
+ *  dus het scherm heeft er geen nieuwe deur voor nodig.
+ *
+ *  Bewust een samenvatting en geen logboek: wat er precies gelezen is staat al
+ *  bij de kostenpost, met de lezer erbij. Hier gaat het om de vraag "leeft
+ *  hij, en waar is hij mee bezig".
+ * ------------------------------------------------------------------ */
+
+async function bewaarStand(body: Willekeurig) {
+  const stand = body.stand
+  if (!stand || typeof stand !== 'object') return
+  try {
+    await zetInstelling('lezer_stand', JSON.stringify(stand).slice(0, 2000))
+  } catch (e) {
+    console.warn('[lezer] stand bewaren: ' + String(e))
+  }
+}
+
 async function aiWerk(body: Willekeurig): Promise<Response> {
   /*
    * Bij elke ronde even opruimen. Geen aparte wekker nodig: er komt hier toch
@@ -572,6 +599,15 @@ async function aiWerk(body: Willekeurig): Promise<Response> {
    * niets dat rijen achterlaat.
    */
   try { await admin.rpc('ai_opdrachten_opruimen') } catch { /* niet belangrijk */ }
+
+  /*
+   * Ook hier de hartslag. De AI-lus hangt aan een lange lijn en komt dus
+   * hoogstens elke vijfentwintig seconden langs; zonder dit zou het scherm
+   * "stil" zeggen zodra er even geen facturen liggen terwijl de machine
+   * gewoon staat te wachten op een vraag.
+   */
+  await zetInstelling('lezer_laatst_gezien', String(Date.now()))
+  await bewaarStand(body)
 
   const grens = Date.now() - AI_VASTGELOPEN_NA
   const tot = Date.now() + LANGE_LIJN_MS

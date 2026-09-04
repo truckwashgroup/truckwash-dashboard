@@ -4661,10 +4661,10 @@ check('en een ingelogde gebruiker ook niet',
 await db.exec(`
   insert into public.ai_opdrachten (id, soort, systeem, gebruiker, status, klaar_at, created_at)
   values
-    ('ai_klaar_oud', 'melding', 's', 'g', 'klaar', 1788507851411 - 120000, 1788507851411 - 120000),
-    ('ai_klaar_nu',  'melding', 's', 'g', 'klaar', 1788507851411,          1788507851411),
-    ('ai_blijft',    'trucky',  's', 'g', 'wacht', null,        1788507851411),
-    ('ai_hangt',     'trucky',  's', 'g', 'bezig', null,        1788507851411 - 7200000)
+    ('ai_klaar_oud', 'melding', 's', 'g', 'klaar', public.now_ms() - 120000, public.now_ms() - 120000),
+    ('ai_klaar_nu',  'melding', 's', 'g', 'klaar', public.now_ms(),          public.now_ms()),
+    ('ai_blijft',    'trucky',  's', 'g', 'wacht', null,        public.now_ms()),
+    ('ai_hangt',     'trucky',  's', 'g', 'bezig', null,        public.now_ms() - 7200000)
   on conflict (id) do nothing;`)
 
 const aiWeg = (await db.query('select public.ai_opdrachten_opruimen() as n')).rows[0].n

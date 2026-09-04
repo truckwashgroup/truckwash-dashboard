@@ -22,7 +22,7 @@
  * =========================================================================== */
 
 import { useEffect, useState } from 'react'
-import { Cpu, RefreshCw, Save } from 'lucide-react'
+import { Cpu, Loader2, RefreshCw, Save, TriangleAlert } from 'lucide-react'
 import { SLEUTELS, leesInstellingen, zetInstelling } from '../../lib/instellingen'
 import { relative } from '../../lib/format'
 import { Card, Field } from '../../components/ui'
@@ -63,12 +63,63 @@ const PLEKKEN: {
   },
 ]
 
+/** Wat de werkmachine van zichzelf doorgeeft (lezer_stand). */
+interface Stand {
+  bezig: string | null
+  sinds: number | null
+  facturen: number
+  aiVragen: number
+  mislukt: number
+  laatsteFout: string | null
+  modelTekst?: string
+  modelBeeld?: string
+}
+
+/**
+ * De stand uitpakken.
+ *
+ * Het is tekst uit de database die door een ander programma is geschreven, dus
+ * hij kan van alles zijn -- leeg, oud, of van een versie die andere velden
+ * kende. Bij twijfel null: dan toont het scherm alleen "laatst gemeld", en dat
+ * klopt altijd.
+ */
+function leesStand(ruw: string | undefined): Stand | null {
+  if (!ruw) return null
+  try {
+    const d = JSON.parse(ruw) as Partial<Stand>
+    return {
+      bezig: typeof d.bezig === 'string' ? d.bezig : null,
+      sinds: typeof d.sinds === 'number' ? d.sinds : null,
+      facturen: Number(d.facturen) || 0,
+      aiVragen: Number(d.aiVragen) || 0,
+      mislukt: Number(d.mislukt) || 0,
+      laatsteFout: typeof d.laatsteFout === 'string' ? d.laatsteFout : null,
+      modelTekst: typeof d.modelTekst === 'string' ? d.modelTekst : undefined,
+      modelBeeld: typeof d.modelBeeld === 'string' ? d.modelBeeld : undefined,
+    }
+  } catch {
+    return null
+  }
+}
+
+/** "8s" of "1m 20s" -- kort, want het staat midden in een zin. */
+function seconden(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
+}
+
 export default function EigenAI() {
   const [waarden, setWaarden] = useState<Record<string, string>>({})
   const [model, setModel] = useState('gemma4:26b')
   const [wachttijd, setWachttijd] = useState('20')
   const [gezien, setGezien] = useState<number | null>(null)
   const [lezerModel, setLezerModel] = useState('')
+  const [stand, setStand] = useState<Stand | null>(null)
+  /*
+   * Tikt elke seconde, alleen om "al 12s" te laten oplopen terwijl je kijkt.
+   * Zonder dit staat er een tijd stil die niet stilstaat.
+   */
+  const [, tik] = useState(0)
   const [geladen, setGeladen] = useState(false)
   const [bezig, setBezig] = useState(false)
 
@@ -80,10 +131,22 @@ export default function EigenAI() {
     const t = Number(alle[SLEUTELS.lezerLaatstGezien])
     setGezien(Number.isFinite(t) && t > 0 ? t : null)
     setLezerModel(alle[SLEUTELS.lezerModel] || '')
+    setStand(leesStand(alle[SLEUTELS.lezerStand]))
     setGeladen(true)
   }
 
-  useEffect(() => { void laad() }, [])
+  /*
+   * Bij het openen laden, en daarna elke vijf seconden opnieuw. De machine
+   * meldt zich elke tien seconden (of vaker als er werk is), dus sneller
+   * verversen levert niets nieuws op.
+   */
+  useEffect(() => {
+    void laad()
+    const t = setInterval(() => { void laad() }, 5000)
+    const s = setInterval(() => tik((n) => n + 1), 1000)
+    return () => { clearInterval(t); clearInterval(s) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const ietsLokaal = PLEKKEN.some((p) => (waarden[p.sleutel] ?? 'claude') !== 'claude')
 
@@ -126,28 +189,57 @@ export default function EigenAI() {
         {' '}draait dan daar.
       </p>
 
-      {/* ---- of de machine leeft ---- */}
+      {/* ---- of de machine leeft, en wat hij doet ---- */}
 
       <div
-        className={stil ? 'waarschuwing zacht mb' : 'hint'}
-        style={{ marginBottom: 16 }}
+        className={stil ? 'waarschuwing zacht mb' : 'ts-stand mb'}
+        style={{ padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: stil ? undefined : 'var(--surface-2)' }}
       >
-        <Cpu size={15} style={{ verticalAlign: -2 }} />{' '}
-        {gezien === null
-          ? 'De machine heeft zich nog nooit gemeld.'
-          : <>Laatst gemeld {relative(gezien)}{lezerModel ? ` met ${lezerModel}` : ''}.</>}
-        {stil && (
-          <> Er staat werk voor de eigen machine klaar, maar hij is stil.
-            Draait het programma in <code>lezer/</code>? Bij “Claude als
-            terugval” merkt niemand het; bij “alleen de eigen machine” wel.</>
+        <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+          {stand?.bezig
+            ? <Loader2 size={15} className="spin" />
+            : stil ? <TriangleAlert size={15} /> : <Cpu size={15} />}
+
+          <strong style={{ flex: 1 }}>
+            {stand?.bezig
+              ? <>Bezig: {stand.bezig}{stand.sinds ? ` — al ${seconden(Date.now() - stand.sinds)}` : ''}</>
+              : gezien === null
+                ? 'De machine heeft zich nog nooit gemeld.'
+                : stil
+                  ? 'De machine is stil.'
+                  : 'Klaar voor werk, niets te doen.'}
+          </strong>
+
+          <button className="btn ghost sm" onClick={() => void laad()}>
+            <RefreshCw size={13} /> Ververs
+          </button>
+        </div>
+
+        <p className="help" style={{ margin: '6px 0 0' }}>
+          {gezien !== null && <>Laatst gemeld {relative(gezien)}{lezerModel ? ` met ${lezerModel}` : ''}. </>}
+          {stand && (
+            <>Vandaag {stand.facturen} {stand.facturen === 1 ? 'factuur' : 'facturen'} gelezen
+              {stand.aiVragen > 0 && <>, {stand.aiVragen} {stand.aiVragen === 1 ? 'vraag' : 'vragen'} beantwoord</>}
+              {stand.mislukt > 0 && <>, {stand.mislukt} mislukt</>}.{' '}
+              {stand.modelTekst && stand.modelBeeld && (
+                stand.modelTekst === stand.modelBeeld
+                  ? <>Model {stand.modelBeeld}. </>
+                  : <>Tekst {stand.modelTekst}, beeld {stand.modelBeeld}. </>
+              )}
+            </>
+          )}
+          {stil && (
+            <>Er staat werk voor de eigen machine klaar, maar hij meldt zich niet.
+              Draait het programma in <code>lezer/</code>? Bij “Claude als terugval”
+              merkt niemand het; bij “alleen de eigen machine” wel.</>
+          )}
+        </p>
+
+        {stand?.laatsteFout && (
+          <p className="help" style={{ margin: '6px 0 0', color: 'var(--text-warn)' }}>
+            Laatste fout: {stand.laatsteFout}
+          </p>
         )}
-        <button
-          className="btn ghost sm"
-          style={{ marginLeft: 8 }}
-          onClick={() => void laad()}
-        >
-          <RefreshCw size={13} /> Ververs
-        </button>
       </div>
 
       {/* ---- de drie plekken ---- */}

@@ -60,6 +60,13 @@ export const SLEUTELS = {
   aiLokaalModel: 'ai_lokaal_model',
   aiWachttijd: 'ai_wachttijd',
   /*
+   * Wat de werkmachine van zichzelf vertelt: waar hij mee bezig is en wat hij
+   * vandaag heeft gedaan, als JSON. Hij stuurt het bij elke ronde mee; de
+   * functie lezer zet het hier neer. Zo hoeft het scherm er geen eigen deur
+   * voor te hebben -- instellingen synchroniseert toch al.
+   */
+  lezerStand: 'lezer_stand',
+  /*
    * Zichzelf goedkeuren (0050). Staat standaard uit: dit is de enige plek
    * waar geld wordt goedgekeurd zonder dat er iemand kijkt. De vier sloten
    * (alleen wat een mens goedkeurde telt mee, een marge op het bedrag, een

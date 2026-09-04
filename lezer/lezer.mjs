@@ -558,6 +558,7 @@ async function verwerkStuk(stuk, werk) {
     // Lag het aan deze pc (Ollama weg of te traag), dan gaat de bon terug op
     // wacht in plaats van definitief mislukt; zie TijdelijkeFout.
     const tijdelijk = e instanceof TijdelijkeFout
+    klaarMet(false, 'factuur', reden)
     log(id, modus, sec(Date.now() - begin), (tijdelijk ? 'tijdelijk niet gelukt, bon gaat terug op wacht: ' : 'mislukt: ') + reden)
     try {
       await server('mislukt', {
@@ -581,11 +582,13 @@ async function verwerkStuk(stuk, werk) {
       // model gaat mee zodat de lezing de juiste lezer noemt, ook als het
       // model op de server intussen anders staat (lezer_model is van de laatste ronde).
       const r = await server('terugval', { expenseId: stuk.expenseId, reden, model: gebruiktModel })
+      klaarMet(r.gedaan === 'claude', 'factuur', reden)
       log(id, modus, sec(Date.now() - begin), `terugval (${r.gedaan ?? '?'}): ${reden}`)
     } else {
       await server('klaar', {
         expenseId: stuk.expenseId, model: gebruiktModel, bestand: bijlage.naam, lezing: uit,
       })
+      klaarMet(true, 'factuur')
       log(id, modus, sec(Date.now() - begin), reden ? `klaar, met twijfel: ${reden}` : 'klaar')
     }
   } catch (e) {
@@ -625,7 +628,7 @@ async function aiLus() {
   while (!stoppen) {
     let opdracht = null
     try {
-      const uit = await server('ai-werk', {})
+      const uit = await server('ai-werk', { stand: standNu() })
       opdracht = uit.opdracht ?? null
       if (stilGemeld) { log('ai: server weer bereikbaar'); stilGemeld = false }
     } catch (e) {
@@ -642,6 +645,7 @@ async function aiLus() {
 
     const begin = Date.now()
     const model = opdracht.model || INSTELLING.modelTekst
+    begintMet(opdracht.soort === 'trucky' ? 'vraag van de website' : 'meedenken bij een melding')
     try {
       const antwoord = await vraagOllamaTekst({
         systeem: opdracht.systeem,
@@ -650,10 +654,12 @@ async function aiLus() {
         model,
       })
       const uit = await server('ai-klaar', { id: opdracht.id, antwoord, model })
+      klaarMet(true, 'ai')
       log('ai', opdracht.soort, sec(Date.now() - begin),
           uit.teLaat ? 'klaar, maar te laat -- de server wachtte niet meer' : 'klaar')
     } catch (e) {
       const reden = foutTekst(e).slice(0, 400)
+      klaarMet(false, 'ai', reden)
       log('ai', opdracht.soort, sec(Date.now() - begin), 'mislukt: ' + reden)
       try {
         await server('ai-klaar', { id: opdracht.id, fout: reden, model })
@@ -713,6 +719,81 @@ async function vraagOllamaTekst({ systeem, gebruiker, schema, model }) {
 const stop = new AbortController()
 let stoppen = false
 
+/* ------------------------------------------------------------------ *
+ *  Wat we van onszelf vertellen
+ *
+ *  Aan een kostenpost zie je dat er iets wacht, niet of er iets gebeurt. Deze
+ *  teller gaat bij elke ronde mee naar de server, die hem in
+ *  instellingen.lezer_stand zet; het scherm Ontwikkeling > Eigen AI leest hem
+ *  daar. Zo zie je of de machine leeft, waar hij nu mee bezig is en wat hij
+ *  vandaag heeft gedaan.
+ *
+ *  Bewust klein en zonder geschiedenis: wat er precies gelezen is staat al bij
+ *  de bon, met de lezer erbij. Hier gaat het om "leeft hij en doet hij iets".
+ * ------------------------------------------------------------------ */
+
+const STAND = {
+  /** Waar hij nu mee bezig is, of null als hij wacht. */
+  bezig: null,
+  /** Sinds wanneer, epoch ms. */
+  sinds: null,
+  /** Welke dag de tellers hieronder over gaan (jjjj-mm-dd, lokale tijd). */
+  dag: null,
+  facturen: 0,
+  aiVragen: 0,
+  mislukt: 0,
+  /** De laatste fout, kort. Blijft staan tot er een nieuwe komt. */
+  laatsteFout: null,
+  gestartOp: Date.now(),
+}
+
+/** Nieuwe dag = nieuwe tellers. Anders staat er in maart nog een jaartotaal. */
+function nieuweDag() {
+  const d = new Date()
+  const vandaag = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  if (STAND.dag !== vandaag) {
+    STAND.dag = vandaag
+    STAND.facturen = 0
+    STAND.aiVragen = 0
+    STAND.mislukt = 0
+  }
+}
+
+/** Aan de server meegeven bij elke ronde. */
+function standNu() {
+  nieuweDag()
+  return {
+    bezig: STAND.bezig,
+    sinds: STAND.sinds,
+    dag: STAND.dag,
+    facturen: STAND.facturen,
+    aiVragen: STAND.aiVragen,
+    mislukt: STAND.mislukt,
+    laatsteFout: STAND.laatsteFout,
+    gestartOp: STAND.gestartOp,
+    modelTekst: INSTELLING.modelTekst,
+    modelBeeld: INSTELLING.modelBeeld,
+  }
+}
+
+function begintMet(wat) {
+  STAND.bezig = wat
+  STAND.sinds = Date.now()
+}
+
+function klaarMet(gelukt, soort, fout) {
+  STAND.bezig = null
+  STAND.sinds = null
+  nieuweDag()
+  if (gelukt) {
+    if (soort === 'factuur') STAND.facturen++
+    else STAND.aiVragen++
+  } else {
+    STAND.mislukt++
+    if (fout) STAND.laatsteFout = String(fout).slice(0, 200)
+  }
+}
+
 async function lus() {
   let bezig = false
 
@@ -747,13 +828,14 @@ async function lus() {
     let wacht = INSTELLING.interval * 1000
 
     try {
-      const werk = await server('werk', { model: INSTELLING.modelBeeld, max: INSTELLING.max })
+      const werk = await server('werk', { model: INSTELLING.modelBeeld, max: INSTELLING.max, stand: standNu() })
       if (serverfoutGemeld) { log('server weer bereikbaar'); serverfoutGemeld = false }
 
       const stukken = werk.werk ?? []
       for (const stuk of stukken) {
         if (stoppen) break
         bezig = true
+        begintMet(`factuur ${stuk.expenseId}`)
         try { await verwerkStuk(stuk, werk) } finally { bezig = false }
       }
 

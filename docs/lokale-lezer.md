@@ -227,6 +227,19 @@ Op `expenses`:
 | `goedkeuring_bron` | `mens` of `automatisch`; leeg bij alles wat nog openstaat |
 | `goedkeuring_reden` | de zin waarmee een automatische goedkeuring is genomen |
 
+### Hoe vaak hij kijkt
+
+Is er niets te doen, dan wacht hij `LEZER_INTERVAL` seconden (standaard 10) en
+vraagt hij opnieuw. Is er wél werk, dan wacht hij helemaal niet: hij leest de
+bonnen één voor één en vraagt meteen om de volgende, tot de stapel leeg is.
+Antwoordt de server niet, dan gaat hij naar vier keer die pauze, zodat een
+kapotte lijn geen logboek vol schrijft.
+
+Per ronde eist hij hoogstens `LEZER_MAX` bonnen op (standaard 5). Dat maakt
+hem niet sneller -- hij leest ze toch één voor één, want twee keer een model
+van 26 miljard parameters naast elkaar past niet in 32 GB videogeheugen -- het
+bepaalt alleen hoe vaak hij tussendoor de server hoeft te vragen.
+
 In `instellingen`: `factuur_lezer` (de keuze), `lezer_laatst_gezien` (epoch
 ms als tekst) en `lezer_model` (de laatste twee zet het programma zelf), plus
 `auto_goedkeuren` met `auto_goedkeuren_vanaf`, `auto_goedkeuren_marge` en

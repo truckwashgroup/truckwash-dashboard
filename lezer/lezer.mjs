@@ -73,9 +73,25 @@ const INSTELLING = {
   url: (process.env.LEZER_URL ?? '').replace(/\/+$/, ''),
   geheim: process.env.LEZER_SECRET ?? '',
   model: process.env.LEZER_MODEL || 'gemma4:26b',
-  interval: Math.max(5, Number(process.env.LEZER_INTERVAL) || 30),
+  /*
+   * Hoe lang hij wacht als er NIETS te doen was. Zodra er wel werk is wacht
+   * hij helemaal niet meer -- zie de lus onderaan. Vroeger sliep hij ook na
+   * een volle ronde dertig seconden, en dan deed hij bij een stapel van tien
+   * facturen drie stuks per halve minuut terwijl de kaart stond te wachten.
+   *
+   * Tien seconden is licht: het is één klein verzoek dat meestal met een lege
+   * lijst terugkomt. Lager mag, maar dan vraag je vooral vaker niets.
+   */
+  interval: Math.max(3, Number(process.env.LEZER_INTERVAL) || 10),
   ollama: (process.env.OLLAMA_URL || 'http://localhost:11434').replace(/\/+$/, ''),
-  max: Math.max(1, Number(process.env.LEZER_MAX) || 3),
+  /*
+   * Hoeveel bonnen hij per ronde opeist. Meer is niet sneller -- hij leest ze
+   * één voor één, want twee keer een model van 26 miljard parameters naast
+   * elkaar past niet in 32 GB videogeheugen en valt terug op het werkgeheugen,
+   * wat álles traag maakt. Het getal bepaalt alleen hoe vaak hij tussendoor de
+   * server hoeft te vragen.
+   */
+  max: Math.max(1, Number(process.env.LEZER_MAX) || 5),
 }
 
 /** Tien minuten per stuk. Langer betekent dat er iets anders mis is. */
@@ -545,31 +561,52 @@ async function lus() {
   process.on('SIGINT', afsluiten)
   process.on('SIGTERM', afsluiten)
 
-  log(`Lokale lezer gestart: model ${INSTELLING.model}, elke ${INSTELLING.interval}s werk vragen bij ${INSTELLING.url || '(geen LEZER_URL)'}`)
+  log(`Lokale lezer gestart: model ${INSTELLING.model}, tot ${INSTELLING.max} bonnen per ronde, ` +
+      `bij niets te doen ${INSTELLING.interval}s pauze; server ${INSTELLING.url || '(geen LEZER_URL)'}`)
 
   let serverfoutGemeld = false
   while (!stoppen) {
+    /*
+     * Hoe lang er ná deze ronde gewacht wordt.
+     *
+     *   0                 er was werk -- meteen door, de stapel is misschien
+     *                     nog niet leeg en de kaart staat klaar
+     *   interval          er was niets te doen
+     *   interval x 4      de server antwoordde niet; dan is vaker vragen
+     *                     zinloos en alleen maar ruis in het log
+     */
+    let wacht = INSTELLING.interval * 1000
+
     try {
       const werk = await server('werk', { model: INSTELLING.model, max: INSTELLING.max })
       if (serverfoutGemeld) { log('server weer bereikbaar'); serverfoutGemeld = false }
 
-      for (const stuk of werk.werk ?? []) {
+      const stukken = werk.werk ?? []
+      for (const stuk of stukken) {
         if (stoppen) break
         bezig = true
         try { await verwerkStuk(stuk, werk) } finally { bezig = false }
       }
+
+      /*
+       * Werk gehad? Dan meteen opnieuw vragen. Zo loopt een stapel in één keer
+       * leeg in plaats van in porties van <max> per <interval> seconden.
+       */
+      if (stukken.length > 0) wacht = 0
     } catch (e) {
       if (e instanceof StopFout) {
         console.error(tijd(), 'GESTOPT:', e.message)
         process.exit(2)
       }
       // Netwerk weg, functie even niet uitgerold: één keer melden, stil doorgaan.
+      wacht = INSTELLING.interval * 4000
       if (!serverfoutGemeld) {
-        log('server niet bereikbaar, ik probeer het elke', INSTELLING.interval, 's opnieuw:', String(e?.message ?? e))
+        log('server niet bereikbaar, ik probeer het over', Math.round(wacht / 1000),
+            's opnieuw:', String(e?.message ?? e))
         serverfoutGemeld = true
       }
     }
-    if (!stoppen) await slaap(INSTELLING.interval * 1000, stop.signal)
+    if (!stoppen && wacht > 0) await slaap(wacht, stop.signal)
   }
   log('gestopt.')
   process.exit(0)

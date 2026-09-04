@@ -227,6 +227,36 @@ Op `expenses`:
 | `goedkeuring_bron` | `mens` of `automatisch`; leeg bij alles wat nog openstaat |
 | `goedkeuring_reden` | de zin waarmee een automatische goedkeuring is genomen |
 
+### Twee modellen: één voor tekst, één voor foto's
+
+Een PDF uit een boekhoudpakket heeft een tekstlaag; die gaat als platte tekst
+naar het model en daar is geen oog voor nodig. Een scan of een foto moet
+gezien worden. Je kunt daar dus twee verschillende modellen voor gebruiken:
+`LEZER_MODEL_TEKST` en `LEZER_MODEL_BEELD` in `lezer/.env`. Laat je ze leeg,
+dan gebruikt hij voor allebei `LEZER_MODEL` — en dat is de standaard.
+
+Gemeten op de RTX 5090, dezelfde factuur, hetzelfde schema, alles warm:
+
+| model | tekst | uitkomst |
+|---|---|---|
+| llama3.2 (3B) | 2,9s | **onbruikbaar**: zei "verkoop" in plaats van "inkoop", datums in het verkeerde formaat |
+| qwen2.5-coder:14b | 6,8s | alles goed, maar verzon een twijfel over een optelling die klopte |
+| gpt-oss:20b | 17,4s | alles goed |
+| gemma4:26b | 9,9s | alles goed |
+
+Twee dingen vallen daaraan op. Op een PDF met tekstlaag scheelt het grote
+model maar drie seconden met een klein model, dus snelheid is een magere
+reden om te splitsen. En hoe kleiner het model, hoe eerder het de *oordelen*
+mist: inkoop of verkoop, en of er iets te twijfelen valt. Juist die twee
+bepalen of een bon verdwijnt of vanzelf wordt goedgekeurd.
+
+Waar splitsen wél voor is: geheugen. Een 14B (~9 GB) en gemma4:26b (~18 GB)
+passen samen in 32 GB, dus Ollama hoeft niet te wisselen en een foto en een
+tekstfactuur kunnen naast elkaar gelezen worden.
+
+Wil je het proberen, doe dat eerst met `--proef` op een paar echte facturen —
+en kijk niet alleen naar de bedragen maar juist naar `richting` en `twijfel`.
+
 ### Hoe vaak hij kijkt
 
 Is er niets te doen, dan wacht hij `LEZER_INTERVAL` seconden (standaard 10) en

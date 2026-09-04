@@ -72,7 +72,44 @@ laadEnv()
 const INSTELLING = {
   url: (process.env.LEZER_URL ?? '').replace(/\/+$/, ''),
   geheim: process.env.LEZER_SECRET ?? '',
+  /*
+   * Twee modellen, want er zijn twee soorten werk.
+   *
+   * Een PDF uit een boekhoudpakket heeft een tekstlaag; die gaat als platte
+   * tekst naar het model en daar is geen oog voor nodig. Een scan of een foto
+   * moet gezien worden, en dat kan alleen een model dat plaatjes leest.
+   *
+   * Standaard staat er voor allebei hetzelfde: gemma4:26b. Dat is met opzet.
+   * Op de kaart van Casper (RTX 5090) is gemeten wat een kleiner model doet
+   * met dezelfde factuur en hetzelfde schema:
+   *
+   *   llama3.2 (3B)        2,9s   bedragen goed, maar zei "verkoop" in plaats
+   *                               van "inkoop" en gaf de datums in het
+   *                               verkeerde formaat -- onbruikbaar
+   *   qwen2.5-coder:14b    6,8s   alles goed, maar verzon een twijfel over de
+   *                               optelling die wél klopte
+   *   gpt-oss:20b         17,4s   alles goed
+   *   gemma4:26b           9,9s   alles goed (warm; de eerste keer 23,7s
+   *                               omdat het model nog moest laden)
+   *
+   * Let op wat daar staat: op een PDF met tekstlaag scheelt het grote model
+   * maar drie seconden met het kleine. De winst zit niet in de snelheid maar
+   * in het geheugen -- twee modellen naast elkaar betekent dat een foto en
+   * een tekstfactuur tegelijk gelezen kunnen worden.
+   *
+   * Sneller is dus te krijgen, maar niet gratis: hoe kleiner het model, hoe
+   * eerder het de OORDELEN misser slaat -- inkoop of verkoop, en of er iets
+   * te twijfelen valt. Juist die twee bepalen of een bon verdwijnt of vanzelf
+   * wordt goedgekeurd. Daarom blijft de standaard het grote model en is dit
+   * een knop voor wie wil proberen, niet een keuze die stil voor je gemaakt is.
+   *
+   * Wil je splitsen: zet LEZER_MODEL_TEKST op iets kleins en laat
+   * LEZER_MODEL_BEELD staan. Beide modellen passen naast elkaar in 32 GB (een
+   * 14B is ~9 GB, gemma4:26b ~18 GB), dus Ollama hoeft niet te wisselen.
+   */
   model: process.env.LEZER_MODEL || 'gemma4:26b',
+  modelTekst: process.env.LEZER_MODEL_TEKST || process.env.LEZER_MODEL || 'gemma4:26b',
+  modelBeeld: process.env.LEZER_MODEL_BEELD || process.env.LEZER_MODEL || 'gemma4:26b',
   /*
    * Hoe lang hij wacht als er NIETS te doen was. Zodra er wel werk is wacht
    * hij helemaal niet meer -- zie de lus onderaan. Vroeger sliep hij ook na
@@ -93,6 +130,9 @@ const INSTELLING = {
    */
   max: Math.max(1, Number(process.env.LEZER_MAX) || 5),
 }
+
+/** Welk model bij welke invoer hoort. */
+const modelVoor = (modus) => modus === 'tekst' ? INSTELLING.modelTekst : INSTELLING.modelBeeld
 
 /** Tien minuten per stuk. Langer betekent dat er iets anders mis is. */
 const OLLAMA_TIMEOUT = 10 * 60 * 1000
@@ -477,6 +517,12 @@ async function verwerkStuk(stuk, werk) {
   const begin = Date.now()
   const id = kort(stuk.expenseId)
   let modus = '-'
+  /*
+   * Welk model het uiteindelijk werd. Begint op het beeldmodel: gaat het mis
+   * vóór we weten wat voor bestand het is, dan is dat de eerlijkste gok voor
+   * in de melding aan de server.
+   */
+  let gebruiktModel = INSTELLING.modelBeeld
 
   // --- Fase 1: lezen ---
   let bijlage, uit
@@ -494,8 +540,9 @@ async function verwerkStuk(stuk, werk) {
     const invoer = await maakInvoer(bytes, soort)
     modus = invoer.modus
 
+    gebruiktModel = modelVoor(invoer.modus)
     ;({ uit } = await vraagOllama({
-      prompt: werk.prompt, schema: werk.schema, invoer, model: INSTELLING.model,
+      prompt: werk.prompt, schema: werk.schema, invoer, model: gebruiktModel,
     }))
   } catch (e) {
     if (e instanceof StopFout) throw e
@@ -508,7 +555,7 @@ async function verwerkStuk(stuk, werk) {
       await server('mislukt', {
         expenseId: stuk.expenseId,
         reden: 'Lokale lezer: ' + reden,
-        model: INSTELLING.model,
+        model: gebruiktModel,
         ...(tijdelijk ? { tijdelijk: true } : {}),
       })
     } catch (e2) {
@@ -525,11 +572,11 @@ async function verwerkStuk(stuk, werk) {
     if (actie === 'terugval') {
       // model gaat mee zodat de lezing de juiste lezer noemt, ook als het
       // model op de server intussen anders staat (lezer_model is van de laatste ronde).
-      const r = await server('terugval', { expenseId: stuk.expenseId, reden, model: INSTELLING.model })
+      const r = await server('terugval', { expenseId: stuk.expenseId, reden, model: gebruiktModel })
       log(id, modus, sec(Date.now() - begin), `terugval (${r.gedaan ?? '?'}): ${reden}`)
     } else {
       await server('klaar', {
-        expenseId: stuk.expenseId, model: INSTELLING.model, bestand: bijlage.naam, lezing: uit,
+        expenseId: stuk.expenseId, model: gebruiktModel, bestand: bijlage.naam, lezing: uit,
       })
       log(id, modus, sec(Date.now() - begin), reden ? `klaar, met twijfel: ${reden}` : 'klaar')
     }
@@ -561,7 +608,10 @@ async function lus() {
   process.on('SIGINT', afsluiten)
   process.on('SIGTERM', afsluiten)
 
-  log(`Lokale lezer gestart: model ${INSTELLING.model}, tot ${INSTELLING.max} bonnen per ronde, ` +
+  const modellen = INSTELLING.modelTekst === INSTELLING.modelBeeld
+    ? `model ${INSTELLING.modelBeeld}`
+    : `tekst ${INSTELLING.modelTekst}, beeld ${INSTELLING.modelBeeld}`
+  log(`Lokale lezer gestart: ${modellen}, tot ${INSTELLING.max} bonnen per ronde, ` +
       `bij niets te doen ${INSTELLING.interval}s pauze; server ${INSTELLING.url || '(geen LEZER_URL)'}`)
 
   let serverfoutGemeld = false
@@ -578,7 +628,7 @@ async function lus() {
     let wacht = INSTELLING.interval * 1000
 
     try {
-      const werk = await server('werk', { model: INSTELLING.model, max: INSTELLING.max })
+      const werk = await server('werk', { model: INSTELLING.modelBeeld, max: INSTELLING.max })
       if (serverfoutGemeld) { log('server weer bereikbaar'); serverfoutGemeld = false }
 
       const stukken = werk.werk ?? []
@@ -623,7 +673,7 @@ async function lus() {
 async function promptEnSchema() {
   if (INSTELLING.url && INSTELLING.geheim) {
     try {
-      const w = await server('werk', { model: INSTELLING.model, max: 0 })
+      const w = await server('werk', { model: INSTELLING.modelBeeld, max: 0 })
       if (w.prompt && w.schema) return { prompt: w.prompt, schema: w.schema, bron: 'server' }
     } catch (e) {
       console.error('prompt niet van de server gekregen (' + String(e?.message ?? e) + '); ik gebruik prompt.json')
@@ -645,12 +695,13 @@ async function proef(bestand, alleenPlaatje) {
   const invoer = await maakInvoer(bytes, soort, alleenPlaatje)
   const t1 = Date.now()
   console.error(`bestand: ${pad}`)
-  console.error(`prompt en schema uit ${bron}; model ${INSTELLING.model} via ${INSTELLING.ollama}`)
+  const proefModel = modelVoor(invoer.modus)
+  console.error(`prompt en schema uit ${bron}; model ${proefModel} via ${INSTELLING.ollama}`)
   console.error(`modus: ${invoer.modus}` +
     (invoer.modus === 'tekst' ? ` (${invoer.tekst.length} tekens tekstlaag)` : ` (${invoer.images.length} plaatje(s))`) +
     (invoer.paginas ? `, ${invoer.paginas} pagina('s)` : '') + `, voorbereid in ${sec(t1 - t0)}`)
 
-  const { uit, tokens } = await vraagOllama({ prompt, schema, invoer, model: INSTELLING.model })
+  const { uit, tokens } = await vraagOllama({ prompt, schema, invoer, model: proefModel })
   const t2 = Date.now()
   console.log(JSON.stringify(uit, null, 2))
   const reden = controleer(uit)

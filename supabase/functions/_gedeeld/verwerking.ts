@@ -158,7 +158,71 @@ export async function verwerkLezing(admin: any, opties: {
    */
   const naam = lezing.leverancier ?? vanNaam
 
-  /* --- 2. indelen --- */
+  /* --- 2 en 3: indelen en wegschrijven --- */
+
+  const bij = await vulInVanuitLezing(admin, {
+    expenseId, lezing, onderwerp, vanNaam,
+  })
+  if (!bij) return
+
+  /* --- 4. en misschien meteen goedkeuren --- */
+
+  await misschienGoedkeuren(admin, {
+    expenseId,
+    berichtId,
+    lezing,
+    leverancier: String(bij.supplier ?? naam),
+    bedrag: typeof bij.amount_excl === 'number' ? bij.amount_excl : null,
+    grootboek: typeof bij.grootboek_code === 'string' ? bij.grootboek_code : null,
+    indelingBron: typeof bij.indeling_bron === 'string' ? bij.indeling_bron : null,
+  })
+}
+
+/* ------------------------------------------------------------------ *
+ *  De lezing op de kostenpost zetten
+ *
+ *  Stap 2 en 3 uit verwerkLezing, als eigen functie. Dat moest, want er zijn
+ *  drie manieren waarop een factuur gelezen wordt en ze hoorden alle drie
+ *  hetzelfde op te leveren:
+ *
+ *    de post        leest bij binnenkomst en vult meteen in
+ *    de pc thuis    leest met Ollama en meldt zich terug
+ *    een mens       drukt in de app op "Lezen"
+ *
+ *  Die derde deed het niet. Wat eruit kwam bleef in het veld gelezen staan
+ *  en het scherm bood het aan als voorstel: "Overnemen", regel voor regel.
+ *  Dat was ooit de bedoeling -- een gok hoort niet vanzelf de boekhouding in
+ *  -- maar in de praktijk klopte het altijd, en dan is elke klik er een te
+ *  veel. Nu vult ook die knop hem in.
+ *
+ *  Wat NIET in deze functie zit: de verkoopcontrole, het weghalen van een
+ *  kostenpost en het automatisch goedkeuren. Die drie horen bij de post, die
+ *  het stuk als eerste ziet en waar nog niemand naar keek. Een mens die op
+ *  Lezen drukt kijkt er per definitie wél naar; dan hoort er niets onder zijn
+ *  handen vandaan te verdwijnen of goedgekeurd te worden.
+ *
+ *  Geeft terug wat er is weggeschreven, of null als het misging.
+ * ------------------------------------------------------------------ */
+
+// deno-lint-ignore no-explicit-any
+export async function vulInVanuitLezing(admin: any, opties: {
+  expenseId: string
+  lezing: Lezing
+  onderwerp: string
+  vanNaam: string
+  /** Komt in expenses.lezer; leeg laten als de beller die kolom niet wil zetten. */
+  lezer?: string
+}): Promise<Willekeurig | null> {
+  const { expenseId, lezing, onderwerp, vanNaam } = opties
+
+  /*
+   * De naam van de leverancier van de factuur zelf gaat voor die uit het
+   * mailadres. "facturatie@" of "noreply@" zegt niets; wat er op de bon staat
+   * wel. En de indeling hangt aan die naam, dus dit is niet cosmetisch.
+   */
+  const naam = lezing.leverancier ?? vanNaam
+
+  /* --- indelen --- */
 
   let indeling: { grootboek_code: string | null; tags: string[]; bron: string } | null = null
   try {
@@ -173,9 +237,15 @@ export async function verwerkLezing(admin: any, opties: {
     console.warn('[verwerking] indelen mislukte: ' + String(e))
   }
 
-  /* --- 3. wegschrijven --- */
+  /* --- wegschrijven --- */
 
   const bij: Willekeurig = { updated_at: nu() }
+  /*
+   * Wie las, als de beller dat wil vastleggen. verwerkLezing zet het zelf al
+   * bovenaan (die heeft uitgangen vóór dit punt); factuur-lezen laat het hier
+   * doen, in dezelfde update als de rest.
+   */
+  if (opties.lezer) bij.lezer = opties.lezer
 
   const bedrag = lezing.subtotaalExcl
   /*
@@ -235,17 +305,7 @@ export async function verwerkLezing(admin: any, opties: {
     twijfel: lezing.twijfel.length,
   }))
 
-  /* --- 4. en misschien meteen goedkeuren --- */
-
-  await misschienGoedkeuren(admin, {
-    expenseId,
-    berichtId,
-    lezing,
-    leverancier: String(bij.supplier ?? naam),
-    bedrag: typeof bij.amount_excl === 'number' ? bij.amount_excl : null,
-    grootboek: typeof bij.grootboek_code === 'string' ? bij.grootboek_code : null,
-    indelingBron: typeof bij.indeling_bron === 'string' ? bij.indeling_bron : null,
-  })
+  return bij
 }
 
 /* ------------------------------------------------------------------ *

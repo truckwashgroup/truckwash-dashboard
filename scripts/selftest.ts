@@ -4574,6 +4574,97 @@ console.log('\n30. Trucksupply')
     pakbonTekst(verzonden, regels).includes('Vestiging loc_utr'))
 }
 
+/* ==================================================================== *
+ *  Overnemen zonder klikken
+ *
+ *  De vraag van Casper: "Die dingen overnemen, doe dat automatisch dan? want
+ *  tot nu toe doet hij dat 100 goed." Sindsdien vult niet alleen de post maar
+ *  ook de knop "Lezen" de bon in, en het scherm doet het bij het openen als de
+ *  bon nog leeg is. Waar het op staat of valt is nogNietIngevuld(): die regel
+ *  bepaalt of er iets overschreven kan worden dat een mens heeft ingetikt.
+ * ==================================================================== */
+
+console.log('\n31. Overnemen zonder klikken')
+
+{
+  const { nogNietIngevuld, voorstellen } = await import('../src/lib/facturen')
+
+  const bon = (over: Partial<Expense>): Expense => ({
+    id: 'exp_ov1',
+    locationId: 'loc_oss',
+    date: Date.parse('2026-09-04'),
+    category: 'overig',
+    supplier: 'casper@truckwash1group.nl',
+    description: 'FW: test',
+    amountExcl: 0,
+    vatPct: 21,
+    status: 'open',
+    submittedBy: '',
+    submittedByName: 'de post',
+    updatedAt: 1,
+    ...over,
+  })
+
+  check('een verse bon uit de post is nog niet ingevuld',
+    nogNietIngevuld(bon({})) === true)
+
+  check('met een bedrag erin blijft de keuze aan de mens',
+    nogNietIngevuld(bon({ amountExcl: 10000 })) === false)
+
+  /*
+   * Een goedgekeurde of afgekeurde bon nooit, ook niet als het bedrag nul is.
+   * Daar heeft iemand een oordeel over gegeven; dat overschrijf je niet.
+   */
+  check('een goedgekeurde bon niet, ook niet met bedrag nul',
+    nogNietIngevuld(bon({ status: 'goedgekeurd', approvedAt: 2 })) === false)
+  check('een afgekeurde bon evenmin',
+    nogNietIngevuld(bon({ status: 'afgekeurd' })) === false)
+
+  /*
+   * En een bon die openstaat maar wel is afgetekend (dat kan als iemand hem
+   * goedkeurde en de status later terugzette) blijft ook met rust.
+   */
+  check('afgetekend telt zwaarder dan de status',
+    nogNietIngevuld(bon({ approvedAt: 3 })) === false)
+
+  /* ---- en dan de voorstellen die er vanzelf op gaan ---- */
+
+  const lezing = {
+    soort: 'factuur' as const,
+    leverancier: 'Shell Nederland Verkoopmaatschappij B.V.',
+    factuurnummer: '1300122763',
+    datum: Date.parse('2026-03-21'),
+    subtotaalExcl: 10000,
+    btwBedrag: 2100,
+    totaalIncl: 12100,
+    regels: [{ omschrijving: 'Basic Rent', bedragExcl: 10000, btwPct: 21 }],
+    twijfel: [],
+    gelezenOp: 4,
+  }
+
+  const leeg = bon({})
+  const uit = voorstellen(leeg, lezing)
+  const velden = uit.map((v) => v.veld).sort()
+
+  check('de leverancier, het bedrag en de datum worden voorgesteld',
+    velden.includes('supplier') && velden.includes('amountExcl') && velden.includes('date'),
+    velden.join(','))
+  check('en het bedrag is het subtotaal exclusief btw',
+    uit.find((v) => v.veld === 'amountExcl')?.waarde === 10000)
+
+  /*
+   * Wat al klopt komt niet als voorstel terug -- anders zou "alles overnemen"
+   * op een bon die al goed staat alsnog van alles aanraken.
+   */
+  const alGoed = bon({
+    supplier: 'Shell Nederland Verkoopmaatschappij B.V.',
+    amountExcl: 10000,
+    date: Date.parse('2026-03-21'),
+  })
+  check('wat al klopt wordt niet nog eens voorgesteld',
+    voorstellen(alGoed, lezing).every((v) => v.veld !== 'supplier' && v.veld !== 'amountExcl' && v.veld !== 'date'))
+}
+
 /* ==================================================================== */
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

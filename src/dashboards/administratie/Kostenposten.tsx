@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -11,8 +11,8 @@ import type {
   Expense, FactuurLezing, Grootboek, KostenTag, MailBericht,
 } from '../../lib/types'
 import {
-  bedragExcl, btwPercentage, heeftIetsTeLezen, leesFactuur, regelsKloppen,
-  voorstellen, type Voorstel,
+  bedragExcl, btwPercentage, heeftIetsTeLezen, leesFactuur, nogNietIngevuld,
+  regelsKloppen, voorstellen, type Voorstel,
 } from '../../lib/facturen'
 import { dateShort, money } from '../../lib/format'
 import {
@@ -670,7 +670,41 @@ function Lezing({ bon, lezing }: { bon: Expense; lezing: FactuurLezing }) {
   const optelling = regelsKloppen(lezing)
   const [bezig, setBezig] = useState(false)
 
-  async function neemOver(regels: Voorstel[]) {
+  /*
+   * Zelf overnemen, zonder dat er iemand klikt.
+   *
+   * Het scherm bood de gelezen velden aan als voorstel, regel voor regel met
+   * een knop ernaast. Dat was de voorzichtige stand van het begin, en die is
+   * ingehaald door de praktijk: de lezer heeft het tot nu toe altijd goed, en
+   * dan is elke klik er een te veel. De post vult een bon bij binnenkomst al
+   * vanzelf in; alleen wat een mens met de knop "Lezen" liet lezen bleef
+   * liggen.
+   *
+   * De server doet dit sinds kort ook (factuur-lezen), maar dit stuk staat er
+   * apart naast, om twee redenen. Bonnen die al gelezen zijn vóór die
+   * wijziging staan nog steeds met nul erin, en die horen bij het openen
+   * gewoon goed te komen. En werkt de server even niet, dan is de app het
+   * vangnet in plaats van andersom.
+   *
+   * De voorwaarde is dezelfde als op de server: alleen als er nog nul in het
+   * bedrag staat. Is er iets ingevuld, dan blijven de knoppen staan en kies
+   * je zelf -- precies het geval waarin kiezen zin heeft.
+   *
+   * gedaan onthoudt dat het al is geprobeerd, zodat een mislukte poging niet
+   * elke render opnieuw begint.
+   */
+  const gedaan = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (gedaan.current === bon.id) return
+    if (!nogNietIngevuld(bon) || !voorstel.length) return
+    gedaan.current = bon.id
+    void neemOver(voorstel, true)
+    // De lijst met voorstellen verandert zodra het gelukt is; dat is het einde.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bon.id, voorstel.length])
+
+  async function neemOver(regels: Voorstel[], vanzelf = false) {
     if (!regels.length || bezig) return
     setBezig(true)
     try {
@@ -684,7 +718,9 @@ function Lezing({ bon, lezing }: { bon: Expense; lezing: FactuurLezing }) {
         if (v.veld === 'category') patch.category = lezing.voorstelCategorie
       }
       await expRepo.update(bon.id, patch)
-      toast.ok(regels.length === 1 ? 'Overgenomen.' : `${regels.length} velden overgenomen.`)
+      toast.ok(vanzelf
+        ? 'De gelezen gegevens zijn overgenomen.'
+        : regels.length === 1 ? 'Overgenomen.' : `${regels.length} velden overgenomen.`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Overnemen lukte niet.')
     } finally {
@@ -802,6 +838,9 @@ function Lezing({ bon, lezing }: { bon: Expense; lezing: FactuurLezing }) {
           <>
             <div className="kop">
               <Sparkles size={14} /> Overnemen naar de kostenpost
+              <span className="help" style={{ fontWeight: 400, marginLeft: 8 }}>
+                Er staat al iets ingevuld, dus kies zelf wat er overheen mag.
+              </span>
             </div>
             <ul>
               {voorstel.map((v) => (

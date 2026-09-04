@@ -22,6 +22,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
 import { leesFactuur } from '../_gedeeld/factuurlezer.ts'
+import { vulInVanuitLezing } from '../_gedeeld/verwerking.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -135,6 +136,52 @@ Deno.serve(async (req) => {
     console.warn(`[factuur-lezen] ${expenseId} uit de wachtrij van de lokale lezer halen: ${overdrachtFout.message} (is 0049 al gedraaid?)`)
   }
 
+  /*
+   * En meteen invullen, als er nog niets ingevuld staat.
+   *
+   * Hier bleef het lang bij een lezing: het scherm zette er "Overnemen" naast
+   * en jij klikte per veld. Dat was de voorzichtige stand van het begin -- een
+   * half geraden bedrag is gevaarlijker dan een leeg veld -- maar in de
+   * praktijk klopt de lezer, en dan is elke klik er een te veel. De post vult
+   * hem al vanzelf in; deze knop deed dat als enige niet.
+   *
+   * De voorwaarde is scherp: alleen als er nog nul in het bedrag staat, de bon
+   * openstaat en niemand hem heeft afgetekend. Dan valt er niets te
+   * overschrijven wat een mens heeft ingetikt. Is er wél iets ingevuld, dan
+   * blijft het bij de lezing en biedt het scherm de verschillen aan zoals
+   * altijd -- dat is precies het geval waarin je wilt kunnen kiezen.
+   *
+   * Wat hier met opzet niet gebeurt: de verkoopcontrole en het automatisch
+   * goedkeuren. Die horen bij de post, die het stuk als eerste ziet en waar
+   * nog niemand naar keek. Er drukt hier een mens op een knop; onder diens
+   * handen hoort er niets te verdwijnen of goedgekeurd te worden.
+   */
+  const { data: staat } = await admin
+    .from('expenses')
+    .select('amount_excl, status, approved_at, supplier, description')
+    .eq('id', expenseId)
+    .maybeSingle()
+
+  const onaangeroerd = !!staat
+    && Number(staat.amount_excl ?? 0) === 0
+    && staat.status === 'open'
+    && !staat.approved_at
+
+  let ingevuld = false
+  if (onaangeroerd && uit.lezing) {
+    try {
+      const bij = await vulInVanuitLezing(admin, {
+        expenseId,
+        lezing: uit.lezing,
+        onderwerp: String(staat.description ?? ''),
+        vanNaam: String(staat.supplier ?? ''),
+      })
+      ingevuld = !!bij
+    } catch (e) {
+      console.warn('[factuur-lezen] invullen mislukte: ' + String(e))
+    }
+  }
+
   console.log(`[factuur-lezen] ${beller.naam} las ${uit.lezing?.bestand} bij ${expenseId}`)
-  return json({ ok: true, lezing: uit.lezing, bewaard: uit.bewaard })
+  return json({ ok: true, lezing: uit.lezing, bewaard: uit.bewaard, ingevuld })
 })

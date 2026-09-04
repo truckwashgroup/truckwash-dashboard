@@ -196,6 +196,22 @@ export function regelKaal(r: FactuurRegel): boolean {
   return r.bedragExcl == null && r.stukprijs == null
 }
 
+/**
+ * Staat er nog niets ingevuld op deze bon?
+ *
+ * De vraag achter het automatisch overnemen. Zolang het bedrag nul is, de bon
+ * openstaat en niemand hem heeft afgetekend, valt er niets te overschrijven
+ * wat een mens heeft ingetikt -- en dan hoeft er ook niemand te klikken.
+ *
+ * Het bedrag is met opzet de maatstaf en niet de leverancier of de
+ * omschrijving: die vult de post bij binnenkomst zelf met het mailadres en
+ * het onderwerp, dus daaraan zie je niet of er iemand naar gekeken heeft. Een
+ * bedrag van nul is wél ondubbelzinnig "nog niet ingevuld".
+ */
+export function nogNietIngevuld(bon: Expense): boolean {
+  return bon.status === 'open' && !bon.approvedAt && !(bon.amountExcl > 0)
+}
+
 /** Is deze bon te lezen? Zonder bijlage valt er niets voor te lezen. */
 export function heeftIetsTeLezen(bon: Expense): boolean {
   return !!bon.attachmentPath || !!bon.mailboxId

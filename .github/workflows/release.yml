@@ -128,6 +128,29 @@ jobs:
           echo "  kop:  ${KOP:-(geen -- alleen de downloadinstructies)}"
           echo "  romp: $(printf '%s' "$ROMP" | grep -c '' || true) regels"
 
+      # ----------------------------------------------------------------
+      #  De release alvast neerzetten
+      # ----------------------------------------------------------------
+      #  Electron-builder uploadt zijn bestanden parallel, en elke upload doet
+      #  "zoek de release op zijn tag, maak hem anders aan". Lopen er twee
+      #  tegelijk, dan maken ze er allebei een en staan er TWEE releases onder
+      #  dezelfde tag. In de kassa-repo is dat bij v0.19.1 en v0.19.2 gebeurd:
+      #  de APK viel er daarna buiten met "Release already_exists", terwijl hij
+      #  wel gewoon gebouwd was.
+      #
+      #  Hier is het nog niet misgegaan, en dat is timing en geen afspraak.
+      #  Bestaat de release al voordat er iets uploadt, dan hoeft niemand hem
+      #  aan te maken en kan de race niet optreden. De tekst staat er meteen
+      #  goed op, zodat een release die halverwege strandt nog steeds leesbaar
+      #  is.
+      - name: Lege release klaarzetten
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version || github.ref_name }}
+          name: Truckwash1 Dashboard ${{ steps.v.outputs.version }}
+          body: ${{ steps.notes.outputs.notes }}
+          draft: false
+
   # ------------------------------------------------------------------
   #  Windows-installer
   # ------------------------------------------------------------------

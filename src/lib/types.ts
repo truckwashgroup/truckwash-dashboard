@@ -505,6 +505,19 @@ export interface Expense {
   lezer?: string
 
   /**
+   * Wie deze bon heeft goedgekeurd (0050).
+   *
+   * 'mens' of leeg is het gewone geval. 'automatisch' betekent dat de post
+   * hem zelf akkoord heeft gegeven omdat dezelfde leverancier al een aantal
+   * keer door een mens voor ongeveer hetzelfde bedrag is goedgekeurd. Dat
+   * hoort zichtbaar te zijn: een goedkeuring die niemand ziet is het verschil
+   * tussen "dit gaat vanzelf" en "hier let niemand op".
+   */
+  goedkeuringBron?: 'mens' | 'automatisch'
+  /** Waarom hij vanzelf doorging; één zin, van de database. */
+  goedkeuringReden?: string
+
+  /**
    * De boeking.
    *
    * Anders dan gelezen staan deze velden wél naast de gewone velden en niet

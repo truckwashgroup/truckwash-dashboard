@@ -180,6 +180,7 @@ await run(db, '0046_de_fotos_gaan_mee_naar_de_website.sql draait', sqlFile('supa
 await run(db, '0047_een_verkoopfactuur_is_geen_kostenpost.sql draait', sqlFile('supabase/migrations/0047_een_verkoopfactuur_is_geen_kostenpost.sql'))
 await run(db, '0048_trucksupply_ziet_de_voorraad.sql draait', sqlFile('supabase/migrations/0048_trucksupply_ziet_de_voorraad.sql'))
 await run(db, '0049_de_factuur_kan_ook_thuis_gelezen_worden.sql draait', sqlFile('supabase/migrations/0049_de_factuur_kan_ook_thuis_gelezen_worden.sql'))
+await run(db, '0050_wat_drie_keer_hetzelfde_was.sql draait', sqlFile('supabase/migrations/0050_wat_drie_keer_hetzelfde_was.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -231,6 +232,7 @@ await run(db, '0046 nogmaals', sqlFile('supabase/migrations/0046_de_fotos_gaan_m
 await run(db, '0047 nogmaals', sqlFile('supabase/migrations/0047_een_verkoopfactuur_is_geen_kostenpost.sql'))
 await run(db, '0048 nogmaals', sqlFile('supabase/migrations/0048_trucksupply_ziet_de_voorraad.sql'))
 await run(db, '0049 nogmaals', sqlFile('supabase/migrations/0049_de_factuur_kan_ook_thuis_gelezen_worden.sql'))
+await run(db, '0050 nogmaals', sqlFile('supabase/migrations/0050_wat_drie_keer_hetzelfde_was.sql'))
 
 
 
@@ -4430,6 +4432,182 @@ check('de server zelf mag ze wel wijzigen',
 
 await db.exec(`delete from public.expenses where id = 'exp_lezer_1';`)
 
+
+/* ===========================================================================
+ *  Wat drie keer hetzelfde was (0050)
+ *
+ *  Dit is de enige plek waar geld wordt goedgekeurd zonder dat er iemand
+ *  kijkt, dus hier hoort de scherpste test van het hele bestand. Elk van de
+ *  vier sloten krijgt een eigen geval, en ze worden allemaal van "ja" naar
+ *  "nee" geduwd om te bewijzen dat ze werkelijk iets tegenhouden.
+ * ======================================================================== */
+
+console.log('\n34. Wat drie keer hetzelfde was (0050)')
+
+await asServer(db)
+
+const agOordeel = async (leverancier, bedrag, nummer = null, eigen = null) => (await db.query(
+  'select * from public.mag_automatisch_goedkeuren($1, $2, $3, $4)',
+  [leverancier, bedrag, nummer, eigen])).rows[0]
+
+const agZetInstelling = (sleutel, waarde) => db.query(
+  `update public.instellingen set waarde = $2 where sleutel = $1`, [sleutel, waarde])
+
+check('expenses heeft goedkeuring_bron en goedkeuring_reden',
+  (await db.query(`select count(*)::int as n from information_schema.columns
+     where table_schema = 'public' and table_name = 'expenses'
+       and column_name in ('goedkeuring_bron', 'goedkeuring_reden')`)).rows[0].n === 2)
+
+let agGoedkeuringBronGeweigerd = false
+try {
+  await db.exec(`insert into public.expenses (id, expense_date, goedkeuring_bron)
+                 values ('exp_bron_fout', 1, 'verzonnen')`)
+} catch { agGoedkeuringBronGeweigerd = true }
+check('goedkeuring_bron laat geen verzonnen waarde toe', agGoedkeuringBronGeweigerd)
+
+/* ---- standaard staat het agUit ---- */
+
+check('automatisch goedkeuren staat standaard uit',
+  (await db.query(`select waarde from public.instellingen where sleutel = 'auto_goedkeuren'`))
+    .rows[0].waarde === 'nee')
+
+const agUit = await agOordeel('PreZero Nederland B.V.', 100)
+check('en dan gaat er niets vanzelf door', agUit.mag === false && /staat uit/i.test(agUit.waarom))
+
+await agZetInstelling('auto_goedkeuren', 'ja')
+
+/* ---- drie goedkeuringen van een mens ---- */
+
+await db.exec(`
+  insert into public.expenses
+    (id, location_id, expense_date, supplier, amount_excl, vat_pct, status,
+     approved_at, approved_by_name, goedkeuring_bron, factuurnummer)
+  values
+    ('exp_pz_1', 'loc_utr', 1, 'PreZero Nederland B.V.', 194.50, 21, 'goedgekeurd', 1001, 'Casper', 'mens', 'F-001'),
+    ('exp_pz_2', 'loc_utr', 1, 'prezero nederland b.v.', 196.00, 21, 'goedgekeurd', 1002, 'Casper', 'mens', 'F-002'),
+    ('exp_pz_3', 'loc_utr', 1, 'PreZero Nederland B.V.', 193.20, 21, 'goedgekeurd', 1003, 'Casper', null,   'F-003')
+  on conflict (id) do nothing;`)
+
+const agGoed = await agOordeel('PreZero Nederland B.V.', 194.80, 'F-004')
+check('na drie keer met de hand mag dezelfde factuur vanzelf door',
+  agGoed.mag === true, agGoed.waarom)
+check('en hij vertelt op hoeveel eerdere hij zich baseert',
+  Number(agGoed.keren) >= 3 && Number(agGoed.gewoonte) === 194.50,
+  `keren=${agGoed.keren} gewoonte=${agGoed.gewoonte}`)
+
+/*
+ * Hoofdletters en spaties maken geen tweede leverancier -- exp_pz_2 staat er
+ * kleingeschreven in en telt gewoon mee.
+ */
+check('hoofdletters in de naam maken geen verschil',
+  (await agOordeel('  PREZERO NEDERLAND B.V. ', 194.80, 'F-005')).mag === true)
+
+/* ---- slot 1: een automatische goedkeuring telt niet mee ---- */
+
+await db.exec(`update public.expenses set goedkeuring_bron = 'automatisch'
+                where id in ('exp_pz_2', 'exp_pz_3')`)
+const agZelfbevestigd = await agOordeel('PreZero Nederland B.V.', 194.80, 'F-006')
+check('wat het systeem zelf goedkeurde telt niet mee als gewoonte',
+  agZelfbevestigd.mag === false && Number(agZelfbevestigd.keren) === 1, agZelfbevestigd.waarom)
+await db.exec(`update public.expenses set goedkeuring_bron = 'mens'
+                where id in ('exp_pz_2', 'exp_pz_3')`)
+
+/* ---- slot 2: het bedrag moet kloppen ---- */
+
+check('een bedrag dat ver afwijkt gaat niet vanzelf door',
+  (await agOordeel('PreZero Nederland B.V.', 260, 'F-007')).mag === false)
+check('en een dubbel bedrag al helemaal niet',
+  (await agOordeel('PreZero Nederland B.V.', 389, 'F-008')).mag === false)
+
+/* ---- slot 3: het plafond ---- */
+
+await db.exec(`
+  insert into public.expenses
+    (id, location_id, expense_date, supplier, amount_excl, vat_pct, status,
+     approved_at, approved_by_name, goedkeuring_bron)
+  values
+    ('exp_gr_1', 'loc_utr', 1, 'Grote Partij BV', 900, 21, 'goedgekeurd', 2001, 'Casper', 'mens'),
+    ('exp_gr_2', 'loc_utr', 1, 'Grote Partij BV', 900, 21, 'goedgekeurd', 2002, 'Casper', 'mens'),
+    ('exp_gr_3', 'loc_utr', 1, 'Grote Partij BV', 900, 21, 'goedgekeurd', 2003, 'Casper', 'mens')
+  on conflict (id) do nothing;`)
+
+const agBoven = await agOordeel('Grote Partij BV', 900, 'G-004')
+check('boven het plafond kijkt altijd iemand mee, hoe vertrouwd ook',
+  agBoven.mag === false && /plafond/i.test(agBoven.waarom), agBoven.waarom)
+
+await agZetInstelling('auto_goedkeuren_max', '2000')
+check('en met een hoger plafond mag het wel',
+  (await agOordeel('Grote Partij BV', 900, 'G-005')).mag === true)
+await agZetInstelling('auto_goedkeuren_max', '500')
+
+/* ---- slot 4: een factuurnummer dat er al staat ---- */
+
+const agDubbel = await agOordeel('PreZero Nederland B.V.', 194.80, 'F-002')
+check('een factuurnummer dat al bij deze leverancier staat gaat nooit vanzelf door',
+  agDubbel.mag === false && /staat al/i.test(agDubbel.waarom), agDubbel.waarom)
+
+/*
+ * De bon die zichzelf beoordeelt telt niet mee. Zonder dit zou hij zijn eigen
+ * factuurnummer als dubbele zien en nooit vanzelf doorgaan.
+ */
+await db.exec(`
+  insert into public.expenses (id, location_id, expense_date, supplier, amount_excl, status, factuurnummer)
+  values ('exp_pz_nu', 'loc_utr', 1, 'PreZero Nederland B.V.', 194.80, 'open', 'F-009')
+  on conflict (id) do nothing;`)
+check('maar de bon die nu beoordeeld wordt telt niet als zijn eigen dubbele',
+  (await agOordeel('PreZero Nederland B.V.', 194.80, 'F-009', 'exp_pz_nu')).mag === true)
+
+/* ---- de instellingen doen echt iets ---- */
+
+await agZetInstelling('auto_goedkeuren_vanaf', '5')
+const agStrenger = await agOordeel('PreZero Nederland B.V.', 194.80, 'F-010')
+check('vanaf hoeveel keer is instelbaar',
+  agStrenger.mag === false && /5 nodig|er zijn er 5/i.test(agStrenger.waarom), agStrenger.waarom)
+
+/*
+ * "Vanaf 1" zou betekenen dat één goedkeuring een gewoonte is. De functie
+ * trekt dat op naar 2; te zien aan de zin, die zegt op hoeveel eerdere hij
+ * zich baseert.
+ */
+await agZetInstelling('auto_goedkeuren_vanaf', '1')
+const agBodem = await agOordeel('PreZero Nederland B.V.', 194.80, 'F-011')
+check('één keer wordt opgetrokken naar twee; op één goedkeuring vaart hij nooit',
+  agBodem.mag === true && agBodem.waarom.startsWith('2 eerdere'), agBodem.waarom)
+
+/* En met maar één goedkeuring in huis gaat er dus niets door. */
+await db.exec(`
+  insert into public.expenses
+    (id, location_id, expense_date, supplier, amount_excl, status, approved_at, goedkeuring_bron)
+  values ('exp_een_1', 'loc_utr', 1, 'Eenmalig BV', 80, 'goedgekeurd', 3001, 'mens')
+  on conflict (id) do nothing;`)
+const agEenmalig = await agOordeel('Eenmalig BV', 80, 'E-002')
+check('één eerdere goedkeuring is geen gewoonte',
+  agEenmalig.mag === false && Number(agEenmalig.keren) === 1, agEenmalig.waarom)
+await agZetInstelling('auto_goedkeuren_vanaf', '3')
+
+await agZetInstelling('auto_goedkeuren_marge', '0')
+check('een marge van nul laat alleen exact hetzelfde bedrag door',
+  (await agOordeel('PreZero Nederland B.V.', 194.80, 'F-012')).mag === false
+  && (await agOordeel('PreZero Nederland B.V.', 194.50, 'F-013')).mag === true)
+await agZetInstelling('auto_goedkeuren_marge', '2')
+
+/* ---- een onbekende leverancier ---- */
+
+const agOnbekend = await agOordeel('Nooit Eerder BV', 50, 'X-001')
+check('een leverancier die er nog nooit was gaat niet vanzelf door',
+  agOnbekend.mag === false && Number(agOnbekend.keren) === 0, agOnbekend.waarom)
+
+check('en zonder bedrag ook niet',
+  (await agOordeel('PreZero Nederland B.V.', 0, 'F-014')).mag === false)
+
+/* ---- anon komt er niet bij ---- */
+
+check('anon mag het oordeel niet opvragen',
+  (await db.query(`select has_function_privilege('anon',
+     'public.mag_automatisch_goedkeuren(text, numeric, text, text)', 'execute') as mag`))
+    .rows[0].mag === false)
+
+await agZetInstelling('auto_goedkeuren', 'nee')
 
 await db.close()
 

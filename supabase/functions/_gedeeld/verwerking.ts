@@ -42,9 +42,16 @@ const nu = () => Date.now()
  *    2. indelen       factuur_indelen kiest grootboekrekening en tags
  *    3. wegschrijven  alles op de kostenpost, met erbij waar het vandaan komt
  *
- *  Wat er NIET gebeurt is goedkeuren. De bon blijft op "open" staan en komt
+ *  Goedkeuren gebeurt hier bijna nooit: de bon blijft op "open" staan en komt
  *  gewoon in de rij bij de administratie. Het verschil is dat hij daar nu
  *  ingevuld ligt in plaats van leeg -- nakijken in plaats van overtikken.
+ *
+ *  De uitzondering is stap 4, en die staat standaard uit. Heeft een MENS
+ *  dezelfde leverancier al drie keer voor ongeveer hetzelfde bedrag
+ *  goedgekeurd, dan mag de vierde vanzelf door (0050). De database beslist
+ *  dat, niet deze functie: mag_automatisch_goedkeuren() kijkt naar de
+ *  gewoonte, het plafond, de marge en de dubbele nummers, en geeft ja of nee
+ *  met de reden erbij.
  * ------------------------------------------------------------------ */
 
 // deno-lint-ignore no-explicit-any
@@ -227,6 +234,136 @@ export async function verwerkLezing(admin: any, opties: {
     bron: bij.indeling_bron ?? null,
     twijfel: lezing.twijfel.length,
   }))
+
+  /* --- 4. en misschien meteen goedkeuren --- */
+
+  await misschienGoedkeuren(admin, {
+    expenseId,
+    berichtId,
+    lezing,
+    leverancier: String(bij.supplier ?? naam),
+    bedrag: typeof bij.amount_excl === 'number' ? bij.amount_excl : null,
+    grootboek: typeof bij.grootboek_code === 'string' ? bij.grootboek_code : null,
+    indelingBron: typeof bij.indeling_bron === 'string' ? bij.indeling_bron : null,
+  })
+}
+
+/* ------------------------------------------------------------------ *
+ *  Wat drie keer hetzelfde was
+ *
+ *  De vraag was eenvoudig: is dezelfde leverancier al een paar keer voor
+ *  hetzelfde bedrag goedgekeurd, dan hoeft de volgende niet opnieuw langs
+ *  iemand. Het antwoord staat in de database (0050,
+ *  mag_automatisch_goedkeuren), want daar staan de eerdere goedkeuringen en
+ *  daar horen de vier sloten: alleen wat een mens goedkeurde telt mee, het
+ *  bedrag moet binnen een marge van de mediaan liggen, er is een plafond, en
+ *  een factuurnummer dat al bestaat gaat nooit vanzelf door.
+ *
+ *  Hier staan de drie voorwaarden die de database niet kan zien, omdat ze
+ *  over de LEZING gaan en niet over de boekhouding:
+ *
+ *    - de lezer twijfelde nergens over
+ *    - de rekening komt uit het geheugen, niet uit een gok op trefwoorden
+ *    - het is een factuur of een bon, geen aanmaning of iets onbekends
+ *
+ *  Alle drie zijn ze streng met opzet. Twijfel betekent dat er een mens naar
+ *  moet kijken; dat is de hele reden dat het veld bestaat. Een geraden
+ *  rekening betekent dat het systeem deze leverancier nog niet kent, en dan
+ *  kan het ook niet weten dat dit "hetzelfde" is. En een aanmaning is per
+ *  definitie een tweede keer.
+ *
+ *  Mislukt hier iets -- de migratie is nog niet gedraaid, de functie bestaat
+ *  niet -- dan blijft de bon gewoon open staan. Dat is de veilige uitkomst en
+ *  precies wat er zonder dit stuk zou gebeuren.
+ * ------------------------------------------------------------------ */
+
+// deno-lint-ignore no-explicit-any
+async function misschienGoedkeuren(admin: any, opties: {
+  expenseId: string
+  berichtId: string
+  lezing: Lezing
+  leverancier: string
+  bedrag: number | null
+  grootboek: string | null
+  indelingBron: string | null
+}): Promise<void> {
+  const { expenseId, berichtId, lezing, leverancier, bedrag, grootboek, indelingBron } = opties
+
+  if (lezing.twijfel.length > 0) return
+  if (!grootboek || indelingBron !== 'geheugen') return
+  if (lezing.soort !== 'factuur' && lezing.soort !== 'bon') return
+  if (bedrag == null || bedrag <= 0) return
+
+  let oordeel: { mag: boolean; waarom: string; keren: number; gewoonte: number | null } | null = null
+  try {
+    const { data, error } = await admin.rpc('mag_automatisch_goedkeuren', {
+      leverancier_in: leverancier,
+      bedrag_in: bedrag,
+      factuurnummer_in: lezing.factuurnummer ?? null,
+      expense_in: expenseId,
+    })
+    if (error) throw new Error(error.message)
+    const rij = Array.isArray(data) ? data[0] : data
+    if (rij) oordeel = rij
+  } catch (e) {
+    console.warn('[verwerking] automatisch goedkeuren niet beoordeeld: ' + String(e))
+    return
+  }
+
+  if (!oordeel?.mag) {
+    /*
+     * Niet loggen als het gewoon uit staat -- dat is de normale toestand en
+     * zou elke factuur een regel ruis geven.
+     */
+    if (oordeel && !/staat uit/i.test(oordeel.waarom)) {
+      console.log(`[verwerking] ${expenseId} niet vanzelf goedgekeurd: ${oordeel.waarom}`)
+    }
+    return
+  }
+
+  const { error } = await admin.from('expenses').update({
+    status: 'goedgekeurd',
+    approved_at: nu(),
+    approved_by: null,
+    approved_by_name: 'Automatisch',
+    goedkeuring_bron: 'automatisch',
+    goedkeuring_reden: oordeel.waarom.slice(0, 400),
+    updated_at: nu(),
+  }).eq('id', expenseId).eq('status', 'open')
+
+  if (error) {
+    console.error('[verwerking] automatisch goedkeuren mislukte: ' + error.message)
+    return
+  }
+
+  console.log(`[verwerking] ${expenseId} automatisch goedgekeurd: ${oordeel.waarom}`)
+
+  /*
+   * En zeggen dat het gebeurd is. Een goedkeuring die niemand ziet is het
+   * verschil tussen "dit gaat vanzelf" en "hier let niemand op"; een melding
+   * per stuk houdt het het eerste. Info en geen taak: er hoeft niets gedaan
+   * te worden, alleen geweten.
+   */
+  await meldManagement(admin, berichtId + '_auto', {
+    kind: 'info',
+    title: `Vanzelf goedgekeurd: ${leverancier}`.slice(0, 200),
+    body: `${euro(bedrag)} exclusief btw. ${oordeel.waarom} ` +
+          'Klopt het niet, dan keur je hem alsnog af bij Kostenposten.',
+    link: 'financieel',
+  })
+}
+
+/**
+ * Een bedrag zoals je het schrijft: € 1.234,56.
+ *
+ * Met de hand en niet met Intl: dit draait in Deno op een server waar de
+ * landinstelling niet vastligt, en een mail met "€ 1,234.56" erin leest een
+ * Nederlander verkeerd -- dat is precies een factor duizend.
+ */
+function euro(bedrag: number): string {
+  const [heel, cent] = Math.abs(bedrag).toFixed(2).split('.')
+  const metPunten = heel.replace(/\d(?=(\d{3})+$)/g, '$&.')
+  return (bedrag < 0 ? '-€ ' : '€ ') + metPunten + ',' + cent
 }
 
 /* ------------------------------------------------------------------ *

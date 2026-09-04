@@ -122,33 +122,43 @@ npm start
 Je ziet per factuur één regel: tijd, kostenpost, modus (tekst of plaatje),
 duur en uitkomst. Laat het venster openstaan, of beter:
 
-### 6. Als Windows-taak bij het aanmelden
+### 6. Hij start al vanzelf mee
 
-Zo start het programma vanzelf mee en hoef je er niet aan te denken. Eén
-regel in een **opdrachtprompt (cmd, niet PowerShell)**, als de gebruiker die
-zich aanmeldt; beheerdersrechten zijn niet nodig. Pas het pad aan:
+Dit is al voor je gedaan: er staat een geplande taak **Truckwash factuurlezer**
+die het programma start zodra je je aanmeldt, dertig seconden later (zodat het
+netwerk er is), en hem opnieuw start als hij onverhoopt omvalt. Je hoeft dus
+niets op te starten; zet de pc aan en meld je aan, en hij draait.
 
+Controleren, wijzigen of weghalen kan in de Taakplanner, of met deze regels in
+PowerShell:
+
+```powershell
+# Draait hij?
+Get-ScheduledTask -TaskName "Truckwash factuurlezer" | Get-ScheduledTaskInfo
+
+# Nu meteen starten of stoppen
+Start-ScheduledTask -TaskName "Truckwash factuurlezer"
+Stop-ScheduledTask  -TaskName "Truckwash factuurlezer"
+
+# Helemaal weghalen
+Unregister-ScheduledTask -TaskName "Truckwash factuurlezer" -Confirm:$false
 ```
-schtasks /create /tn "Truckwash lezer" /tr "cmd /c cd /d \"C:\Users\Contr Truckwash\Desktop\projecten\dashboard\lezer\" && npm start" /sc onlogon
-```
 
-Waarom cmd: de regel gebruikt `\"` om aanhalingstekens binnen aanhalingstekens
-te zetten, en dat verstaat alleen cmd. PowerShell sluit de tekst bij de eerste
-`\"`, hakt het pad met de spatie in losse stukken en schtasks krijgt een
-kapotte opdracht. Wil je het toch vanuit PowerShell, zet dan `--%` achter
-`schtasks`: vanaf dat teken geeft PowerShell de rest letterlijk door, zonder
-er zelf iets van te maken (enkele aanhalingstekens buiten en dubbele binnen
-lijkt te werken, maar PowerShell 5.1 -- de standaard op Windows 11 -- laat de
-binnenste aanhalingstekens vallen bij het doorgeven aan het programma):
+Wil je zien wát hij doet, start hem dan zelf in een venster met `npm start`
+(stop eerst de taak, anders lezen er twee tegelijk mee); de regels per factuur
+komen dan in beeld.
 
-```
-schtasks --% /create /tn "Truckwash lezer" /tr "cmd /c cd /d \"C:\Users\Contr Truckwash\Desktop\projecten\dashboard\lezer\" && npm start" /sc onlogon
-```
+Staat de taak er ooit niet meer, dan maak je hem opnieuw met dit blok in
+PowerShell:
 
-Controleren of hij loopt: Taakplanner, of in het Inkoop-scherm kijken naar
-*laatst gezien*. Weghalen: `schtasks /delete /tn "Truckwash lezer" /f`.
-De precieze regel en wat je doet als hij niet start staan in
-`lezer/README.md`.
+```powershell
+$map = "C:\Users\Contr Truckwash\Desktop\projecten\dashboard\lezer"
+$actie = New-ScheduledTaskAction -Execute "C:\Program Files\nodejs\node.exe" -Argument "lezer.mjs" -WorkingDirectory $map
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:COMPUTERNAME\$env:USERNAME"
+$trigger.Delay = "PT30S"
+$inst = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName "Truckwash factuurlezer" -Action $actie -Trigger $trigger -Settings $inst -Force
+```
 
 ### 7. De stand kiezen
 
@@ -214,6 +224,55 @@ Op `expenses`:
 | `lees_status` | `wacht`, `bezig`, `klaar` of `mislukt`; leeg als de bon niet via de lokale lezer ging |
 | `lees_geclaimd_at` | wanneer het programma de bon opeiste (epoch ms); ouder dan tien minuten op *bezig* geldt als vastgelopen |
 | `lezer` | wie las: `claude`, `claude (terugval)` of `lokaal: gemma4:26b` |
+| `goedkeuring_bron` | `mens` of `automatisch`; leeg bij alles wat nog openstaat |
+| `goedkeuring_reden` | de zin waarmee een automatische goedkeuring is genomen |
 
 In `instellingen`: `factuur_lezer` (de keuze), `lezer_laatst_gezien` (epoch
-ms als tekst) en `lezer_model` (de laatste twee zet het programma zelf).
+ms als tekst) en `lezer_model` (de laatste twee zet het programma zelf), plus
+`auto_goedkeuren` met `auto_goedkeuren_vanaf`, `auto_goedkeuren_marge` en
+`auto_goedkeuren_max`.
+
+---
+
+## Facturen die zichzelf goedkeuren
+
+Los van wie er leest staat er sinds 0050 nóg een stap klaar, en die **staat
+uit**. Zet je hem aan, dan mag een factuur zichzelf goedkeuren als dezelfde
+leverancier al een paar keer voor ongeveer hetzelfde bedrag is goedgekeurd.
+
+Aanzetten: **Ontwikkeling → Inkoop → Zichzelf goedkeuren**. Daar staan ook de
+drie getallen: vanaf hoeveel keer (standaard 3), hoeveel procent het bedrag mag
+afwijken (standaard 2) en het plafond (standaard € 500 exclusief btw).
+
+### Wanneer gaat een factuur vanzelf door
+
+Alles hieronder moet kloppen. Eén nee is genoeg om hem gewoon in de rij te
+laten staan.
+
+| Voorwaarde | Waarom |
+|---|---|
+| Minstens 3 eerdere goedkeuringen **van een mens** | Wat het systeem zelf goedkeurde telt niet mee. Anders bevestigt het na verloop van tijd zijn eigen vergissingen. |
+| Bedrag binnen 2% van de **mediaan** van die drie | Niet het gemiddelde: één jaarafrekening ertussen zou de grens optillen voor alles daarna. |
+| Onder het plafond van € 500 | Een leverancier die elke maand € 40 stuurt en ineens € 4.000 is geen gewoonte maar een vraag. |
+| Het factuurnummer staat nog niet bij deze leverancier | Anders is het een herinnering of een dubbele, en die betaal je niet twee keer. |
+| De lezer twijfelde nergens over | Twijfel betekent dat er een mens naar moet kijken; daar is het veld voor. |
+| De grootboekrekening komt uit het geheugen, niet uit een gok | Kent het systeem deze leverancier nog niet, dan kan het ook niet weten dat dit "hetzelfde" is. |
+| Het is een factuur of een bon | Een aanmaning is per definitie een tweede keer. |
+
+### Wat je ervan ziet
+
+De bon staat op *goedgekeurd* met **Automatisch** als goedkeurder en een badge
+*vanzelf goedgekeurd* in de lijst. In het detail staat de hele reden: op
+hoeveel eerdere facturen hij zich baseerde, welk bedrag daarbij gebruikelijk
+was en hoeveel deze afwijkt. Het management krijgt er een melding van.
+
+Klopt het niet, dan keur je hem gewoon af. Vanaf dat moment telt jouw oordeel
+weer mee en het automatische niet.
+
+### Hoe ik het zou aanzetten
+
+Laat hem eerst een maand of twee uit staan en kijk in Kostenposten hoe vaak de
+lezer het goed had. Zet hem daarna aan met het plafond laag — €100 bijvoorbeeld
+— zodat alleen de kleine, saaie maandfacturen doorgaan en alles wat geld kost
+nog steeds langs een mens komt. Werkt dat een paar maanden goed, dan verhoog je
+het plafond.

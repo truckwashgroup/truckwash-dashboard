@@ -231,6 +231,7 @@ export default function Kostenposten() {
                           </div>
                         )}
                         <LeesStatus bon={e} />
+                        <VanzelfAkkoord bon={e} kort />
                         <Bijlage bon={e} />
                         {e.rejectReason && (
                           <div className="kosten-reden">Reden: {e.rejectReason}</div>
@@ -356,6 +357,7 @@ function BonDetail({
           <div className="row" style={{ gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
             <Bijlage bon={bon} />
             <LeesStatus bon={bon} />
+            <VanzelfAkkoord bon={bon} />
             <span className="spacer" />
             {magLezen && heeftIetsTeLezen(bon) && (
               <button className="btn primary sm" disabled={bezig} onClick={() => void lees()}>
@@ -423,6 +425,38 @@ function LeesStatus({ bon }: { bon: Expense }) {
     )
   }
   return null
+}
+
+/**
+ * Deze bon is vanzelf goedgekeurd (0050).
+ *
+ * Staat los van LeesStatus, want het gaat over iets anders: niet wie hem las,
+ * maar wie hem akkoord gaf. En het hoort op te vallen. Een goedkeuring zonder
+ * mens is precies het soort ding dat je pas mist als er een keer iets doorheen
+ * glipt, dus krijgt hij een eigen badge in de rij en de hele reden in het
+ * detail -- inclusief de zin waarmee de database het besloot.
+ */
+function VanzelfAkkoord({ bon, kort = false }: { bon: Expense; kort?: boolean }) {
+  if (bon.goedkeuringBron !== 'automatisch') return null
+
+  if (kort) {
+    return (
+      <div style={{ marginTop: 3 }}>
+        <Badge tone="brand"><Sparkles size={11} /> vanzelf goedgekeurd</Badge>
+      </div>
+    )
+  }
+
+  return (
+    <div className="hint" style={{ marginBottom: 14 }}>
+      <Sparkles size={14} style={{ verticalAlign: -2 }} />{' '}
+      <strong>Vanzelf goedgekeurd.</strong>{' '}
+      {bon.goedkeuringReden
+        ? bon.goedkeuringReden
+        : 'Dezelfde leverancier is eerder een aantal keer voor ongeveer hetzelfde bedrag goedgekeurd.'}{' '}
+      Klopt het niet, dan keur je hem alsnog af; dan is het weer mensenwerk.
+    </div>
+  )
 }
 
 /* -------------------------- De historie --------------------------- */

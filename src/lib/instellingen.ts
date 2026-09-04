@@ -50,6 +50,17 @@ export const SLEUTELS = {
   lezerLaatstGezien: 'lezer_laatst_gezien',
   lezerModel: 'lezer_model',
   /*
+   * Zichzelf goedkeuren (0050). Staat standaard uit: dit is de enige plek
+   * waar geld wordt goedgekeurd zonder dat er iemand kijkt. De vier sloten
+   * (alleen wat een mens goedkeurde telt mee, een marge op het bedrag, een
+   * plafond en geen dubbele factuurnummers) zitten in de database, niet hier
+   * -- de post vraagt het daar en doet wat er terugkomt.
+   */
+  autoGoedkeuren: 'auto_goedkeuren',
+  autoGoedkeurenVanaf: 'auto_goedkeuren_vanaf',
+  autoGoedkeurenMarge: 'auto_goedkeuren_marge',
+  autoGoedkeurenMax: 'auto_goedkeuren_max',
+  /*
    * Trucksupply. Het adres waar de voorraadalarmen heen gaan, het uur waarop
    * de ochtendmail vertrekt (Europe/Amsterdam) en de divisie in Exact. De
    * serverfunctie leest ze bij elke ronde; daarom staan ze hier en niet in

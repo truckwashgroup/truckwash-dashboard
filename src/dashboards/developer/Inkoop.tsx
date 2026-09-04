@@ -93,6 +93,10 @@ function Adressen() {
   const [voorvoegsel, setVoorvoegsel] = useState('inkoop')
   const [automatisch, setAutomatisch] = useState(true)
   const [lezer, setLezer] = useState<Lezer>('claude')
+  const [autoAan, setAutoAan] = useState(false)
+  const [autoVanaf, setAutoVanaf] = useState('3')
+  const [autoMarge, setAutoMarge] = useState('2')
+  const [autoMax, setAutoMax] = useState('500')
   const [eigenKvk, setEigenKvk] = useState('')
   const [eigenBtw, setEigenBtw] = useState('')
   const [eigenIban, setEigenIban] = useState('')
@@ -113,6 +117,10 @@ function Adressen() {
        */
       const gekozen = alle[SLEUTELS.factuurLezer]
       setLezer(LEZERS.some((l) => l.waarde === gekozen) ? gekozen as Lezer : 'claude')
+      setAutoAan((alle[SLEUTELS.autoGoedkeuren] || 'nee') === 'ja')
+      setAutoVanaf(alle[SLEUTELS.autoGoedkeurenVanaf] || '3')
+      setAutoMarge(alle[SLEUTELS.autoGoedkeurenMarge] || '2')
+      setAutoMax(alle[SLEUTELS.autoGoedkeurenMax] || '500')
       setEigenKvk(alle[SLEUTELS.eigenKvk] ?? '')
       setEigenBtw(alle[SLEUTELS.eigenBtw] ?? '')
       setEigenIban(alle[SLEUTELS.eigenIban] ?? '')
@@ -135,6 +143,10 @@ function Adressen() {
       await zetInstelling(SLEUTELS.eigenKvk, eigenKvk.trim())
       await zetInstelling(SLEUTELS.eigenBtw, eigenBtw.trim().toUpperCase())
       await zetInstelling(SLEUTELS.eigenIban, eigenIban.trim().toUpperCase())
+      await zetInstelling(SLEUTELS.autoGoedkeuren, autoAan ? 'ja' : 'nee')
+      await zetInstelling(SLEUTELS.autoGoedkeurenVanaf, String(Math.max(2, Number(autoVanaf) || 3)))
+      await zetInstelling(SLEUTELS.autoGoedkeurenMarge, String(Math.min(25, Math.max(0, Number(autoMarge) || 0))))
+      await zetInstelling(SLEUTELS.autoGoedkeurenMax, String(Math.max(0, Number(autoMax) || 0)))
       toast.ok('Opgeslagen. Nieuwe post komt hier binnen.')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Opslaan mislukte.')
@@ -239,6 +251,69 @@ function Adressen() {
       </div>
       {/* Zonder het vinkje leest niemand en wacht er dus ook niets: dan geen rode regel. */}
       <LezerStatus lokaalGekozen={automatisch && lezer !== 'claude'} />
+
+      {/* ---- zichzelf goedkeuren ---- */}
+
+      <h4 style={{ marginTop: 24, marginBottom: 4 }}>Zichzelf goedkeuren</h4>
+      <p className="help" style={{ marginBottom: 10 }}>
+        Is dezelfde leverancier al een paar keer <strong>door een mens</strong> voor
+        ongeveer hetzelfde bedrag goedgekeurd, dan mag de volgende factuur vanzelf
+        door. Wat het systeem zelf goedkeurde telt daarbij niet mee — anders
+        bevestigt het na verloop van tijd zijn eigen vergissingen. Een factuur met
+        twijfel, een geraden grootboekrekening of een factuurnummer dat al bestaat
+        gaat nooit vanzelf door.
+      </p>
+
+      <label className="row" style={{ gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
+        <input
+          type="checkbox"
+          checked={autoAan}
+          onChange={(e) => setAutoAan(e.target.checked)}
+          style={{ marginTop: 3 }}
+        />
+        <span>
+          <strong>Facturen mogen zichzelf goedkeuren</strong>
+          <br />
+          <span className="help">
+            Hier gaat geld weg zonder dat iemand keek. Zet dit pas aan als je een
+            paar maanden hebt gezien dat de lezer klopt; je krijgt van elke
+            automatische goedkeuring een melding, en afkeuren kan altijd nog.
+          </span>
+        </span>
+      </label>
+
+      {autoAan && (
+        <div className="grid cols-3" style={{ marginTop: 12 }}>
+          <Field label="Vanaf hoeveel keer" help="Minimaal 2. Standaard 3.">
+            <input
+              className="input"
+              type="number"
+              min={2}
+              value={autoVanaf}
+              onChange={(e) => setAutoVanaf(e.target.value)}
+            />
+          </Field>
+          <Field label="Marge op het bedrag (%)" help="Hoeveel het mag afwijken van wat gebruikelijk is.">
+            <input
+              className="input"
+              type="number"
+              min={0}
+              max={25}
+              value={autoMarge}
+              onChange={(e) => setAutoMarge(e.target.value)}
+            />
+          </Field>
+          <Field label="Plafond (€ excl. btw)" help="Hierboven kijkt altijd iemand mee.">
+            <input
+              className="input"
+              type="number"
+              min={0}
+              value={autoMax}
+              onChange={(e) => setAutoMax(e.target.value)}
+            />
+          </Field>
+        </div>
+      )}
 
       {/* ---- de eigen nummers ---- */}
 

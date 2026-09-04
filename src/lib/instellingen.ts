@@ -50,6 +50,16 @@ export const SLEUTELS = {
   lezerLaatstGezien: 'lezer_laatst_gezien',
   lezerModel: 'lezer_model',
   /*
+   * Waar het denkwerk gebeurt bij de andere twee plekken waar een model
+   * meedenkt (0051): het gesprek bij een melding, en Trucky op de website.
+   * Zelfde drie standen als bij de facturen. Het model draait op één machine
+   * -- nu de pc op kantoor, straks de server -- en nooit bij de bezoeker.
+   */
+  aiMelding: 'ai_melding',
+  aiTrucky: 'ai_trucky',
+  aiLokaalModel: 'ai_lokaal_model',
+  aiWachttijd: 'ai_wachttijd',
+  /*
    * Zichzelf goedkeuren (0050). Staat standaard uit: dit is de enige plek
    * waar geld wordt goedgekeurd zonder dat er iemand kijkt. De vier sloten
    * (alleen wat een mens goedkeurde telt mee, een marge op het bedrag, een

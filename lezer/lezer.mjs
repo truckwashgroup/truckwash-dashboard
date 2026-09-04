@@ -228,6 +228,14 @@ const SERVER_TIMEOUT = {
   mislukt: 60_000,
   klaar: 5 * 60 * 1000,
   terugval: 5 * 60 * 1000,
+  /*
+   * De lange lijn voor AI-opdrachten. De server houdt dit verzoek 25 seconden
+   * open als er niets te doen is; hier moet dus meer dan 25 in staan, anders
+   * breekt deze kant de lijn af terwijl de server nog netjes aan het wachten
+   * is -- en dan zie je elke halve minuut een time-out die geen storing is.
+   */
+  'ai-werk': 40_000,
+  'ai-klaar': 60_000,
 }
 
 async function server(actie, body = {}) {
@@ -592,10 +600,121 @@ async function verwerkStuk(stuk, werk) {
  *  De lus
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ *  De tweede lus: meedenken in plaats van lezen (0051)
+ *
+ *  Naast facturen kan deze machine ook het gesprek bij een melding en de
+ *  chatbot op de website beantwoorden. Dat is ander werk: er zit iemand te
+ *  wachten, dus het moet meteen.
+ *
+ *  Vandaar de lange lijn. Deze lus vraagt om werk en de server houdt dat
+ *  verzoek open tot er iets is -- hoogstens vijfentwintig seconden. Komt er
+ *  niets, dan begint hij gewoon opnieuw. Zo is de vertraging een fractie van
+ *  een seconde en zijn het toch maar twee, drie verzoeken per minuut.
+ *
+ *  Waarom een aparte lus en niet in de bestaande: een factuur mag tien
+ *  minuten duren, een antwoord aan een bezoeker niet. Zouden ze door elkaar
+ *  lopen, dan staat een chauffeur te wachten omdat er net een scan van drie
+ *  pagina's wordt gelezen. Nu lopen ze naast elkaar en pakt Ollama ze in de
+ *  volgorde waarin ze binnenkomen.
+ * ------------------------------------------------------------------ */
+
+async function aiLus() {
+  let stilGemeld = false
+
+  while (!stoppen) {
+    let opdracht = null
+    try {
+      const uit = await server('ai-werk', {})
+      opdracht = uit.opdracht ?? null
+      if (stilGemeld) { log('ai: server weer bereikbaar'); stilGemeld = false }
+    } catch (e) {
+      if (e instanceof StopFout) throw e
+      if (!stilGemeld) {
+        log('ai: server niet bereikbaar,', foutTekst(e))
+        stilGemeld = true
+      }
+      if (!stoppen) await slaap(10_000, stop.signal)
+      continue
+    }
+
+    if (!opdracht) continue
+
+    const begin = Date.now()
+    const model = opdracht.model || INSTELLING.modelTekst
+    try {
+      const antwoord = await vraagOllamaTekst({
+        systeem: opdracht.systeem,
+        gebruiker: opdracht.gebruiker,
+        schema: opdracht.schema ?? undefined,
+        model,
+      })
+      const uit = await server('ai-klaar', { id: opdracht.id, antwoord, model })
+      log('ai', opdracht.soort, sec(Date.now() - begin),
+          uit.teLaat ? 'klaar, maar te laat -- de server wachtte niet meer' : 'klaar')
+    } catch (e) {
+      const reden = foutTekst(e).slice(0, 400)
+      log('ai', opdracht.soort, sec(Date.now() - begin), 'mislukt: ' + reden)
+      try {
+        await server('ai-klaar', { id: opdracht.id, fout: reden, model })
+      } catch { /* dan loopt de server zelf in zijn tijdslot */ }
+    }
+  }
+}
+
+/**
+ * Ollama vragen om tekst in plaats van om een gelezen factuur.
+ *
+ * Zelfde model, andere vorm: hier komt er geen plaatje aan te pas en hoeft er
+ * niet per se JSON uit. Alleen als de beller een schema meestuurt (dat doet
+ * het gesprek bij een melding) wordt dat als "format" meegegeven; dan kán het
+ * model niet anders antwoorden.
+ */
+async function vraagOllamaTekst({ systeem, gebruiker, schema, model }) {
+  const body = {
+    model,
+    messages: [
+      { role: 'system', content: systeem },
+      { role: 'user', content: gebruiker },
+    ],
+    stream: false,
+    options: { temperature: 0.2, num_ctx: 16384 },
+  }
+  if (schema) body.format = schema
+
+  let res
+  try {
+    res = await fetch(INSTELLING.ollama + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(OLLAMA_TIMEOUT),
+    })
+  } catch (e) {
+    if (e?.name === 'TimeoutError') throw new Error(`Ollama antwoordde niet binnen ${OLLAMA_TIMEOUT / 60000} minuten`)
+    throw new Error(`Ollama is niet bereikbaar op ${INSTELLING.ollama}: ${foutTekst(e)}`)
+  }
+
+  if (!res.ok) {
+    throw new Error(`Ollama gaf ${res.status}: ${(await res.text()).slice(0, 300)}`)
+  }
+
+  const uit = await res.json()
+  const tekst = String(uit?.message?.content ?? '').trim()
+  if (!tekst) throw new Error('Ollama gaf een leeg antwoord')
+  return tekst
+}
+
+/*
+ * Het stopsignaal staat hier en niet in lus(), want er zijn er sinds 0051
+ * twee: de facturenlus en de AI-lus. Ctrl+C hoort ze allebei te raken, en
+ * een AbortController die in één functie leeft laat de andere doordraaien.
+ */
+const stop = new AbortController()
+let stoppen = false
+
 async function lus() {
-  const stop = new AbortController()
   let bezig = false
-  let stoppen = false
 
   const afsluiten = () => {
     if (stoppen) { process.exit(130) }
@@ -720,5 +839,13 @@ if (proefIndex >= 0) {
   if (!bestand) { console.error('Gebruik: node lezer.mjs --proef <bestand.pdf|png|jpg> [--plaatje]'); process.exit(1) }
   proef(bestand, argv.includes('--plaatje')).catch((e) => { console.error('mislukt:', e?.message ?? e); process.exit(1) })
 } else {
-  lus().catch((e) => { console.error('onverwacht gestopt:', e); process.exit(1) })
+  /*
+   * Twee lussen naast elkaar: facturen en AI-opdrachten. Valt er één om, dan
+   * stopt het programma -- de geplande taak start het binnen een minuut
+   * opnieuw, en dat is beter dan half doordraaien terwijl de helft stilstaat.
+   */
+  Promise.all([
+    lus(),
+    aiLus(),
+  ]).catch((e) => { console.error('onverwacht gestopt:', e); process.exit(1) })
 }

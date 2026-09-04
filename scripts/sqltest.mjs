@@ -181,6 +181,7 @@ await run(db, '0047_een_verkoopfactuur_is_geen_kostenpost.sql draait', sqlFile('
 await run(db, '0048_trucksupply_ziet_de_voorraad.sql draait', sqlFile('supabase/migrations/0048_trucksupply_ziet_de_voorraad.sql'))
 await run(db, '0049_de_factuur_kan_ook_thuis_gelezen_worden.sql draait', sqlFile('supabase/migrations/0049_de_factuur_kan_ook_thuis_gelezen_worden.sql'))
 await run(db, '0050_wat_drie_keer_hetzelfde_was.sql draait', sqlFile('supabase/migrations/0050_wat_drie_keer_hetzelfde_was.sql'))
+await run(db, '0051_de_eigen_ai_mag_ook_meedenken.sql draait', sqlFile('supabase/migrations/0051_de_eigen_ai_mag_ook_meedenken.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -233,6 +234,7 @@ await run(db, '0047 nogmaals', sqlFile('supabase/migrations/0047_een_verkoopfact
 await run(db, '0048 nogmaals', sqlFile('supabase/migrations/0048_trucksupply_ziet_de_voorraad.sql'))
 await run(db, '0049 nogmaals', sqlFile('supabase/migrations/0049_de_factuur_kan_ook_thuis_gelezen_worden.sql'))
 await run(db, '0050 nogmaals', sqlFile('supabase/migrations/0050_wat_drie_keer_hetzelfde_was.sql'))
+await run(db, '0051 nogmaals', sqlFile('supabase/migrations/0051_de_eigen_ai_mag_ook_meedenken.sql'))
 
 
 
@@ -4608,6 +4610,82 @@ check('anon mag het oordeel niet opvragen',
     .rows[0].mag === false)
 
 await agZetInstelling('auto_goedkeuren', 'nee')
+
+/* ===========================================================================
+ *  De eigen AI mag ook meedenken (0051)
+ *
+ *  Het postvak tussen de serverfuncties en de machine die het model draait.
+ *  Wat hier telt is dat er niets uit lekt: er staat in wat een bezoeker of
+ *  een monteur heeft ingetikt.
+ * ======================================================================== */
+
+console.log('\n35. De eigen AI mag ook meedenken (0051)')
+
+await asServer(db)
+
+check('ai_opdrachten bestaat met de velden die de functies gebruiken',
+  (await db.query(`select count(*)::int as n from information_schema.columns
+     where table_schema = 'public' and table_name = 'ai_opdrachten'
+       and column_name in ('id','soort','status','systeem','gebruiker','model',
+                           'gebruikt_model','schema','antwoord','fout',
+                           'geclaimd_at','klaar_at')`)).rows[0].n === 12)
+
+let aiStatusFout = false
+try {
+  await db.exec(`insert into public.ai_opdrachten (id, soort, systeem, gebruiker, status)
+                 values ('ai_fout', 'melding', 's', 'g', 'verzonnen')`)
+} catch { aiStatusFout = true }
+check('een verzonnen status wordt geweigerd', aiStatusFout)
+
+/*
+ * Dicht, en dat is het hele punt: hier staat de vraag van een bezoeker in.
+ * Net als exact_koppeling geen enkele policy, dus alleen de servicesleutel.
+ */
+check('ai_opdrachten heeft RLS aan en geen enkele policy',
+  (await db.query(`
+    select c.relrowsecurity as rls from pg_class c
+      join pg_namespace ns on ns.oid = c.relnamespace
+     where ns.nspname = 'public' and c.relname = 'ai_opdrachten'`)).rows[0].rls === true
+  && (await db.query(`select count(*)::int as n from pg_policies
+       where schemaname = 'public' and tablename = 'ai_opdrachten'`)).rows[0].n === 0)
+
+check('anon mag de opruimer niet aanroepen',
+  (await db.query(`select has_function_privilege('anon',
+     'public.ai_opdrachten_opruimen()', 'execute') as mag`)).rows[0].mag === false)
+check('en een ingelogde gebruiker ook niet',
+  (await db.query(`select has_function_privilege('authenticated',
+     'public.ai_opdrachten_opruimen()', 'execute') as mag`)).rows[0].mag === false)
+
+/* ---- opruimen ---- */
+
+await db.exec(`
+  insert into public.ai_opdrachten (id, soort, systeem, gebruiker, status, klaar_at, created_at)
+  values
+    ('ai_klaar_oud', 'melding', 's', 'g', 'klaar', 1788507851411 - 120000, 1788507851411 - 120000),
+    ('ai_klaar_nu',  'melding', 's', 'g', 'klaar', 1788507851411,          1788507851411),
+    ('ai_blijft',    'trucky',  's', 'g', 'wacht', null,        1788507851411),
+    ('ai_hangt',     'trucky',  's', 'g', 'bezig', null,        1788507851411 - 7200000)
+  on conflict (id) do nothing;`)
+
+const aiWeg = (await db.query('select public.ai_opdrachten_opruimen() as n')).rows[0].n
+check('beantwoorde en blijven hangen opdrachten worden opgeruimd', Number(aiWeg) === 2,
+  `${aiWeg} weg`)
+check('wat net beantwoord is blijft nog even staan',
+  (await db.query(`select count(*)::int as n from public.ai_opdrachten where id = 'ai_klaar_nu'`)).rows[0].n === 1)
+check('en wat nog wacht blijft staan',
+  (await db.query(`select count(*)::int as n from public.ai_opdrachten where id = 'ai_blijft'`)).rows[0].n === 1)
+
+/* ---- de instellingen ---- */
+
+const aiInst = Object.fromEntries((await db.query(
+  `select sleutel, waarde from public.instellingen
+    where sleutel in ('ai_melding','ai_trucky','ai_lokaal_model','ai_wachttijd')`))
+  .rows.map((r) => [r.sleutel, r.waarde]))
+check('allebei staan standaard op claude',
+  aiInst.ai_melding === 'claude' && aiInst.ai_trucky === 'claude', JSON.stringify(aiInst))
+check('en er staat een model en een wachttijd klaar',
+  !!aiInst.ai_lokaal_model && Number(aiInst.ai_wachttijd) > 0, JSON.stringify(aiInst))
+
 
 await db.close()
 

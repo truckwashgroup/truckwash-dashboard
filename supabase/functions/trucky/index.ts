@@ -21,6 +21,9 @@
  * pakket erbij is bovendien wachttijd bij elke koude start.
  */
 
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
+import { lokaleInstelling, vraagLokaal } from '../_gedeeld/lokaal.ts'
+
 const ANTHROPIC_KEY = Deno.env.get('ANTHROPIC_API_KEY') ?? ''
 const RESEND_KEY = Deno.env.get('RESEND_API_KEY') ?? ''
 
@@ -376,6 +379,34 @@ async function magAntwoorden(req: Request): Promise<{ id: string; naam: string }
 
 interface Beurt { role: 'user' | 'assistant'; content: string }
 
+/* ------------------------------------------------------------------ *
+ *  De markeringen eruit
+ *
+ *  Het model mag [[contact]] en [[pagina:/ergens]] in zijn antwoord zetten;
+ *  de site maakt daar een knop van. Die tekens horen niet in de zin te
+ *  blijven staan.
+ *
+ *  Staat hier als eigen functie omdat er sinds 0051 twee modellen kunnen
+ *  antwoorden -- Claude en het model op de eigen machine -- en het knippen
+ *  voor allebei hetzelfde hoort te zijn. Eén kopie is één gedrag.
+ * ------------------------------------------------------------------ */
+
+function knipMarkeringen(ruw: string): { tekst: string; contact: boolean; pagina: string | null } {
+  let contact = false
+  let pagina: string | null = null
+
+  let tekst = String(ruw ?? '')
+    .replace(/\[\[contact\]\]/gi, () => { contact = true; return '' })
+    .trim()
+
+  tekst = tekst.replace(/\[\[pagina:\s*(\/[a-z0-9\-/]*)\s*\]\]/gi, (_m, p: string) => {
+    pagina = p
+    return ''
+  }).trim()
+
+  return { tekst, contact, pagina }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   if (req.method !== 'POST') return json({ ok: false, reden: 'Alleen POST.' }, 405)
@@ -689,6 +720,88 @@ Deno.serve(async (req) => {
 
     /* --- en anders het model, mét die lijst als naslag --- */
 
+    const stelsel = opdracht(await vestigingen(), treffers)
+
+    /*
+     * Eerst de eigen machine, als dat zo is ingesteld (0051).
+     *
+     * Let op waar die machine staat: NIET bij de bezoeker. Die praat gewoon
+     * met deze functie en merkt er niets van; het model draait op één plek --
+     * nu de pc op kantoor, straks de eigen server. Er wordt nooit iets
+     * gevraagd van het apparaat van de chauffeur die staat te wachten.
+     *
+     * Dat wachten is hier wel het punt. Bij een melding in de app mag het
+     * drie tellen duren; hier staat iemand op een parkeerplaats naar zijn
+     * telefoon te kijken. Vandaar dat lokaal-terugval de verstandige stand
+     * is: komt er niet op tijd antwoord, dan neemt Claude het over en merkt
+     * de bezoeker alleen dat het even duurde.
+     *
+     * De tellers blijven op nul bij een lokaal antwoord, en dat klopt: er
+     * ging geen betaald token overheen. Dat de vraag is gesteld telt wel mee,
+     * want dat is de rem op het aantal vragen per gesprek.
+     */
+    const beheer = SERVICE_KEY
+      ? createClient(SUPABASE_URL, SERVICE_KEY, {
+          auth: { persistSession: false, autoRefreshToken: false },
+        })
+      : null
+
+    if (beheer) {
+      const inst = await lokaleInstelling(beheer, 'ai_trucky')
+      if (inst.keuze !== 'claude') {
+        const verloop = [...eerdere, { role: 'user' as const, content: vraag }]
+          .map((b) => `${b.role === 'user' ? 'Bezoeker' : 'Trucky'}: ${b.content}`)
+          .join('\n\n')
+
+        const eigen = await vraagLokaal(beheer, {
+          soort: 'trucky',
+          systeem: stelsel,
+          gebruiker: verloop,
+          model: inst.model,
+          wachtMs: inst.wachtMs,
+        })
+
+        if (eigen.tekst) {
+          const gesneden = knipMarkeringen(eigen.tekst)
+          try {
+            await db('trucky_gesprekken?on_conflict=id', {
+              method: 'POST',
+              headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+              body: JSON.stringify({
+                id: gesprek,
+                aantal_vragen: alGesteld + 1,
+                invoer_tokens: tot.invoer_tokens,
+                uitvoer_tokens: tot.uitvoer_tokens,
+                laatst_at: Date.now(),
+                updated_at: Date.now(),
+              }),
+            })
+          } catch (e) {
+            console.error('[trucky] tellen (lokaal)', e)
+          }
+
+          return json({
+            ok: true,
+            antwoord: gesneden.tekst || 'Daar weet ik zo even geen antwoord op. Bel gerust ' +
+              '088 - 0600 100.',
+            pagina: gesneden.pagina,
+            contact: gesneden.contact,
+            resterend: Math.max(0, MAX_VRAGEN_PER_GESPREK - (alGesteld + 1)),
+          })
+        }
+
+        if (inst.keuze === 'lokaal') {
+          console.warn('[trucky] eigen AI gaf niets en terugval staat uit: ' + eigen.reden)
+          return json({
+            ok: false,
+            reden: 'Ik kan er even niet bij. Probeer het zo nog eens, of bel ' +
+              '088 - 0600 100.',
+          }, 502)
+        }
+        console.warn('[trucky] eigen AI gaf niets, Claude neemt over: ' + eigen.reden)
+      }
+    }
+
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -718,7 +831,7 @@ Deno.serve(async (req) => {
          */
         system: [{
           type: 'text',
-          text: opdracht(await vestigingen(), treffers),
+          text: stelsel,
           cache_control: { type: 'ephemeral' },
         }],
         messages: [...eerdere, { role: 'user', content: vraag }],
@@ -747,14 +860,10 @@ Deno.serve(async (req) => {
       .filter((b) => b.type === 'text').map((b) => b.text ?? '').join('').trim()
 
     /* De markeringen eruit knippen; de site maakt er knoppen van. */
-    let contact = false
-    tekst = tekst.replace(/\[\[contact\]\]/gi, () => { contact = true; return '' }).trim()
-
-    let pagina: string | null = null
-    tekst = tekst.replace(/\[\[pagina:\s*(\/[a-z0-9\-/]*)\s*\]\]/gi, (_m, p: string) => {
-      pagina = p
-      return ''
-    }).trim()
+    const gesneden = knipMarkeringen(tekst)
+    tekst = gesneden.tekst
+    const contact = gesneden.contact
+    const pagina = gesneden.pagina
 
     /* Gelezen uit de cache telt ook mee -- het is goedkoper, niet gratis. */
     const inTok = (uit.usage?.input_tokens ?? 0)

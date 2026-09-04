@@ -18,10 +18,18 @@
  * =========================================================================== */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
+import { lokaleInstelling, vraagLokaal } from '../_gedeeld/lokaal.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
 const ANTHROPIC_KEY = Deno.env.get('ANTHROPIC_API_KEY') ?? ''
+/*
+ * Voor het postvak naar de eigen AI (0051). Deze functie schrijft verder
+ * niets met de servicesleutel -- alleen een opdracht neerleggen en het
+ * antwoord ophalen. Het opslaan van de melding zelf blijft langs de gewone
+ * weg gaan, met de gewone beveiligingsregels.
+ */
+const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 
 const MODEL = 'claude-sonnet-5'
 
@@ -126,7 +134,47 @@ Antwoord met alleen JSON:
  *  Anthropic
  * ------------------------------------------------------------------ */
 
+/**
+ * Nadenken over deze melding.
+ *
+ * Sinds 0051 kan dat ook op de eigen pc. Wat er gebeurt hangt af van de
+ * instelling ai_melding:
+ *
+ *   claude            zoals altijd
+ *   lokaal            alleen de eigen pc; is die er niet, dan geen antwoord
+ *   lokaal-terugval   eerst de eigen pc, en anders alsnog Claude
+ *
+ * De uitkomst is in alle gevallen hetzelfde: het JSON-object dat de app
+ * verwacht, of null. Welk model het deed staat in het logboek, niet in het
+ * antwoord -- daar heeft de melder niets aan.
+ */
 async function denk(systeem: string, gebruiker: string): Promise<unknown | null> {
+  if (SERVICE_KEY) {
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    })
+    const inst = await lokaleInstelling(admin, 'ai_melding')
+
+    if (inst.keuze !== 'claude') {
+      const uit = await vraagLokaal(admin, {
+        soort: 'melding',
+        systeem,
+        gebruiker,
+        model: inst.model,
+        wachtMs: inst.wachtMs,
+      })
+      if (uit.tekst) return leesJson(uit.tekst)
+
+      if (inst.keuze === 'lokaal') {
+        console.warn('[melding-gesprek] eigen AI gaf niets en terugval staat uit: ' + uit.reden)
+        return null
+      }
+      console.warn('[melding-gesprek] eigen AI gaf niets, Claude neemt over: ' + uit.reden)
+    }
+  }
+
+  if (!ANTHROPIC_KEY) return null
+
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {

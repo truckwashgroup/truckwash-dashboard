@@ -534,6 +534,136 @@ async function mislukt(body: Willekeurig) {
  *  Het verzoek
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ *  De eigen AI: opdrachten ophalen en beantwoorden (0051)
+ *
+ *  Niet alleen facturen. Sinds 0051 kunnen ook het gesprek bij een melding en
+ *  de chatbot op de website door het model op de eigen machine beantwoord
+ *  worden. Die twee zijn anders dan een factuur: er zit iemand te wachten.
+ *
+ *  Vandaar de lange lijn. De machine vraagt om werk en deze functie houdt dat
+ *  verzoek open tot er iets is -- hoogstens LANGE_LIJN_MS. Zo is de
+ *  vertraging een fractie van een seconde in plaats van de tijd tot de
+ *  volgende ronde, en zijn het toch maar een paar verzoeken per minuut in
+ *  plaats van een paar per seconde.
+ *
+ *  Belangrijk voor later: dit is één machine, niet de computer van de
+ *  bezoeker. Een chauffeur die op de website een vraag stelt praat met de
+ *  functie trucky; wat daarachter gebeurt gaat buiten hem om. Straks staat
+ *  het model op de eigen server en verandert er aan deze kant niets -- het
+ *  programma in lezer/ draait dan daar in plaats van op de pc op kantoor.
+ * ------------------------------------------------------------------ */
+
+/** Hoe lang een verzoek om AI-werk open blijft staan als er niets is. */
+const LANGE_LIJN_MS = 25_000
+
+/** Hoe vaak er in die tijd gekeken wordt of er werk is. */
+const LIJN_KIJK_MS = 400
+
+/** Een opdracht die te lang op 'bezig' staat is blijven hangen. */
+const AI_VASTGELOPEN_NA = 3 * 60_000
+
+const rust = (ms: number) => new Promise((klaar) => setTimeout(klaar, ms))
+
+async function aiWerk(body: Willekeurig): Promise<Response> {
+  /*
+   * Bij elke ronde even opruimen. Geen aparte wekker nodig: er komt hier toch
+   * elke halve minuut iemand langs, en gebeurt dat niet, dan draait er ook
+   * niets dat rijen achterlaat.
+   */
+  try { await admin.rpc('ai_opdrachten_opruimen') } catch { /* niet belangrijk */ }
+
+  const grens = Date.now() - AI_VASTGELOPEN_NA
+  const tot = Date.now() + LANGE_LIJN_MS
+
+  for (;;) {
+    const { data, error } = await admin
+      .from('ai_opdrachten')
+      .select('id, soort, systeem, gebruiker, model, schema, status, geclaimd_at')
+      .or(`status.eq.wacht,and(status.eq.bezig,geclaimd_at.lt.${grens})`)
+      .order('created_at', { ascending: true })
+      .limit(1)
+
+    if (error) {
+      /* Tabel bestaat niet: 0051 is nog niet gedraaid. Eerlijk zeggen. */
+      return json({ ok: false, reden: 'Geen postvak voor AI-opdrachten: ' + error.message }, 500)
+    }
+
+    const rij = (data ?? [])[0]
+    if (rij) {
+      /*
+       * Opeisen met de status erin. Draaien er twee machines, dan wint er
+       * precies één -- de ander raakt nul rijen en zoekt verder.
+       */
+      const { data: mijn } = await admin
+        .from('ai_opdrachten')
+        .update({ status: 'bezig', geclaimd_at: Date.now(), updated_at: Date.now() })
+        .eq('id', rij.id)
+        .eq('status', rij.status)
+        .select('id')
+
+      if ((mijn ?? []).length > 0) {
+        return json({
+          ok: true,
+          opdracht: {
+            id: rij.id,
+            soort: rij.soort,
+            systeem: rij.systeem,
+            gebruiker: rij.gebruiker,
+            model: rij.model,
+            schema: rij.schema ?? null,
+          },
+        })
+      }
+      continue
+    }
+
+    if (Date.now() >= tot) return json({ ok: true, opdracht: null })
+    await rust(LIJN_KIJK_MS)
+  }
+}
+
+async function aiKlaar(body: Willekeurig): Promise<Response> {
+  const id = String(body.id ?? '')
+  if (!id) return json({ ok: false, reden: 'Geen opdracht opgegeven.' }, 400)
+
+  const antwoord = typeof body.antwoord === 'string' ? body.antwoord : null
+  const fout = typeof body.fout === 'string' ? body.fout.slice(0, 500) : null
+  const model = typeof body.model === 'string' ? body.model.slice(0, 120) : null
+
+  if (!antwoord && !fout) {
+    return json({ ok: false, reden: 'Geen antwoord en geen reden.' }, 400)
+  }
+
+  const { data, error } = await admin
+    .from('ai_opdrachten')
+    .update({
+      status: antwoord ? 'klaar' : 'mislukt',
+      antwoord,
+      fout,
+      gebruikt_model: model,
+      klaar_at: Date.now(),
+      updated_at: Date.now(),
+    })
+    .eq('id', id)
+    .eq('status', 'bezig')
+    .select('id')
+
+  if (error) return json({ ok: false, reden: error.message }, 500)
+
+  /*
+   * Nul rijen betekent dat de functie die zat te wachten het al had opgegeven
+   * en de opdracht is opgeruimd, of dat een andere machine hem overnam. Geen
+   * fout: het antwoord is alleen te laat. Dat zeggen we, zodat het in het
+   * logboek van de machine staat en niet als stilte verdwijnt.
+   */
+  if ((data ?? []).length === 0) {
+    return json({ ok: true, teLaat: true })
+  }
+
+  return json({ ok: true })
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (req.method !== 'POST') return json({ ok: false, reden: 'Alleen POST.' }, 405)
@@ -564,7 +694,12 @@ Deno.serve(async (req) => {
     if (actie === 'klaar') return await klaar(body)
     if (actie === 'terugval') return await terugval(body)
     if (actie === 'mislukt') return await mislukt(body)
-    return json({ ok: false, reden: `Onbekende actie "${actie}". Ken: werk, klaar, terugval, mislukt.` }, 400)
+    if (actie === 'ai-werk') return await aiWerk(body)
+    if (actie === 'ai-klaar') return await aiKlaar(body)
+    return json({
+      ok: false,
+      reden: `Onbekende actie "${actie}". Ken: werk, klaar, terugval, mislukt, ai-werk, ai-klaar.`,
+    }, 400)
   } catch (e) {
     console.error(`[lezer] ${actie}: ` + String(e))
     return json({ ok: false, reden: 'Er ging iets mis op de server; kijk in de log van de functie lezer.' }, 500)

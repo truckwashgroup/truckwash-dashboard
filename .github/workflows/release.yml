@@ -166,8 +166,26 @@ jobs:
   # ------------------------------------------------------------------
   #  Android-APK
   # ------------------------------------------------------------------
+  # De APK gaat er PAS bij als de Windows-baan klaar is, en dat is geen
+  # netheid maar een fix.
+  #
+  # Allebei de banen hingen aan check en liepen dus tegelijk. Wie het eerst
+  # klaar was, maakte de release aan -- en de ander liep stuk op
+  # "Validation Failed: Release already_exists (tag_name)". Dat gebeurde bij
+  # v0.19.1: de APK was in 2.5 minuut klaar, ruim voor de Windows-build, en
+  # bleef daardoor buiten de release hangen terwijl de installer er wel in
+  # kwam. Een halve release dus, en niemand die het merkt behalve wie de APK
+  # zoekt.
+  #
+  # Het ging jarenlang goed omdat de APK meestal langzamer was dan de
+  # Windows-build. Dat is timing, geen afspraak.
+  #
+  # Nu maakt de Windows-baan de release en hangt android er alleen nog iets
+  # aan. Dat kost wachttijd, maar de Windows-build is toch de trage van de
+  # twee, en een release die half aankomt is duurder dan een die vijf minuten
+  # later compleet is.
   android:
-    needs: check
+    needs: [check, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

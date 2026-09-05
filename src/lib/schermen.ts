@@ -1,7 +1,8 @@
 import {
-  AlertTriangle, Briefcase, Bug, CalendarDays, CalendarRange, ClipboardList,
-  FolderLock, GraduationCap, Inbox, LayoutDashboard, LayoutGrid, Mail,
-  MessageSquare, Package, PackageCheck, Radio, Receipt, ScrollText, Server, Settings, Timer, Truck, Users, Wrench,
+  AlertTriangle, Briefcase, Bug, CalendarDays, CalendarRange, ClipboardList, FolderLock,
+  GraduationCap, Inbox, LayoutDashboard, LayoutGrid, Mail, MessageSquare, Package,
+  PackageCheck, Radio, Receipt, ScrollText, Server, Settings, ShieldAlert,
+  Timer, Truck, Users, Wrench,
 } from 'lucide-react'
 import { ROLE_ORDER, type Permission, type Role } from './types'
 
@@ -97,6 +98,7 @@ export const DASHBOARDS_MET: Record<string, Role[]> = {
   // Alleen bij ontwikkeling
   tickets:      ['developer'],
   logboek:      ['developer'],
+  beveiliging:  ['developer'],
   meekijken:    ['developer'],
   systeem:      ['developer'],
   inkoop:       ['developer'],
@@ -198,6 +200,7 @@ export const SCHERMEN: Scherm[] = [
   { page: 'overleg',    label: 'Overleg',      hint: 'Kanalen en gesprekken',           icon: MessageSquare,   recht: 'chat.use', ook: ['chat', 'berichten', 'kanaal'] },
   { page: 'tickets',    label: 'Meldingen',    hint: 'Wat gebruikers tegenkomen',       icon: Bug,             recht: 'dev.tickets' },
   { page: 'logboek',    label: 'Logboek',      hint: 'Fouten en waarschuwingen',        icon: ScrollText,      recht: 'dev.logs', ook: ['errors', 'fouten'] },
+  { page: 'beveiliging', label: 'Beveiliging', hint: 'Wat er is weggehaald en welke apparaten opvallen', icon: ShieldAlert, recht: 'dev.logs', ook: ['security', 'verwijderd', 'audit', 'verdacht'] },
   { page: 'meekijken',  label: 'Meekijken',    hint: 'Alles wat er nu gebeurt',         icon: Radio,           recht: 'dev.logs', ook: ['live', 'monitor'] },
   { page: 'post',       label: 'Post',         hint: 'Wat er via Resend is verstuurd',  icon: Mail,            recht: 'dev.logs', ook: ['mail', 'email', 'resend'] },
   { page: 'systeem',    label: 'Systeem',      hint: 'Versies, verbinding en opslag',   icon: Server,          recht: 'dev.logs' },

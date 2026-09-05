@@ -4,6 +4,7 @@ import {
   ArrowLeft, Bug, Check, Code2, Copy, Inbox, ListChecks, Lock, Mail,
   MessageSquare, Radio, ScrollText, Search, Send, Server, Trash2,
   Cpu, TriangleAlert, Wallet, Wand2,
+  ShieldAlert,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db, alleMensen } from '../../lib/db'
@@ -13,7 +14,7 @@ import {
 } from '../../lib/tickets'
 import {
   PLAN_STATUS, TICKET_KINDS,
-  type DevPlan, type LogEvent, type Ticket, type TicketMessage,
+  type DevPlan, type LogEvent, type PosDevice, type Ticket, type TicketMessage,
   type TicketPriority, type TicketStatus, type TrailEntry, type User,
 } from '../../lib/types'
 import { dateTime, duration, relative } from '../../lib/format'
@@ -26,6 +27,7 @@ import { activeBackend } from '../../lib/api'
 import { toast } from '../../store/useToasts'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
 import Post from './Post'
+import Beveiliging from './Beveiliging'
 import Meekijken from './Meekijken'
 import Postbus from '../../components/Postbus'
 import Plannen from './Plannen'
@@ -36,6 +38,7 @@ import { gesprekUit, planVan, plannen as plannenRepo } from '../../lib/devplan'
 const TITLES: Record<string, { title: string; subtitle: string }> = {
   tickets: { title: 'Meldingen', subtitle: 'Wat gebruikers tegenkomen' },
   logboek: { title: 'Logboek', subtitle: 'Fouten en waarschuwingen uit de app' },
+  beveiliging: { title: 'Beveiliging', subtitle: 'Wat er is weggehaald, en welke apparaten opvallen' },
   systeem: { title: 'Systeem', subtitle: 'Versies, verbinding en opslag' },
   post: { title: 'Post', subtitle: 'Wat de app via Resend heeft verstuurd' },
   meekijken: { title: 'Meekijken', subtitle: 'Alles wat er nu gebeurt, op volgorde' },
@@ -57,6 +60,16 @@ export default function DeveloperDashboard() {
   const alleP = useLiveQuery(() => db.devPlans.toArray(), [], [] as DevPlan[])
   const teBeslissen = alleP.filter((p) => p.status === 'ter beoordeling').length
   const fouten = logs.filter((l) => l.level === 'fout')
+  /*
+   * Hetzelfde criterium als in het beveiligingsscherm zelf: ingetrokken zonder
+   * afmelding, geblokkeerd, of dagen stil. Staat het cijfer hier, dan hoeft
+   * niemand het scherm te openen om te weten dat er iets is.
+   */
+  const apparaten = useLiveQuery(() => db.posDevices.toArray(), [], [] as PosDevice[])
+  const vlaggen = apparaten.filter((a) =>
+    (a.status === 'ingetrokken' && !a.wipedAt)
+    || a.status === 'geblokkeerd'
+    || (a.lastSeenAt ? Date.now() - a.lastSeenAt > 3 * 86_400_000 : false)).length
   const ongelezen = useOverlegTeller()
 
   const items: NavItem[] = [
@@ -67,6 +80,10 @@ export default function DeveloperDashboard() {
       : []),
     ...(perms.can('dev.logs')
       ? [{ key: 'logboek', label: 'Logboek', icon: ScrollText, badge: fouten.length || undefined }]
+      : []),
+    ...(perms.can('dev.logs')
+      ? [{ key: 'beveiliging', label: 'Beveiliging', icon: ShieldAlert,
+           badge: vlaggen || undefined }]
       : []),
     ...(perms.can('dev.logs')
       ? [{ key: 'meekijken', label: 'Meekijken', icon: Radio }]
@@ -102,6 +119,7 @@ export default function DeveloperDashboard() {
       {page === 'plannen' && <Plannen />}
       {page === 'logboek' && <Logboek logs={logs} />}
       {page === 'systeem' && <Systeem tickets={alleTickets} logs={logs} />}
+      {page === 'beveiliging' && <Beveiliging />}
       {page === 'meekijken' && <Meekijken />}
       {page === 'inkoop' && <Inkoop />}
       {page === 'eigenai' && <EigenAI />}
